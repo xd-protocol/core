@@ -8,49 +8,84 @@ library DynamicSparseMerkleTreeLib {
         bytes32 root; // Current root of the Merkle tree
     }
 
-    uint256 constant MAX_TREE_HEIGHT = 256; // Maximum height of the Merkle tree
+    uint256 constant MAX_TREE_HEIGHT = 160; // Maximum height of the Merkle tree
 
+    error DuplicateKey();
     error InvalidTreeHeight();
     error InvalidLengths();
     error InvalidProof();
 
     /**
-     * @notice Reconstructs the Merkle tree root from the given keys and values.
-     * @param keys An array of keys for the nodes.
-     * @param values An array of values corresponding to the keys.
-     * @return The reconstructed root of the tree.
-     * @dev Computes the root by iteratively hashing pairs of nodes until a single root remains.
-     *      This is typically used for external verification or validation scenarios.
-     *      Complexity is O(n log n), where `n` is the number of keys.
+     * @notice Computes the Merkle tree root in memory, simulating a `mapping` with two parallel arrays.
+     *         Avoids `sstore` usage by working entirely in memory.
+     * @param height The height of the Merkle tree (must be > 0 and <= 160).
+     * @param keys An array of keys  for the leaf nodes.
+     * @param values An array of `bytes32` values representing the hashes for the leaf nodes.
+     * @return The computed root of the Merkle tree.
      */
-    function getRoot(bytes32[] memory keys, bytes32[] memory values) internal pure returns (bytes32) {
+    function getRoot(uint256 height, bytes32[] memory keys, bytes32[] memory values) internal pure returns (bytes32) {
+        if (height == 0 || height > MAX_TREE_HEIGHT) revert InvalidTreeHeight();
         if (keys.length != values.length) revert InvalidLengths();
 
-        uint256 treeSize = keys.length;
-        bytes32[] memory hashes = new bytes32[](treeSize);
+        // Simulate a memory mapping with two arrays
+        uint256[] memory activeIndices = new uint256[](keys.length); // Keys array
+        bytes32[] memory activeHashes = new bytes32[](keys.length); // Values array
 
-        // Step 1: Compute leaf node hashes
-        for (uint256 i; i < treeSize; i++) {
-            hashes[i] = keccak256(abi.encodePacked(keys[i], values[i]));
+        uint256 activeCount;
+
+        // Populate the "memory mapping" for the leaf nodes
+        for (uint256 i; i < keys.length; ++i) {
+            uint256 index = uint256(keys[i]) % (1 << height);
+            for (uint256 j; j < activeCount; ++j) {
+                if (activeIndices[j] == index) revert DuplicateKey();
+            }
+            activeIndices[activeCount] = index;
+            activeHashes[activeCount] = keccak256(abi.encodePacked(keys[i], values[i]));
+            ++activeCount;
         }
 
-        // Step 2: Reconstruct the tree level by level
-        while (treeSize > 1) {
-            uint256 nextTreeSize = (treeSize + 1) / 2; // Calculate the size of the next level
-            for (uint256 i; i < nextTreeSize; i++) {
-                if (2 * i + 1 < treeSize) {
-                    // Pair two nodes to create a parent hash
-                    hashes[i] = keccak256(abi.encodePacked(hashes[2 * i], hashes[2 * i + 1]));
-                } else {
-                    // If there's an odd node, it propagates to the next level
-                    hashes[i] = hashes[2 * i];
+        // Compute the tree root in memory
+        for (uint256 level = height; level > 0; --level) {
+            uint256 nextLevelCount;
+
+            for (uint256 i; i < activeCount; ++i) {
+                uint256 index = activeIndices[i];
+                uint256 parentIndex = index / 2;
+                bytes32 left = activeHashes[i];
+                bytes32 right;
+
+                // Find the sibling hash if it exists
+                for (uint256 j; j < activeCount; ++j) {
+                    if (activeIndices[j] == (index ^ 1)) {
+                        right = activeHashes[j];
+                        break;
+                    }
+                }
+
+                // Merge the hashes
+                bytes32 parentHash = keccak256(abi.encodePacked(left, right));
+
+                // Store parent data (remove duplicates)
+                bool alreadyExists;
+                for (uint256 k; k < nextLevelCount; ++k) {
+                    if (activeIndices[k] == parentIndex) {
+                        alreadyExists = true;
+                        break;
+                    }
+                }
+                if (!alreadyExists) {
+                    activeIndices[nextLevelCount] = parentIndex;
+                    activeHashes[nextLevelCount] = parentHash;
+                    ++nextLevelCount;
                 }
             }
-            treeSize = nextTreeSize;
+
+            // Reduce active nodes to the next level
+            activeCount = nextLevelCount;
         }
 
-        // Step 3: Return the final root
-        return hashes[0];
+        // Return the root
+        return activeHashes[0];
     }
 
     /**
@@ -183,7 +218,7 @@ library DynamicSparseMerkleTreeLib {
         bytes32[] memory tempProof = new bytes32[](self.height);
         uint256 actualDepth;
 
-        for (uint256 depth = 0; depth < self.height; depth++) {
+        for (uint256 depth; depth < self.height; depth++) {
             uint256 siblingIndex = currentIndex ^ 1;
             tempProof[depth] =
                 self.nodes[siblingIndex] == 0 ? defaultHash(depth, self.height) : self.nodes[siblingIndex];
@@ -193,7 +228,7 @@ library DynamicSparseMerkleTreeLib {
 
         // Resize the proof array
         proof = new bytes32[](actualDepth);
-        for (uint256 i = 0; i < actualDepth; i++) {
+        for (uint256 i; i < actualDepth; i++) {
             proof[i] = tempProof[i];
         }
 

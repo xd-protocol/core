@@ -39,12 +39,14 @@ contract Synchronizer is SynchronizerRemote, OAppRead {
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
     event RequestSync(address indexed caller);
-    event ReceiveRoot(uint32 indexed eid, bytes32 indexed root, uint256 timestamp);
+    event ReceiveRoot(uint32 indexed eid, bytes32 indexed liquidityRoot, bytes32 indexed dataRoot, uint256 timestamp);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
+    error InvalidAddress();
+    error DuplicateTargetEid();
     error InvalidCmd();
 
     /*//////////////////////////////////////////////////////////////
@@ -78,13 +80,15 @@ contract Synchronizer is SynchronizerRemote, OAppRead {
         (uint16 appCmdLabel, EVMCallRequestV1[] memory requests,) = ReadCodecV1.decode(_cmd);
         if (appCmdLabel == CMD_SYNC) {
             uint32[] memory eids = new uint32[](requests.length);
-            bytes32[] memory roots = new bytes32[](requests.length);
+            bytes32[] memory liquidityRoots = new bytes32[](requests.length);
+            bytes32[] memory dataRoots = new bytes32[](requests.length);
             uint256[] memory timestamps = new uint256[](requests.length);
             for (uint256 i; i < eids.length; ++i) {
                 eids[i] = requests[i].targetEid;
-                (roots[i], timestamps[i]) = abi.decode(_responses[i], (bytes32, uint256));
+                (liquidityRoots[i], dataRoots[i], timestamps[i]) =
+                    abi.decode(_responses[i], (bytes32, bytes32, uint256));
             }
-            return abi.encode(eids, roots, timestamps);
+            return abi.encode(eids, liquidityRoots, dataRoots, timestamps);
         } else {
             revert InvalidCmd();
         }
@@ -121,7 +125,7 @@ contract Synchronizer is SynchronizerRemote, OAppRead {
                 blockNumOrTimestamp: timestamp + chainConfig.readDelay,
                 confirmations: chainConfig.confirmations,
                 to: chainConfig.to,
-                callData: abi.encodeWithSelector(SynchronizerLocal.getMainTreeRoot.selector)
+                callData: abi.encodeWithSelector(SynchronizerLocal.getTopTreeRoots.selector)
             });
         }
 
@@ -156,6 +160,14 @@ contract Synchronizer is SynchronizerRemote, OAppRead {
      * @param configs An array of new `ChainConfig` objects defining the target chains.
      */
     function configChains(ChainConfig[] memory configs) external onlyOwner {
+        for (uint256 i; i < configs.length; i++) {
+            if (configs[i].to == address(0)) revert InvalidAddress();
+
+            for (uint256 j = i + 1; j < configs.length; j++) {
+                if (configs[i].targetEid == configs[j].targetEid) revert DuplicateTargetEid();
+            }
+        }
+
         _chainConfigs = configs;
     }
 
@@ -169,6 +181,8 @@ contract Synchronizer is SynchronizerRemote, OAppRead {
      *         Includes the `guid` and `block` parameters for tracking.
      */
     function sync(uint128 gasLimit, uint32 calldataSize) external payable returns (MessagingReceipt memory fee) {
+        // TODO: check for redundant sync requests
+
         bytes memory cmd = getCmd();
         bytes memory options = OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0);
         fee = _lzSend(READ_CHANNEL, cmd, options, MessagingFee(msg.value, 0), payable(msg.sender));
@@ -188,14 +202,18 @@ contract Synchronizer is SynchronizerRemote, OAppRead {
         address, /* _executor */
         bytes calldata /* _extraData */
     ) internal virtual override {
-        (uint32[] memory eids, bytes32[] memory roots, uint256[] memory timestamps) =
-            abi.decode(_message, (uint32[], bytes32[], uint256[]));
+        (uint32[] memory eids, bytes32[] memory liquidityRoots, bytes32[] memory dataRoots, uint256[] memory timestamps)
+        = abi.decode(_message, (uint32[], bytes32[], bytes32[], uint256[]));
         for (uint256 i; i < eids.length; ++i) {
-            (uint32 eid, bytes32 root, uint256 timestamp) = (eids[i], roots[i], timestamps[i]);
-            roots[eid] = root;
+            (uint32 eid, bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp) =
+                (eids[i], liquidityRoots[i], dataRoots[i], timestamps[i]);
+            if (timestamp <= lastRootTimestamp[eid]) continue;
+
+            liquidityRoots[eid] = liquidityRoot;
+            dataRoots[eid] = dataRoot;
             lastRootTimestamp[eid] = timestamp;
 
-            emit ReceiveRoot(eid, root, timestamp);
+            emit ReceiveRoot(eid, liquidityRoot, dataRoot, timestamp);
         }
     }
 }

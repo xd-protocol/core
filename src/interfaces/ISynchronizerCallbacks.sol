@@ -2,7 +2,9 @@
 pragma solidity ^0.8.0;
 
 interface ISynchronizerCallbacks {
-    function onUpdateValue(uint32 eid, bytes32 tag, int256 value) external;
+    function onUpdateLiquidity(uint32 eid, address account, int256 liquidity) external;
 
-    function onUpdateSum(uint32 eid, int256 sum) external;
+    function onUpdateTotalLiquidity(uint32 eid, int256 totalLiquidity) external;
+
+    function onUpdateData(uint32 eid, bytes32 key, bytes memory value) external;
 }
