@@ -20,6 +20,7 @@ library MerkleTreeLib {
     //////////////////////////////////////////////////////////////*/
 
     error InvalidLengths();
+    error IndexOutOfBounds();
 
     /*//////////////////////////////////////////////////////////////
                             VIEW FUNCTIONS
@@ -96,6 +97,73 @@ library MerkleTreeLib {
         }
 
         return nodes[0];
+    }
+
+    /**
+     * @notice Generates a Merkle proof for a given node (key and value) in the tree.
+     * @param keys An array of keys.
+     * @param values An array of values corresponding to the keys.
+     * @param index The index of the key-value pair to generate the proof for.
+     * @return proof An array of sibling hashes representing the Merkle proof.
+     */
+    function getProof(bytes32[] memory keys, bytes32[] memory values, uint256 index)
+        internal
+        pure
+        returns (bytes32[] memory proof)
+    {
+        if (keys.length != values.length) revert InvalidLengths();
+        if (index >= keys.length) revert IndexOutOfBounds();
+
+        // Compute leaf nodes
+        bytes32[] memory nodes = new bytes32[](keys.length);
+        for (uint256 i; i < keys.length; ++i) {
+            nodes[i] = keccak256(abi.encodePacked(keys[i], values[i]));
+        }
+
+        // Prepare to collect the proof
+        uint256 size = nodes.length;
+        uint256 proofIndex = 0;
+        proof = new bytes32[](_computeProofLength(size));
+
+        // Traverse up the tree, collecting sibling hashes
+        while (size > 1) {
+            uint256 parentSize = (size + 1) / 2;
+            bytes32[] memory parentNodes = new bytes32[](parentSize);
+
+            for (uint256 i; i < size; i += 2) {
+                if (i + 1 < size) {
+                    parentNodes[i / 2] = keccak256(abi.encodePacked(nodes[i], nodes[i + 1]));
+                } else {
+                    parentNodes[i / 2] = keccak256(abi.encodePacked(nodes[i], EMPTY_NODE));
+                }
+
+                // Collect the sibling hash if it matches the current index
+                if (i == index || (i + 1 == index)) {
+                    proof[proofIndex] = i == index ? (i + 1 < size ? nodes[i + 1] : EMPTY_NODE) : nodes[i];
+                    proofIndex++;
+                    index = i / 2; // Update index to the parent's position
+                }
+            }
+
+            nodes = parentNodes;
+            size = parentSize;
+        }
+
+        return proof;
+    }
+
+    /**
+     * @notice Computes the maximum length of a proof for a tree of a given size.
+     * @param size The number of leaf nodes in the tree.
+     * @return The maximum length of a proof for the tree.
+     */
+    function _computeProofLength(uint256 size) private pure returns (uint256) {
+        uint256 length = 0;
+        while (size > 1) {
+            size = (size + 1) / 2;
+            length++;
+        }
+        return length;
     }
 
     /*//////////////////////////////////////////////////////////////
