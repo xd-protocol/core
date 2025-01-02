@@ -2,8 +2,10 @@
 pragma solidity ^0.8.28;
 
 import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
+import { AddressLib } from "../libraries/AddressLib.sol";
 import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
 import { SnapshotsLib } from "../libraries/SnapshotsLib.sol";
+import { ISynchronizer } from "../interfaces/ISynchronizer.sol";
 
 /**
  * @title SynchronizerLocal
@@ -80,7 +82,8 @@ import { SnapshotsLib } from "../libraries/SnapshotsLib.sol";
  *    - Allows querying of the current roots of the main liquidity and data trees.
  *    - Enables synchronization across chains or with off-chain systems.
  */
-abstract contract SynchronizerLocal is ReentrancyGuard {
+abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
+    using AddressLib for address;
     using MerkleTreeLib for MerkleTreeLib.Tree;
     using SnapshotsLib for SnapshotsLib.Snapshots;
 
@@ -93,7 +96,7 @@ abstract contract SynchronizerLocal is ReentrancyGuard {
         bool syncContracts;
         mapping(uint32 eid => mapping(address remote => address local)) accountsRemoteToLocal;
         SnapshotsLib.Snapshots totalLiquidity;
-        mapping(address account => SnapshotsLib.Snapshots) liquidities;
+        mapping(address account => SnapshotsLib.Snapshots) liquidity;
         MerkleTreeLib.Tree liquidityTree;
         mapping(bytes32 key => SnapshotsLib.Snapshots) dataHashes;
         MerkleTreeLib.Tree dataTree;
@@ -108,16 +111,13 @@ abstract contract SynchronizerLocal is ReentrancyGuard {
     mapping(address app => AppState) internal _appStates;
     MerkleTreeLib.Tree internal _mainLiquidityTree;
     MerkleTreeLib.Tree internal _mainDataTree;
-    mapping(uint256 timestamp => bytes32) internal _mainLiquidityRoots;
-    mapping(uint256 timestamp => bytes32) internal _mainDataRoots;
-    uint256[] internal _updateTimestamps;
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
     event RegisterApp(address indexed app);
-    event UpdateLiquidity(
+    event UpdateLocalLiquidity(
         address indexed app,
         uint256 appIndex,
         address indexed account,
@@ -125,7 +125,7 @@ abstract contract SynchronizerLocal is ReentrancyGuard {
         uint256 treeIndex,
         uint256 indexed timestamp
     );
-    event UpdateData(
+    event UpdateLocalData(
         address indexed app,
         uint256 appIndex,
         bytes32 indexed key,
@@ -215,7 +215,7 @@ abstract contract SynchronizerLocal is ReentrancyGuard {
      * @return liquidity The liquidity of the specified account.
      */
     function getLocalLiquidity(address app, address account) public view returns (int256 liquidity) {
-        return _appStates[app].liquidities[account].getLastAsInt();
+        return _appStates[app].liquidity[account].getLastAsInt();
     }
 
     /**
@@ -230,7 +230,7 @@ abstract contract SynchronizerLocal is ReentrancyGuard {
         view
         returns (int256 liquidity)
     {
-        return _appStates[app].liquidities[account].getAsInt(timestamp);
+        return _appStates[app].liquidity[account].getAsInt(timestamp);
     }
 
     /**
@@ -261,41 +261,8 @@ abstract contract SynchronizerLocal is ReentrancyGuard {
      * @return dataRoot The root of the main data tree.
      * @return timestamp The current block timestamp.
      */
-    function getFinalizedMainRoots() public view returns (bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp) {
-        if (_updateTimestamps.length == 0) {
-            return (bytes32(0), bytes32(0), 0);
-        }
-        for (uint256 i; i < 2; ++i) {
-            uint256 ts = _updateTimestamps[_updateTimestamps.length - i - 1];
-            if (ts < block.timestamp) {
-                return (_mainLiquidityRoots[ts], _mainDataRoots[ts], ts);
-            }
-        }
-        return (bytes32(0), bytes32(0), 0);
-    }
-
-    /**
-     * @notice Retrieves the roots of the main liquidity and data trees on current chain at timestamp.
-     * @dev This will be called by lzRead from remote chains.
-     * @return liquidityRoot The root of the main liquidity tree.
-     * @return dataRoot The root of the main data tree.
-     * @return timestamp The current block timestamp.
-     */
-    function getMainRootsAt(uint256 ts)
-        public
-        view
-        returns (bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp)
-    {
-        return (_mainLiquidityRoots[ts], _mainDataRoots[ts], ts);
-    }
-
-    /**
-     * @notice Utility function to check if an address is a contract.
-     * @param account The address to check.
-     * @return True if the address is a contract, false otherwise.
-     */
-    function _isContract(address account) internal view returns (bool) {
-        return account.code.length > 0;
+    function getMainRoots() public view returns (bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp) {
+        return (_mainLiquidityTree.root, _mainDataTree.root, block.timestamp);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -311,7 +278,7 @@ abstract contract SynchronizerLocal is ReentrancyGuard {
      * - App must not already be registered.
      */
     function registerApp(bool syncContracts) external {
-        if (!_isContract(msg.sender)) revert NotContract();
+        if (!msg.sender.isContract()) revert NotContract();
 
         AppState storage state = _appStates[msg.sender];
         if (state.registered) revert AlreadyRegistered();
@@ -337,53 +304,39 @@ abstract contract SynchronizerLocal is ReentrancyGuard {
     }
 
     /**
-     * @notice Updates the liquidity for a specific account and propagates the changes to the main tree.
+     * @notice Updates local liquidity for a specific account and propagates the changes to the main tree.
      * @param account The account whose liquidity is being updated.
      * @param liquidity The new liquidity value for the account.
      */
-    function updateLiquidity(address account, int256 liquidity) external onlyApp(msg.sender) {
-        _finalizeRoots();
+    function updateLocalLiquidity(address account, int256 liquidity) external onlyApp(msg.sender) {
+        address app = msg.sender;
+        AppState storage state = _appStates[app];
 
-        AppState storage state = _appStates[msg.sender];
-
-        int256 prevLiquidity = state.liquidities[account].getLastAsInt();
+        int256 prevLiquidity = state.liquidity[account].getLastAsInt();
         // optimization
         if (liquidity != prevLiquidity) {
-            state.liquidities[account].appendAsInt(liquidity);
+            state.liquidity[account].appendAsInt(liquidity);
             int256 prevTotalLiquidity = state.totalLiquidity.getLastAsInt();
             state.totalLiquidity.appendAsInt(prevTotalLiquidity + liquidity - prevLiquidity);
 
             uint256 treeIndex =
                 state.liquidityTree.update(bytes32(uint256(uint160(account))), bytes32(uint256(liquidity)));
-            uint256 appIndex =
-                _mainLiquidityTree.update(bytes32(uint256(uint160(msg.sender))), state.liquidityTree.root);
+            uint256 appIndex = _mainLiquidityTree.update(bytes32(uint256(uint160(app))), state.liquidityTree.root);
 
-            emit UpdateLiquidity(msg.sender, appIndex, account, liquidity, treeIndex, block.timestamp);
+            emit UpdateLocalLiquidity(app, appIndex, account, liquidity, treeIndex, block.timestamp);
         }
     }
 
     /**
-     * @notice Finalizes roots of the main liquidity and data trees on current chain and retrieves the them.
-     * @dev This will be called by lzRead from remote chains.
-     * @return liquidityRoot The root of the main liquidity tree.
-     * @return dataRoot The root of the main data tree.
-     * @return timestamp The current block timestamp.
-     */
-    function finalizeAndGetMainRoots() external returns (bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp) {
-        return getMainRootsAt(_finalizeRoots());
-    }
-
-    /**
-     * @notice Updates the data for a specific key in an app's data tree and propagates the changes to the main tree.
+     * @notice Updates local data for a specific key in an app's data tree and propagates the changes to the main tree.
      * @param key The key whose associated data is being updated.
      * @param value The new value to associate with the key.
      */
-    function updateData(bytes32 key, bytes memory value) external onlyApp(msg.sender) {
+    function updateLocalData(bytes32 key, bytes memory value) external onlyApp(msg.sender) {
         if (value.length > MAX_DATA_SIZE) revert DataTooLarge();
 
-        _finalizeRoots();
-
-        AppState storage state = _appStates[msg.sender];
+        address app = msg.sender;
+        AppState storage state = _appStates[app];
 
         bytes32 hash = keccak256(value);
         bytes32 prevHash = state.dataHashes[key].getLast();
@@ -392,26 +345,9 @@ abstract contract SynchronizerLocal is ReentrancyGuard {
             state.dataHashes[key].append(hash);
 
             uint256 treeIndex = state.dataTree.update(key, hash);
-            uint256 appIndex = _mainDataTree.update(bytes32(uint256(uint160(msg.sender))), state.dataTree.root);
+            uint256 appIndex = _mainDataTree.update(bytes32(uint256(uint160(app))), state.dataTree.root);
 
-            emit UpdateData(msg.sender, appIndex, key, value, hash, treeIndex, block.timestamp);
+            emit UpdateLocalData(app, appIndex, key, value, hash, treeIndex, block.timestamp);
         }
-    }
-
-    function _finalizeRoots() internal returns (uint256 finalizedTimestamp) {
-        if (_updateTimestamps.length == 0) {
-            _updateTimestamps.push(block.timestamp);
-            return 0;
-        }
-
-        uint256 lastTimestamp = _updateTimestamps[_updateTimestamps.length - 1];
-        if (lastTimestamp < block.timestamp) {
-            _updateTimestamps.push(block.timestamp);
-            _mainLiquidityRoots[lastTimestamp] = _mainLiquidityTree.root;
-            _mainDataRoots[lastTimestamp] = _mainDataTree.root;
-            return lastTimestamp;
-        }
-
-        return _updateTimestamps.length > 1 ? _updateTimestamps[_updateTimestamps.length - 2] : 0;
     }
 }

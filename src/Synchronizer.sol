@@ -17,6 +17,7 @@ import {
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { SynchronizerLocal } from "./mixins/SynchronizerLocal.sol";
 import { SynchronizerRemoteBatched } from "./mixins/SynchronizerRemoteBatched.sol";
+import { SnapshotsLib } from "./libraries/SnapshotsLib.sol";
 
 /**
  * @title Synchronizer
@@ -27,13 +28,7 @@ import { SynchronizerRemoteBatched } from "./mixins/SynchronizerRemoteBatched.so
  */
 contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
     using OptionsBuilder for bytes;
-
-    struct ChainConfig {
-        uint32 targetEid;
-        uint64 readDelay;
-        uint16 confirmations;
-        address to;
-    }
+    using SnapshotsLib for SnapshotsLib.Snapshots;
 
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
@@ -43,24 +38,24 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
     uint16 public constant UPDATE_REMOTE_ACCOUNTS = 1;
 
     ChainConfig[] internal _chainConfigs;
-    mapping(uint32 eid => mapping(address local => address remote)) appsLocalToRemote;
+    mapping(uint32 eid => mapping(address local => address remote)) internal _appsLocalToRemote;
 
-    uint256 lastSyncRequestTimestamp;
+    uint256 internal _lastSyncRequestTimestamp;
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
-    event RequestSync(address indexed caller);
+    event Sync(address indexed caller);
     event RequestUpdateRemoteAccounts(
         uint32 indexed eid, address indexed app, address indexed remoteApp, address[] locals, address[] remotes
     );
     event UpdateRemoteApp(uint32 indexed eid, address remoteApp, address indexed app);
-    event AccountAlreadyMapped(uint32 indexed eid, address indexed app, address remote, address indexed local);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
+    error RemoteAppNotFound(uint32 eid, address app);
     error InvalidAddress();
     error DuplicateTargetEid();
     error InvalidCmd();
@@ -72,9 +67,7 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
                              CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address _endpoint, address _owner) OAppRead(_endpoint, _owner) Ownable(_owner) {
-        // Empty
-    }
+    constructor(address _endpoint, address _owner) OAppRead(_endpoint, _owner) Ownable(_owner) { }
 
     /*//////////////////////////////////////////////////////////////
                              VIEW FUNCTIONS
@@ -86,7 +79,6 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
 
     /**
      * @notice Processes the responses from LayerZero's read protocol, aggregating results based on the command label.
-     * @dev Currently only supports CMD_SYNC for syncing chain roots.
      * @param _cmd The encoded command specifying the request details.
      * @param _responses An array of responses corresponding to each read request.
      * @return The aggregated result, such as synced chain roots and timestamps.
@@ -103,7 +95,7 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
                 (liquidityRoots[i], dataRoots[i], timestamps[i]) =
                     abi.decode(_responses[i], (bytes32, bytes32, uint256));
             }
-            return abi.encode(eids, liquidityRoots, dataRoots, timestamps);
+            return abi.encode(CMD_SYNC, eids, liquidityRoots, dataRoots, timestamps);
         } else {
             revert InvalidCmd();
         }
@@ -111,28 +103,36 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
 
     /**
      * @notice Quotes the messaging fee for sending a read request with specific gas and calldata size.
-     * @param gas The amount of gas to allocate for the executor.
+     * @param gasLimit The amount of gas to allocate for the executor.
      * @param calldataSize The size of the calldata in bytes.
      * @return fee The estimated messaging fee for the request.
      */
-    function quoteRequestSync(uint128 gas, uint32 calldataSize) public view returns (MessagingFee memory fee) {
+    function quoteSync(uint128 gasLimit, uint32 calldataSize) public view returns (MessagingFee memory fee) {
         return _quote(
-            READ_CHANNEL, getCmd(), OptionsBuilder.newOptions().addExecutorLzReadOption(gas, calldataSize, 0), false
+            READ_CHANNEL,
+            getCmd(),
+            OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0),
+            false
         );
     }
 
+    /**
+     * @notice Quotes the messaging fee for sending a write request with specific gas and calldata size.
+     * @param gasLimit The amount of gas to allocate for the executor.
+     * @return fee The estimated messaging fee for the request.
+     */
     function quoteRequestUpdateRemoteAccounts(
         uint32 eid,
         address app,
         address remoteApp,
         address[] memory locals,
         address[] memory remotes,
-        uint128 gas
+        uint128 gasLimit
     ) public view returns (MessagingFee memory fee) {
         return _quote(
             eid,
             abi.encode(UPDATE_REMOTE_ACCOUNTS, app, remoteApp, locals, remotes),
-            OptionsBuilder.newOptions().addExecutorLzReceiveOption(gas, 0),
+            OptionsBuilder.newOptions().addExecutorLzReceiveOption(gasLimit, 0),
             false
         );
     }
@@ -153,10 +153,10 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
                 appRequestLabel: uint16(i + 1),
                 targetEid: chainConfig.targetEid,
                 isBlockNum: false,
-                blockNumOrTimestamp: timestamp + chainConfig.readDelay,
+                blockNumOrTimestamp: timestamp,
                 confirmations: chainConfig.confirmations,
                 to: chainConfig.to,
-                callData: abi.encodeWithSelector(SynchronizerLocal.finalizeAndGetMainRoots.selector)
+                callData: abi.encodeWithSelector(SynchronizerLocal.getMainRoots.selector)
             });
         }
 
@@ -181,10 +181,6 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
     function eidAt(uint256 index) public view override returns (uint32) {
         return _chainConfigs[index].targetEid;
     }
-
-    /*//////////////////////////////////////////////////////////////
-                                LOGIC
-    //////////////////////////////////////////////////////////////*/
 
     /**
      * @notice Updates the configuration for target chains used in LayerZero read requests.
@@ -213,7 +209,7 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
      * - The caller must be the local application.
      */
     function updateRemoteApp(uint32 eid, address remoteApp) external onlyApp(msg.sender) {
-        appsLocalToRemote[eid][msg.sender] = remoteApp;
+        _appsLocalToRemote[eid][msg.sender] = remoteApp;
 
         emit UpdateRemoteApp(eid, remoteApp, msg.sender);
     }
@@ -227,19 +223,15 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
      * @return fee The messaging receipt from LayerZero, confirming the request details.
      *         Includes the `guid` and `block` parameters for tracking.
      */
-    function requestSync(uint128 gasLimit, uint32 calldataSize)
-        external
-        payable
-        returns (MessagingReceipt memory fee)
-    {
-        if (block.timestamp <= lastSyncRequestTimestamp) revert AlreadyRequested();
-        lastSyncRequestTimestamp = block.timestamp;
+    function sync(uint128 gasLimit, uint32 calldataSize) external payable returns (MessagingReceipt memory fee) {
+        if (block.timestamp <= _lastSyncRequestTimestamp) revert AlreadyRequested();
+        _lastSyncRequestTimestamp = block.timestamp;
 
         bytes memory cmd = getCmd();
         bytes memory options = OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0);
         fee = _lzSend(READ_CHANNEL, cmd, options, MessagingFee(msg.value, 0), payable(msg.sender));
 
-        emit RequestSync(msg.sender);
+        emit Sync(msg.sender);
     }
 
     function requestUpdateRemoteAccounts(
@@ -282,37 +274,32 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
         bytes calldata /* _extraData */
     ) internal virtual override {
         if (_origin.srcEid == READ_CHANNEL) {
-            _lzReceiveRead(_message);
-        } else {
-            _lzReceiveMessage(_origin, _message);
-        }
-    }
-
-    function _lzReceiveRead(bytes memory _message) internal {
-        (uint32[] memory eids, bytes32[] memory liquidityRoots, bytes32[] memory dataRoots, uint256[] memory timestamps)
-        = abi.decode(_message, (uint32[], bytes32[], bytes32[], uint256[]));
-        for (uint256 i; i < eids.length; ++i) {
-            _onReceiveRoots(eids[i], liquidityRoots[i], dataRoots[i], timestamps[i]);
-        }
-    }
-
-    function _lzReceiveMessage(Origin memory _origin, bytes memory _message) internal {
-        if (_message.length < 2) revert InvalidMessage();
-
-        uint16 msgType = abi.decode(_message, (uint16));
-        if (msgType == UPDATE_REMOTE_ACCOUNTS) {
-            uint32 eid = _origin.srcEid;
-            (, address remoteApp, address app, address[] memory remotes, address[] memory locals) =
-                abi.decode(_message, (uint16, address, address, address[], address[]));
-            if (appsLocalToRemote[eid][app] != remoteApp) revert Forbidden();
-
-            AppState storage state = _appStates[app];
-            for (uint256 i; i < remotes.length; ++i) {
-                (address remote, address local) = (remotes[i], locals[i]);
-                state.accountsRemoteToLocal[eid][remote] = local;
+            (
+                ,
+                uint32[] memory eids,
+                bytes32[] memory liquidityRoots,
+                bytes32[] memory dataRoots,
+                uint256[] memory timestamps
+            ) = abi.decode(_message, (uint16, uint32[], bytes32[], bytes32[], uint256[]));
+            for (uint256 i; i < eids.length; ++i) {
+                _onReceiveRoots(eids[i], liquidityRoots[i], dataRoots[i], timestamps[i]);
             }
         } else {
-            revert InvalidMsgType();
+            uint16 msgType = abi.decode(_message, (uint16));
+            if (msgType == UPDATE_REMOTE_ACCOUNTS) {
+                uint32 eid = _origin.srcEid;
+                (, address remoteApp, address app, address[] memory remotes, address[] memory locals) =
+                    abi.decode(_message, (uint16, address, address, address[], address[]));
+                if (_appsLocalToRemote[eid][app] != remoteApp) revert Forbidden();
+
+                AppState storage state = _appStates[app];
+                for (uint256 i; i < remotes.length; ++i) {
+                    (address remote, address local) = (remotes[i], locals[i]);
+                    state.accountsRemoteToLocal[eid][remote] = local;
+                }
+            } else {
+                revert InvalidMsgType();
+            }
         }
     }
 }

@@ -3,6 +3,11 @@ pragma solidity ^0.8.28;
 
 import { ERC20, SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 
+/**
+ * @title BaseERC20
+ * @notice An abstract ERC20 contract providing foundational functionality and storage.
+ *         It integrates EIP-2612 for permit-based approvals and interacts with an underlying ERC20 token.
+ */
 abstract contract BaseERC20 {
     using SafeTransferLib for ERC20;
 
@@ -23,9 +28,6 @@ abstract contract BaseERC20 {
                               ERC20 STORAGE
     //////////////////////////////////////////////////////////////*/
 
-    int256 internal _totalSupply;
-    mapping(address account => int256) internal _localBalances;
-    mapping(address account => int256) internal _syncedBalances;
     mapping(address account => mapping(address => uint256)) public allowance;
 
     /*//////////////////////////////////////////////////////////////
@@ -44,24 +46,29 @@ abstract contract BaseERC20 {
     event Transfer(address indexed from, address indexed to, uint256 amount);
     event Approval(address indexed owner, address indexed spender, uint256 amount);
 
-    error InsufficientBalance();
+    /*//////////////////////////////////////////////////////////////
+                                 ERRORS
+    //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Ensures that the caller has a sufficient synced balance to perform the operation.
-     * @dev This modifier checks that the sender's synced balance is non-negative and greater than or equal to the specified amount.
-     *      If the conditions are not met, it reverts with `InsufficientBalance`.
-     * @param amount The required amount of tokens for the operation.
-     */
-    modifier hasSufficientSyncedBalance(uint256 amount) {
-        int256 syncedBalance = _syncedBalances[msg.sender];
-        if (syncedBalance < 0 || uint256(syncedBalance) < amount) revert InsufficientBalance();
-        _;
-    }
+    error InsufficientBalance();
+    error PermitDeadlineExpired();
+    error InvalidSigner();
+
+    /*//////////////////////////////////////////////////////////////
+                             MODIFIERS
+    //////////////////////////////////////////////////////////////*/
 
     /*//////////////////////////////////////////////////////////////
                                CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
+    /**
+     * @notice Initializes the ERC20 token with metadata and EIP-712 domain separators.
+     * @param _underlying The address of the underlying ERC20 token.
+     * @param _name The name of the token.
+     * @param _symbol The symbol of the token.
+     * @param _decimals The number of decimals the token uses.
+     */
     constructor(address _underlying, string memory _name, string memory _symbol, uint8 _decimals) {
         underlying = _underlying;
         name = _name;
@@ -78,38 +85,21 @@ abstract contract BaseERC20 {
 
     /**
      * @notice Returns the total supply of the token across all chains.
-     * @dev The total supply is stored as an `int256` to account for potential negative adjustments during cross-chain synchronization.
-     *      If the total supply is negative, the function returns `0` instead of an unsigned integer.
      * @return The total supply of the token as a `uint256`.
      */
-    function totalSupply() public view returns (uint256) {
-        int256 totalSupply_ = _totalSupply;
-        return totalSupply_ < 0 ? 0 : uint256(totalSupply_);
-    }
-
+    function totalSupply() public view virtual returns (uint256);
     /**
      * @notice Returns the synced balance of a specific account across all chains.
-     * @dev The synced balance is stored as an `int256` to handle adjustments from cross-chain operations.
-     *      If the balance is negative, the function returns `0` instead of an unsigned integer.
      * @param account The address of the account to query.
      * @return The synced balance of the account as a `uint256`.
      */
-    function balanceOf(address account) public view returns (uint256) {
-        int256 syncedBalance = _syncedBalances[account];
-        return syncedBalance < 0 ? 0 : uint256(syncedBalance);
-    }
-
+    function balanceOf(address account) public view virtual returns (uint256);
     /**
      * @notice Returns the local balance of a specific account on the current chain.
-     * @dev The local balance is stored as an `int256` to handle adjustments from synchronization operations.
-     *      If the balance is negative, the function returns `0` instead of an unsigned integer.
      * @param account The address of the account to query.
      * @return The local balance of the account on this chain as a `uint256`.
      */
-    function localBalanceOf(address account) public view returns (uint256) {
-        int256 localBalance = _localBalances[account];
-        return localBalance < 0 ? 0 : uint256(localBalance);
-    }
+    function localBalanceOf(address account) public view virtual returns (uint256);
 
     /*//////////////////////////////////////////////////////////////
                                ERC20 LOGIC
@@ -131,17 +121,12 @@ abstract contract BaseERC20 {
 
     /**
      * @notice Transfers a specified amount of tokens to another address.
-     * @dev The caller must have a sufficient local balance to perform the transfer.
-     *      Uses the `hasSufficientSyncedBalance` modifier to validate the balance.
      * @param to The recipient address.
      * @param amount The amount of tokens to transfer.
      * @return true if the transfer is successful.
      */
-    function transfer(address to, uint256 amount) public virtual hasSufficientSyncedBalance(amount) returns (bool) {
-        _localBalances[msg.sender] -= int256(amount);
-        unchecked {
-            _localBalances[to] += int256(amount);
-        }
+    function transfer(address to, uint256 amount) public virtual returns (bool) {
+        _transfer(msg.sender, to, amount);
 
         emit Transfer(msg.sender, to, amount);
 
@@ -157,62 +142,74 @@ abstract contract BaseERC20 {
      * @param amount The amount of tokens to transfer.
      * @return true if the transfer is successful.
      */
-    function transferFrom(address from, address to, uint256 amount)
-        public
-        virtual
-        hasSufficientSyncedBalance(amount)
-        returns (bool)
-    {
+    function transferFrom(address from, address to, uint256 amount) public virtual returns (bool) {
         uint256 allowed = allowance[from][msg.sender];
         if (allowed != type(uint256).max) allowance[from][msg.sender] = allowed - amount;
 
-        _localBalances[from] -= int256(amount);
-        unchecked {
-            _localBalances[to] += int256(amount);
-        }
+        _transfer(from, to, amount);
 
         emit Transfer(from, to, amount);
 
         return true;
     }
 
-    function mint(address to, uint256 amount) public virtual {
+    /**
+     * @notice Mints tokens by transferring the underlying ERC20 tokens from the caller to the contract.
+     * @param to The recipient address of the minted tokens.
+     * @param amount The amount of tokens to mint.
+     * @dev This function should be called by derived contracts with appropriate access control.
+     */
+    function _mint(address to, uint256 amount) internal virtual {
         ERC20(underlying).safeTransferFrom(msg.sender, address(this), amount);
 
-        _totalSupply += int256(amount);
-
-        // Cannot overflow because the sum of all user
-        // balances can't exceed the max uint256 value.
-        unchecked {
-            _localBalances[to] += int256(amount);
-            _syncedBalances[to] += int256(amount);
-        }
+        _transfer(address(0), to, amount);
 
         emit Transfer(address(0), to, amount);
     }
 
-    // function burn(address from, uint256 amount) public virtual hasSufficientSyncedBalance(amount) {
-    //     _localBalances[from] -= int256(amount);
-    //     _syncedBalances[from] -= int256(amount);
-    //
-    //     unchecked {
-    //         _totalSupply -= int256(amount);
-    //     }
-    //
-    //     emit Transfer(from, address(0), amount);
-    //
-    //     ERC20(underlying).safeTransferFrom(address(this), msg.sender, amount);
-    // }
+    /**
+     * @notice Burns tokens by transferring them to the zero address and returning the underlying ERC20 tokens to the specified address.
+     * @param amount The amount of tokens to burn.
+     * @param to The address to receive the underlying ERC20 tokens.
+     * @dev This function should be called by derived contracts with appropriate access control.
+     */
+    function _burn(uint256 amount, address to) internal virtual {
+        _transfer(msg.sender, address(0), amount);
+
+        emit Transfer(msg.sender, address(0), amount);
+
+        ERC20(underlying).safeTransfer(to, amount);
+    }
+
+    /**
+     * @notice Transfers tokens from one address to another.
+     * @dev This is an abstract function and must be implemented by derived contracts.
+     *      It should handle the actual balance updates.
+     * @param from The address from which tokens will be transferred.
+     * @param to The recipient address.
+     * @param amount The amount of tokens to transfer.
+     */
+    function _transfer(address from, address to, uint256 amount) internal virtual;
 
     /*//////////////////////////////////////////////////////////////
                              EIP-2612 LOGIC
     //////////////////////////////////////////////////////////////*/
 
+    /**
+     * @notice Permits `spender` to spend `value` tokens on behalf of `owner` via EIP-2612 signature.
+     * @param owner The address granting the allowance.
+     * @param spender The address being granted the allowance.
+     * @param value The maximum amount of tokens the spender is allowed to transfer.
+     * @param deadline The timestamp by which the permit must be used.
+     * @param v The recovery byte of the signature.
+     * @param r Half of the ECDSA signature pair.
+     * @param s Half of the ECDSA signature pair.
+     */
     function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
         public
         virtual
     {
-        require(deadline >= block.timestamp, "PERMIT_DEADLINE_EXPIRED");
+        if (deadline < block.timestamp) revert PermitDeadlineExpired();
 
         // Unchecked because the only math done is incrementing
         // the owner's nonce which cannot realistically overflow.
@@ -241,7 +238,7 @@ abstract contract BaseERC20 {
                 s
             );
 
-            require(recoveredAddress != address(0) && recoveredAddress == owner, "INVALID_SIGNER");
+            if (recoveredAddress == address(0) || recoveredAddress != owner) revert InvalidSigner();
 
             allowance[recoveredAddress][spender] = value;
         }

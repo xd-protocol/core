@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { AddressLib } from "../libraries/AddressLib.sol";
 import { ArrayLib } from "../libraries/ArrayLib.sol";
 import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
 import { SnapshotsLib } from "../libraries/SnapshotsLib.sol";
@@ -49,6 +50,7 @@ import { ISynchronizerCallbacks } from "../interfaces/ISynchronizerCallbacks.sol
  *    - Enables accurate cross-chain state aggregation.
  */
 abstract contract SynchronizerRemote is SynchronizerLocal {
+    using AddressLib for address;
     using SnapshotsLib for SnapshotsLib.Snapshots;
 
     /*//////////////////////////////////////////////////////////////
@@ -575,7 +577,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         for (uint256 i; i < params.accounts.length; i++) {
             (address account, int256 liquidity) = (params.accounts[i], params.liquidity[i]);
             account = getLocalAccount(params.eid, params.app, account);
-            if (_isContract(account) && !syncContracts) continue;
+            if (account.isContract() && !syncContracts) continue;
 
             SnapshotsLib.Snapshots storage snapshots = state.liquidity[params.eid][account];
             int256 accLiquidity = snapshots.getAsInt(params.timestamp) + liquidity;
