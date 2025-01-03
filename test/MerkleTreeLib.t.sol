@@ -13,6 +13,11 @@ contract MerkleTreeLibTest is Test {
         tree.initialize();
     }
 
+    function test_initialize() public view {
+        assertEq(tree.root, bytes32(0));
+        assertEq(tree.size, 0);
+    }
+
     function test_update(uint256 seed) public {
         bytes32 random = keccak256(abi.encodePacked(seed));
         for (uint256 i; i < 1000; ++i) {

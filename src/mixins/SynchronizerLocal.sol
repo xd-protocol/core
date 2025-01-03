@@ -255,6 +255,24 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
     }
 
     /**
+     * @notice Retrieves the Merkle root of the liquidity tree for a specific application.
+     * @param app The address of the application whose liquidity root is being queried.
+     * @return The current Merkle root of the application's liquidity tree.
+     */
+    function getLocalLiquidityRoot(address app) public view returns (bytes32) {
+        return _appStates[app].liquidityTree.root;
+    }
+
+    /**
+     * @notice Retrieves the Merkle root of the data tree for a specific application.
+     * @param app The address of the application whose data root is being queried.
+     * @return The current Merkle root of the application's data tree.
+     */
+    function getLocalDataRoot(address app) public view returns (bytes32) {
+        return _appStates[app].dataTree.root;
+    }
+
+    /**
      * @notice Retrieves the roots of the main liquidity and data trees on current chain.
      * @dev This will be called by lzRead from remote chains.
      * @return liquidityRoot The root of the main liquidity tree.
@@ -262,7 +280,23 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
      * @return timestamp The current block timestamp.
      */
     function getMainRoots() public view returns (bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp) {
-        return (_mainLiquidityTree.root, _mainDataTree.root, block.timestamp);
+        return (getMainLiquidityRoot(), getMainDataRoot(), block.timestamp);
+    }
+
+    /**
+     * @notice Retrieves the Merkle root of the main liquidity tree on the current chain.
+     * @return The current Merkle root of the main liquidity tree.
+     */
+    function getMainLiquidityRoot() public view returns (bytes32) {
+        return _mainLiquidityTree.root;
+    }
+
+    /**
+     * @notice Retrieves the Merkle root of the main data tree on the current chain.
+     * @return The current Merkle root of the main data tree.
+     */
+    function getMainDataRoot() public view returns (bytes32) {
+        return _mainDataTree.root;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -312,19 +346,18 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
         address app = msg.sender;
         AppState storage state = _appStates[app];
 
+        uint256 treeIndex = state.liquidityTree.update(bytes32(uint256(uint160(account))), bytes32(uint256(liquidity)));
+        uint256 appIndex = _mainLiquidityTree.update(bytes32(uint256(uint160(app))), state.liquidityTree.root);
+
         int256 prevLiquidity = state.liquidity[account].getLastAsInt();
         // optimization
         if (liquidity != prevLiquidity) {
             state.liquidity[account].appendAsInt(liquidity);
             int256 prevTotalLiquidity = state.totalLiquidity.getLastAsInt();
             state.totalLiquidity.appendAsInt(prevTotalLiquidity + liquidity - prevLiquidity);
-
-            uint256 treeIndex =
-                state.liquidityTree.update(bytes32(uint256(uint160(account))), bytes32(uint256(liquidity)));
-            uint256 appIndex = _mainLiquidityTree.update(bytes32(uint256(uint160(app))), state.liquidityTree.root);
-
-            emit UpdateLocalLiquidity(app, appIndex, account, liquidity, treeIndex, block.timestamp);
         }
+
+        emit UpdateLocalLiquidity(app, appIndex, account, liquidity, treeIndex, block.timestamp);
     }
 
     /**
@@ -339,15 +372,15 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
         AppState storage state = _appStates[app];
 
         bytes32 hash = keccak256(value);
+        uint256 treeIndex = state.dataTree.update(key, hash);
+        uint256 appIndex = _mainDataTree.update(bytes32(uint256(uint160(app))), state.dataTree.root);
+
         bytes32 prevHash = state.dataHashes[key].getLast();
         // optimization
         if (hash != prevHash) {
             state.dataHashes[key].append(hash);
-
-            uint256 treeIndex = state.dataTree.update(key, hash);
-            uint256 appIndex = _mainDataTree.update(bytes32(uint256(uint160(app))), state.dataTree.root);
-
-            emit UpdateLocalData(app, appIndex, key, value, hash, treeIndex, block.timestamp);
         }
+
+        emit UpdateLocalData(app, appIndex, key, value, hash, treeIndex, block.timestamp);
     }
 }
