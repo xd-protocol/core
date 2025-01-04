@@ -119,19 +119,19 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
     event RegisterApp(address indexed app);
     event UpdateLocalLiquidity(
         address indexed app,
-        uint256 appIndex,
+        uint256 mainTreeIndex,
         address indexed account,
         int256 liquidity,
-        uint256 treeIndex,
+        uint256 appTreeIndex,
         uint256 indexed timestamp
     );
     event UpdateLocalData(
         address indexed app,
-        uint256 appIndex,
+        uint256 mainTreeIndex,
         bytes32 indexed key,
         bytes value,
         bytes32 hash,
-        uint256 treeIndex,
+        uint256 appTreeIndex,
         uint256 indexed timestamp
     );
 
@@ -341,13 +341,19 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
      * @notice Updates local liquidity for a specific account and propagates the changes to the main tree.
      * @param account The account whose liquidity is being updated.
      * @param liquidity The new liquidity value for the account.
+     * @return mainTreeIndex the index of app in the main tree.
+     * @return appTreeIndex the index of account in the app tree.
      */
-    function updateLocalLiquidity(address account, int256 liquidity) external onlyApp(msg.sender) {
+    function updateLocalLiquidity(address account, int256 liquidity)
+        external
+        onlyApp(msg.sender)
+        returns (uint256 mainTreeIndex, uint256 appTreeIndex)
+    {
         address app = msg.sender;
         AppState storage state = _appStates[app];
 
-        uint256 treeIndex = state.liquidityTree.update(bytes32(uint256(uint160(account))), bytes32(uint256(liquidity)));
-        uint256 appIndex = _mainLiquidityTree.update(bytes32(uint256(uint160(app))), state.liquidityTree.root);
+        appTreeIndex = state.liquidityTree.update(bytes32(uint256(uint160(account))), bytes32(uint256(liquidity)));
+        mainTreeIndex = _mainLiquidityTree.update(bytes32(uint256(uint160(app))), state.liquidityTree.root);
 
         int256 prevLiquidity = state.liquidity[account].getLastAsInt();
         // optimization
@@ -357,23 +363,29 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
             state.totalLiquidity.appendAsInt(prevTotalLiquidity + liquidity - prevLiquidity);
         }
 
-        emit UpdateLocalLiquidity(app, appIndex, account, liquidity, treeIndex, block.timestamp);
+        emit UpdateLocalLiquidity(app, mainTreeIndex, account, liquidity, appTreeIndex, block.timestamp);
     }
 
     /**
      * @notice Updates local data for a specific key in an app's data tree and propagates the changes to the main tree.
      * @param key The key whose associated data is being updated.
      * @param value The new value to associate with the key.
+     * @return mainTreeIndex the index of app in the main tree.
+     * @return appTreeIndex the index of account in the app tree.
      */
-    function updateLocalData(bytes32 key, bytes memory value) external onlyApp(msg.sender) {
+    function updateLocalData(bytes32 key, bytes memory value)
+        external
+        onlyApp(msg.sender)
+        returns (uint256 mainTreeIndex, uint256 appTreeIndex)
+    {
         if (value.length > MAX_DATA_SIZE) revert DataTooLarge();
 
         address app = msg.sender;
         AppState storage state = _appStates[app];
 
         bytes32 hash = keccak256(value);
-        uint256 treeIndex = state.dataTree.update(key, hash);
-        uint256 appIndex = _mainDataTree.update(bytes32(uint256(uint160(app))), state.dataTree.root);
+        appTreeIndex = state.dataTree.update(key, hash);
+        mainTreeIndex = _mainDataTree.update(bytes32(uint256(uint160(app))), state.dataTree.root);
 
         bytes32 prevHash = state.dataHashes[key].getLast();
         // optimization
@@ -381,6 +393,6 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
             state.dataHashes[key].append(hash);
         }
 
-        emit UpdateLocalData(app, appIndex, key, value, hash, treeIndex, block.timestamp);
+        emit UpdateLocalData(app, mainTreeIndex, key, value, hash, appTreeIndex, block.timestamp);
     }
 }

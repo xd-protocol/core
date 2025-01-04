@@ -29,6 +29,16 @@ interface ISynchronizer {
 
     function getLocalDataHashAt(address app, bytes32 key, uint256 timestamp) external view returns (bytes32 hash);
 
+    function getLocalLiquidityRoot(address app) external view returns (bytes32);
+
+    function getLocalDataRoot(address app) external view returns (bytes32);
+
+    function getMainRoots() external view returns (bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp);
+
+    function getMainLiquidityRoot() external view returns (bytes32);
+
+    function getMainDataRoot() external view returns (bytes32);
+
     function getSettledTotalLiquidity(address app) external view returns (int256 liquidity);
 
     function getFinalizedTotalLiquidity(address app) external view returns (int256 liquidity);
@@ -81,7 +91,11 @@ interface ISynchronizer {
 
     function updateSyncContracts(bool syncContracts) external;
 
-    function updateLocalLiquidity(address account, int256 liquidity) external;
+    function updateLocalLiquidity(address account, int256 liquidity)
+        external
+        returns (uint256 mainTreeIndex, uint256 appTreeIndex);
 
-    function updateLocalData(bytes32 key, bytes memory value) external;
+    function updateLocalData(bytes32 key, bytes memory value)
+        external
+        returns (uint256 mainTreeIndex, uint256 appTreeIndex);
 }

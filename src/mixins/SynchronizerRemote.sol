@@ -58,12 +58,13 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     //////////////////////////////////////////////////////////////*/
 
     struct RemoteState {
-        mapping(uint32 eid => SnapshotsLib.Snapshots) totalLiquidity;
-        mapping(uint32 eid => mapping(address account => SnapshotsLib.Snapshots)) liquidity;
-        mapping(uint32 eid => mapping(bytes32 key => SnapshotsLib.Snapshots)) dataHashes;
+        address app;
+        SnapshotsLib.Snapshots totalLiquidity;
+        mapping(address account => SnapshotsLib.Snapshots) liquidity;
+        mapping(bytes32 key => SnapshotsLib.Snapshots) dataHashes;
         // settlement
-        mapping(uint32 eid => mapping(uint256 timestamp => bool)) liquiditySettled;
-        mapping(uint32 eid => mapping(uint256 timestamp => bool)) dataSettled;
+        mapping(uint256 timestamp => bool) liquiditySettled;
+        mapping(uint256 timestamp => bool) dataSettled;
     }
 
     struct SettleLiquidityParams {
@@ -87,7 +88,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
-    mapping(address app => RemoteState) internal _remoteStates;
+    mapping(address app => mapping(uint32 eid => RemoteState)) internal _remoteStates;
 
     mapping(uint32 eid => uint256[]) rootTimestamps;
     mapping(uint32 eid => mapping(uint256 timestamp => bytes32)) liquidityRoots;
@@ -97,6 +98,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
+    event UpdateRemoteApp(uint32 indexed eid, address indexed app, address indexed remoteApp);
     event OnUpdateLiquidityFailure(
         uint32 indexed eid,
         uint256 indexed timestamp,
@@ -126,10 +128,11 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     //////////////////////////////////////////////////////////////*/
 
     error InvalidLengths();
+    error RemoteAppNotSet();
     error RootNotReceived();
     error LiquidityAlreadySettled();
     error DataAlreadySettled();
-    error InvalidRoot(bytes32 computed, bytes32 expected);
+    error InvalidRoot();
 
     /*//////////////////////////////////////////////////////////////
                              VIEW FUNCTIONS
@@ -140,18 +143,27 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     function eidAt(uint256) public view virtual returns (uint32);
 
     /**
+     * @notice Returns the address of the remote application for a local application.
+     * @param app The address of the application.
+     * @param eid The endpoint ID of the remote chain.
+     * @return The remote application's address.
+     */
+    function getRemoteApp(address app, uint32 eid) external view returns (address) {
+        return _remoteStates[app][eid].app;
+    }
+
+    /**
      * @notice Retrieves the aggregated total liquidity for an application across all remote and local states that are settled.
      * @param app The address of the application.
      * @return liquidity The aggregated total liquidity across all remote and local states.
      */
     function getSettledTotalLiquidity(address app) external view returns (int256 liquidity) {
         liquidity = getLocalTotalLiquidity(app);
-        RemoteState storage state = _remoteStates[app];
         for (uint256 i; i < eidsLength(); ++i) {
             uint32 eid = eidAt(i);
             (, uint256 timestamp) = getLastSettledLiquidityRoot(eid, app);
             if (timestamp == 0) continue;
-            liquidity += state.totalLiquidity[eid].getAsInt(timestamp);
+            liquidity += _remoteStates[app][eid].totalLiquidity.getAsInt(timestamp);
         }
     }
 
@@ -162,12 +174,11 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      */
     function getFinalizedTotalLiquidity(address app) external view returns (int256 liquidity) {
         liquidity = getLocalTotalLiquidity(app);
-        RemoteState storage state = _remoteStates[app];
         for (uint256 i; i < eidsLength(); ++i) {
             uint32 eid = eidAt(i);
             (, uint256 timestamp) = getLastFinalizedLiquidityRoot(eid, app);
             if (timestamp == 0) continue;
-            liquidity += state.totalLiquidity[eid].getAsInt(timestamp);
+            liquidity += _remoteStates[app][eid].totalLiquidity.getAsInt(timestamp);
         }
     }
 
@@ -182,9 +193,8 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         if (length + 1 != timestamps.length) revert InvalidLengths();
 
         liquidity = getLocalTotalLiquidityAt(app, timestamps[0]);
-        RemoteState storage state = _remoteStates[app];
         for (uint256 i; i < length; ++i) {
-            liquidity += state.totalLiquidity[eidAt(i)].getAsInt(timestamps[i + 1]);
+            liquidity += _remoteStates[app][eidAt(i)].totalLiquidity.getAsInt(timestamps[i + 1]);
         }
     }
 
@@ -196,12 +206,11 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      */
     function getSettledLiquidity(address app, address account) external view returns (int256 liquidity) {
         liquidity = getLocalLiquidity(app, account);
-        RemoteState storage state = _remoteStates[app];
         for (uint256 i; i < eidsLength(); ++i) {
             uint32 eid = eidAt(i);
             (, uint256 timestamp) = getLastSettledLiquidityRoot(eid, app);
             if (timestamp == 0) continue;
-            liquidity += state.liquidity[eid][account].getAsInt(timestamp);
+            liquidity += _remoteStates[app][eid].liquidity[account].getAsInt(timestamp);
         }
     }
 
@@ -213,12 +222,11 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      */
     function getFinalizedLiquidity(address app, address account) external view returns (int256 liquidity) {
         liquidity = getLocalLiquidity(app, account);
-        RemoteState storage state = _remoteStates[app];
         for (uint256 i; i < eidsLength(); ++i) {
             uint32 eid = eidAt(i);
             (, uint256 timestamp) = getLastFinalizedLiquidityRoot(eid, app);
             if (timestamp == 0) continue;
-            liquidity += state.liquidity[eid][account].getAsInt(timestamp);
+            liquidity += _remoteStates[app][eid].liquidity[account].getAsInt(timestamp);
         }
     }
 
@@ -238,9 +246,8 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         if (length + 1 != timestamps.length) revert InvalidLengths();
 
         liquidity = getLocalLiquidityAt(app, account, timestamps[0]);
-        RemoteState storage state = _remoteStates[app];
         for (uint256 i; i < length; ++i) {
-            liquidity += state.liquidity[eidAt(i)][account].getAsInt(timestamps[i + 1]);
+            liquidity += _remoteStates[app][eidAt(i)].liquidity[account].getAsInt(timestamps[i + 1]);
         }
     }
 
@@ -280,8 +287,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         view
         returns (int256 liquidity)
     {
-        RemoteState storage state = _remoteStates[app];
-        return state.totalLiquidity[eid].getAsInt(timestamp);
+        return _remoteStates[app][eid].totalLiquidity.getAsInt(timestamp);
     }
 
     /**
@@ -331,8 +337,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         view
         returns (int256 liquidity)
     {
-        RemoteState storage state = _remoteStates[app];
-        return state.liquidity[eid][account].getAsInt(timestamp);
+        return _remoteStates[app][eid].liquidity[account].getAsInt(timestamp);
     }
 
     /**
@@ -374,8 +379,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         view
         returns (bytes32 value)
     {
-        RemoteState storage state = _remoteStates[app];
-        return state.dataHashes[eid][key].get(timestamp);
+        return _remoteStates[app][eid].dataHashes[key].get(timestamp);
     }
 
     /**
@@ -404,10 +408,10 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         view
         returns (bytes32 root, uint256 timestamp)
     {
-        RemoteState storage state = _remoteStates[app];
+        RemoteState storage state = _remoteStates[app][eid];
         for (uint256 i = rootTimestamps[eid].length; i > 0; --i) {
             uint256 ts = rootTimestamps[eid][i - 1];
-            if (state.liquiditySettled[eid][ts]) return (liquidityRoots[eid][ts], ts);
+            if (state.liquiditySettled[ts]) return (liquidityRoots[eid][ts], ts);
         }
     }
 
@@ -423,10 +427,10 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         view
         returns (bytes32 root, uint256 timestamp)
     {
-        RemoteState storage state = _remoteStates[app];
+        RemoteState storage state = _remoteStates[app][eid];
         for (uint256 i = rootTimestamps[eid].length; i > 0; --i) {
             uint256 ts = rootTimestamps[eid][i - 1];
-            if (state.liquiditySettled[eid][ts] && state.dataSettled[eid][ts]) return (liquidityRoots[eid][ts], ts);
+            if (state.liquiditySettled[ts] && state.dataSettled[ts]) return (liquidityRoots[eid][ts], ts);
         }
     }
 
@@ -452,10 +456,10 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @return timestamp The timestamp associated with the last data root.
      */
     function getLastSettledDataRoot(uint32 eid, address app) public view returns (bytes32 root, uint256 timestamp) {
-        RemoteState storage state = _remoteStates[app];
+        RemoteState storage state = _remoteStates[app][eid];
         for (uint256 i = rootTimestamps[eid].length; i > 0; --i) {
             uint256 ts = rootTimestamps[eid][i - 1];
-            if (state.dataSettled[eid][ts]) return (dataRoots[eid][ts], ts);
+            if (state.dataSettled[ts]) return (dataRoots[eid][ts], ts);
         }
     }
 
@@ -467,10 +471,10 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @return timestamp The timestamp associated with the last data root.
      */
     function getLastFinalizedDataRoot(uint32 eid, address app) public view returns (bytes32 root, uint256 timestamp) {
-        RemoteState storage state = _remoteStates[app];
+        RemoteState storage state = _remoteStates[app][eid];
         for (uint256 i = rootTimestamps[eid].length; i > 0; --i) {
             uint256 ts = rootTimestamps[eid][i - 1];
-            if (state.liquiditySettled[eid][ts] && state.dataSettled[eid][ts]) return (dataRoots[eid][ts], ts);
+            if (state.liquiditySettled[ts] && state.dataSettled[ts]) return (dataRoots[eid][ts], ts);
         }
     }
 
@@ -479,11 +483,27 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Settles liquidity states directly without batching, verifying the proof for the sub-tree root.
+     * @notice Updates the mapping of a local application to its corresponding remote application on a specific chain.
+     * @dev This function links the caller's local application to a remote application on the specified `eid`.
+     *      Only the local application itself can invoke this function.
+     * @param eid The endpoint ID representing the remote chain.
+     * @param remoteApp The address of the remote application on the specified chain.
+     *
+     * Requirements:
+     * - The caller must be the local application.
+     */
+    function updateRemoteApp(uint32 eid, address remoteApp) external onlyApp(msg.sender) {
+        _remoteStates[msg.sender][eid].app = remoteApp;
+
+        emit UpdateRemoteApp(eid, msg.sender, remoteApp);
+    }
+
+    /**
+     * @notice Settles liquidity states directly without batching, verifying the proof for the app-tree root.
      * @param eid The endpoint ID of the remote chain.
-     * @param app The address of the application.
-     * @param appIndex the index of app in the liquidity tree on the remote chain.
-     * @param proof The proof array to verify the sub-root within the top tree.
+     * @param app The address of the application on the current chain.
+     * @param mainTreeIndex the index of app in the liquidity tree on the remote chain.
+     * @param mainTreeProof The proof array to verify the app-root within the main tree.
      * @param accounts The array of accounts to settle.
      * @param liquidity The array of liquidity values corresponding to the accounts.
      *
@@ -493,26 +513,35 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     function settleLiquidity(
         uint32 eid,
         address app,
-        uint256 appIndex,
-        bytes32[] memory proof,
+        uint256 mainTreeIndex,
+        bytes32[] memory mainTreeProof,
         address[] calldata accounts,
         int256[] calldata liquidity
     ) external nonReentrant onlyApp(app) {
         if (accounts.length != liquidity.length) revert InvalidLengths();
 
+        address remoteApp = _remoteStates[app][eid].app;
+        if (remoteApp == address(0)) revert RemoteAppNotSet();
+
         (bytes32 root, uint256 timestamp) = getLastSyncedLiquidityRoot(eid);
         _verifyRoot(
-            app, ArrayLib.convertToBytes32(accounts), ArrayLib.convertToBytes32(liquidity), appIndex, proof, root
+            remoteApp,
+            ArrayLib.convertToBytes32(accounts),
+            ArrayLib.convertToBytes32(liquidity),
+            mainTreeIndex,
+            mainTreeProof,
+            root
         );
+
         _settleLiquidity(SettleLiquidityParams(eid, app, root, timestamp, accounts, liquidity));
     }
 
     /**
-     * @notice Finalizes data states directly without batching, verifying the proof for the sub-tree root.
+     * @notice Finalizes data states directly without batching, verifying the proof for the app-tree root.
      * @param eid The endpoint ID of the remote chain.
-     * @param app The address of the application.
-     * @param appIndex the index of app in the data tree on the remote chain.
-     * @param proof The proof array to verify the sub-root within the top tree.
+     * @param app The address of the application on the current chain.
+     * @param mainTreeIndex the index of app in the data tree on the remote chain.
+     * @param mainTreeProof The proof array to verify the app-root within the main tree.
      * @param keys The array of keys to settle.
      * @param values The array of data values corresponding to the keys.
      *
@@ -522,15 +551,19 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     function settleData(
         uint32 eid,
         address app,
-        uint256 appIndex,
-        bytes32[] memory proof,
+        uint256 mainTreeIndex,
+        bytes32[] memory mainTreeProof,
         bytes32[] calldata keys,
         bytes[] calldata values
     ) external nonReentrant onlyApp(app) {
         if (keys.length != values.length) revert InvalidLengths();
 
+        address remoteApp = _remoteStates[app][eid].app;
+        if (remoteApp == address(0)) revert RemoteAppNotSet();
+
         (bytes32 root, uint256 timestamp) = getLastSyncedDataRoot(eid);
-        _verifyRoot(app, keys, ArrayLib.hashElements(values), appIndex, proof, root);
+        _verifyRoot(remoteApp, keys, ArrayLib.hashElements(values), mainTreeIndex, mainTreeProof, root);
+
         _settleData(SettleDataParams(eid, timestamp, app, root, keys, values));
     }
 
@@ -539,9 +572,9 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @param app The address of the application for which the root is being verified.
      * @param keys The array of keys representing the nodes in the application's subtree.
      * @param values The array of values corresponding to the keys in the application's subtree.
-     * @param mainIndex the index of application in the main tree on the remote chain.
-     * @param mainProof The Merkle proof connecting the application's subtree root to the main tree root.
-     * @param mainRoot The expected root of the main Merkle tree.
+     * @param mainTreeIndex the index of application in the main tree on the remote chain.
+     * @param mainTreeProof The Merkle proof connecting the application's subtree root to the main tree root.
+     * @param mainTreeRoot The expected root of the main Merkle tree.
      *
      * @dev This function:
      * - Constructs the application's subtree root using the given keys and values.
@@ -551,27 +584,29 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         address app,
         bytes32[] memory keys,
         bytes32[] memory values,
-        uint256 mainIndex,
-        bytes32[] memory mainProof,
-        bytes32 mainRoot
+        uint256 mainTreeIndex,
+        bytes32[] memory mainTreeProof,
+        bytes32 mainTreeRoot
     ) internal {
-        if (mainRoot == bytes32(0)) revert RootNotReceived();
+        if (mainTreeRoot == bytes32(0)) revert RootNotReceived();
 
-        // Construct the Merkle tree and verify mainRoot
+        // Construct the Merkle tree and verify mainTreeRoot
         bytes32 appRoot = MerkleTreeLib.computeRoot(keys, values);
-        bool valid = MerkleTreeLib.verifyProof(bytes32(uint256(uint160(app))), appRoot, mainIndex, mainProof, mainRoot);
-        if (!valid) revert InvalidRoot(appRoot, mainRoot);
+        bool valid = MerkleTreeLib.verifyProof(
+            bytes32(uint256(uint160(app))), appRoot, mainTreeIndex, mainTreeProof, mainTreeRoot
+        );
+        if (!valid) revert InvalidRoot();
 
-        emit VerifyRoot(app, mainRoot);
+        emit VerifyRoot(app, mainTreeRoot);
     }
 
     function _settleLiquidity(SettleLiquidityParams memory params) internal {
         AppState storage localState = _appStates[params.app];
         bool syncContracts = localState.syncContracts;
 
-        RemoteState storage state = _remoteStates[params.app];
-        if (state.liquiditySettled[params.eid][params.timestamp]) revert LiquidityAlreadySettled();
-        state.liquiditySettled[params.eid][params.timestamp] = true;
+        RemoteState storage state = _remoteStates[params.app][params.eid];
+        if (state.liquiditySettled[params.timestamp]) revert LiquidityAlreadySettled();
+        state.liquiditySettled[params.timestamp] = true;
 
         int256 totalLiquidity;
         for (uint256 i; i < params.accounts.length; i++) {
@@ -579,7 +614,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
             account = getLocalAccount(params.eid, params.app, account);
             if (account.isContract() && !syncContracts) continue;
 
-            SnapshotsLib.Snapshots storage snapshots = state.liquidity[params.eid][account];
+            SnapshotsLib.Snapshots storage snapshots = state.liquidity[account];
             int256 accLiquidity = snapshots.getAsInt(params.timestamp) + liquidity;
             snapshots.appendAsInt(accLiquidity, params.timestamp);
             totalLiquidity += liquidity;
@@ -592,21 +627,21 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
                 );
             }
         }
-        state.totalLiquidity[params.eid].appendAsInt(totalLiquidity, params.timestamp);
+        state.totalLiquidity.appendAsInt(totalLiquidity, params.timestamp);
 
         emit SettleLiquidity(params.eid, params.app, params.root, params.timestamp);
     }
 
     function _settleData(SettleDataParams memory params) internal {
-        RemoteState storage state = _remoteStates[params.app];
-        if (state.dataSettled[params.eid][params.timestamp]) revert DataAlreadySettled();
-        state.dataSettled[params.eid][params.timestamp] = true;
+        RemoteState storage state = _remoteStates[params.app][params.eid];
+        if (state.dataSettled[params.timestamp]) revert DataAlreadySettled();
+        state.dataSettled[params.timestamp] = true;
 
         for (uint256 i; i < params.keys.length; i++) {
             (bytes32 key, bytes memory value) = (params.keys[i], params.values[i]);
 
             bytes32 hash = keccak256(value);
-            state.dataHashes[params.eid][key].append(hash, params.timestamp);
+            state.dataHashes[key].append(hash, params.timestamp);
 
             try ISynchronizerCallbacks(params.app).onUpdateData(params.eid, params.timestamp, key, value) { }
             catch (bytes memory reason) {

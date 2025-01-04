@@ -38,7 +38,6 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
     uint16 public constant UPDATE_REMOTE_ACCOUNTS = 1;
 
     ChainConfig[] internal _chainConfigs;
-    mapping(uint32 eid => mapping(address local => address remote)) internal _appsLocalToRemote;
 
     uint256 internal _lastSyncRequestTimestamp;
 
@@ -49,7 +48,6 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
     event RequestUpdateRemoteAccounts(
         uint32 indexed eid, address indexed app, address indexed remoteApp, address[] locals, address[] remotes
     );
-    event UpdateRemoteApp(uint32 indexed eid, address remoteApp, address indexed app);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -199,22 +197,6 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
     }
 
     /**
-     * @notice Updates the mapping of a local application to its corresponding remote application on a specific chain.
-     * @dev This function links the caller's local application to a remote application on the specified `eid`.
-     *      Only the local application itself can invoke this function.
-     * @param eid The endpoint ID representing the remote chain.
-     * @param remoteApp The address of the remote application on the specified chain.
-     *
-     * Requirements:
-     * - The caller must be the local application.
-     */
-    function updateRemoteApp(uint32 eid, address remoteApp) external onlyApp(msg.sender) {
-        _appsLocalToRemote[eid][msg.sender] = remoteApp;
-
-        emit UpdateRemoteApp(eid, remoteApp, msg.sender);
-    }
-
-    /**
      * @notice Initiates a sync operation using lzRead.
      * @dev Sends a read request with specified gas and calldata size.
      *      The user must provide sufficient fees via `msg.value`.
@@ -290,7 +272,7 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
                 uint32 eid = _origin.srcEid;
                 (, address remoteApp, address app, address[] memory remotes, address[] memory locals) =
                     abi.decode(_message, (uint16, address, address, address[], address[]));
-                if (_appsLocalToRemote[eid][app] != remoteApp) revert Forbidden();
+                if (_remoteStates[app][eid].app != remoteApp) revert Forbidden();
 
                 AppState storage state = _appStates[app];
                 for (uint256 i; i < remotes.length; ++i) {

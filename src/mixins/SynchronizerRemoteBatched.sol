@@ -77,7 +77,7 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
     /**
      * @notice Creates a new batch for liquidity settlement with a unique batch ID.
      * @param eid The endpoint ID of the remote chain.
-     * @param app The address of the application.
+     * @param app The address of the application on the current chain.
      * @param accounts The array of accounts to include in the batch.
      * @param liquidity The array of liquidity values corresponding to the accounts.
      *
@@ -108,7 +108,7 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
     /**
      * @notice Adds additional accounts and liquidity to an existing liquidity batch.
      * @param eid The endpoint ID of the remote chain.
-     * @param app The address of the application.
+     * @param app The address of the application on the current chain.
      * @param batchId The ID of the batch to append to.
      * @param accounts The array of accounts to append to the batch.
      * @param liquidity The array of liquidity values to append to the batch.
@@ -141,10 +141,10 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
     /**
      * @notice Settles liquidity states for an application using data from an existing batch and verifies the Merkle proof.
      * @param eid The endpoint ID of the remote chain.
-     * @param app The address of the application.
-     * @param appIndex the index of app in the liquidity tree on the remote chain.
-     * @param proof The proof array to verify the sub-root within the top tree.
+     * @param app The address of the application on the current chain.
      * @param batchId The ID of the batch to settle.
+     * @param mainTreeIndex the index of app in the main liquidity tree on the remote chain.
+     * @param mainTreeProof The proof array to verify the sub-root within the top tree.
      *
      * Requirements:
      * - The caller must be the original submitter of the batch.
@@ -152,24 +152,27 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
     function settleLiquidityFromBatch(
         uint32 eid,
         address app,
-        uint256 appIndex,
-        bytes32[] memory proof,
-        uint256 batchId
+        uint256 batchId,
+        uint256 mainTreeIndex,
+        bytes32[] memory mainTreeProof
     ) external nonReentrant onlyApp(app) {
         Batches storage b = _batches[app][eid];
         LiquidityBatch memory batch = b.liquidity[batchId];
         if (batch.submitter != msg.sender) revert Forbidden();
 
+        address remoteApp = _remoteStates[app][eid].app;
+        if (remoteApp == address(0)) revert RemoteAppNotSet();
+
         bytes32 appRoot = b.liquidityTree[batchId].root;
         (bytes32 root, uint256 timestamp) = getLastSyncedLiquidityRoot(eid);
-        _verifyRoot(app, appRoot, appIndex, proof, root);
+        _verifyRoot(app, appRoot, mainTreeIndex, mainTreeProof, root);
         _settleLiquidity(SettleLiquidityParams(eid, app, root, timestamp, batch.accounts, batch.liquidity));
     }
 
     /**
      * @notice Creates a new batch for data settlement with a unique batch ID.
      * @param eid The endpoint ID of the remote chain.
-     * @param app The address of the application.
+     * @param app The address of the application on the current chain.
      * @param keys The array of keys to include in the batch.
      * @param values The array of data values corresponding to the keys.
      *
@@ -200,7 +203,7 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
     /**
      * @notice Adds additional keys and values to an existing data batch.
      * @param eid The endpoint ID of the remote chain.
-     * @param app The address of the application.
+     * @param app The address of the application on the current chain.
      * @param batchId The ID of the batch to append to.
      * @param keys The array of keys to append to the batch.
      * @param values The array of data values to append to the batch.
@@ -230,38 +233,46 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
     /**
      * @notice Settles data states for an application using data from an existing batch and verifies the Merkle proof.
      * @param eid The endpoint ID of the remote chain.
-     * @param app The address of the application.
-     * @param appIndex the index of app in the data tree on the remote chain.
-     * @param proof The proof array to verify the sub-root within the top tree.
+     * @param app The address of the application on the current chain.
      * @param batchId The ID of the batch to settle.
+     * @param mainTreeIndex the index of app in the main data tree on the remote chain.
+     * @param mainTreeProof The proof array to verify the sub-root within the top tree.
      *
      * Requirements:
      * - The caller must be the original submitter of the batch.
      */
-    function settleDataFromBatch(uint32 eid, address app, uint256 appIndex, bytes32[] memory proof, uint256 batchId)
-        external
-        nonReentrant
-        onlyApp(app)
-    {
+    function settleDataFromBatch(
+        uint32 eid,
+        address app,
+        uint256 batchId,
+        uint256 mainTreeIndex,
+        bytes32[] memory mainTreeProof
+    ) external nonReentrant onlyApp(app) {
         Batches storage b = _batches[app][eid];
         DataBatch memory batch = b.data[batchId];
         if (batch.submitter != msg.sender) revert Forbidden();
 
         bytes32 appRoot = b.dataHashTree[batchId].root;
         (bytes32 root, uint256 timestamp) = getLastSyncedDataRoot(eid);
-        _verifyRoot(app, appRoot, appIndex, proof, root);
+        _verifyRoot(app, appRoot, mainTreeIndex, mainTreeProof, root);
         _settleData(SettleDataParams(eid, timestamp, app, root, batch.keys, batch.values));
     }
 
-    function _verifyRoot(address app, bytes32 appRoot, uint256 mainIndex, bytes32[] memory mainProof, bytes32 mainRoot)
-        internal
-    {
-        if (mainRoot == bytes32(0)) revert RootNotReceived();
+    function _verifyRoot(
+        address app,
+        bytes32 appRoot,
+        uint256 mainTreeIndex,
+        bytes32[] memory mainTreeProof,
+        bytes32 mainTreeRoot
+    ) internal {
+        if (mainTreeRoot == bytes32(0)) revert RootNotReceived();
 
-        // Construct the Merkle tree and verify mainRoot
-        bool valid = MerkleTreeLib.verifyProof(bytes32(uint256(uint160(app))), appRoot, mainIndex, mainProof, mainRoot);
-        if (!valid) revert InvalidRoot(appRoot, mainRoot);
+        // Construct the Merkle tree and verify mainTreeRoot
+        bool valid = MerkleTreeLib.verifyProof(
+            bytes32(uint256(uint160(app))), appRoot, mainTreeIndex, mainTreeProof, mainTreeRoot
+        );
+        if (!valid) revert InvalidRoot();
 
-        emit VerifyRoot(app, mainRoot);
+        emit VerifyRoot(app, mainTreeRoot);
     }
 }
