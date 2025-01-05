@@ -61,8 +61,8 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    event CreateLiquidityBatch(uint32 indexed eid, address indexed app, address submitter, uint256 indexed batchId);
-    event CreateDataBatch(uint32 indexed eid, address indexed app, address submitter, uint256 indexed batchId);
+    event CreateLiquidityBatch(address indexed app, uint32 indexed eid, address submitter, uint256 indexed batchId);
+    event CreateDataBatch(address indexed app, uint32 indexed eid, address submitter, uint256 indexed batchId);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -85,7 +85,7 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
      * - The `accounts` and `liquidity` arrays must have the same length.
      * - The caller must be a registered application.
      */
-    function createLiquidityBatch(uint32 eid, address app, address[] calldata accounts, int256[] calldata liquidity)
+    function createLiquidityBatch(address app, uint32 eid, address[] calldata accounts, int256[] calldata liquidity)
         external
         onlyApp(app)
     {
@@ -102,7 +102,7 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
             b.liquidityTree[id].update(bytes32(uint256(uint160(account))), bytes32(uint256(_liquidity)));
         }
 
-        emit CreateLiquidityBatch(eid, app, msg.sender, id);
+        emit CreateLiquidityBatch(app, eid, msg.sender, id);
     }
 
     /**
@@ -118,8 +118,8 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
      * - The caller must be the original submitter of the batch.
      */
     function submitLiquidity(
-        uint32 eid,
         address app,
+        uint32 eid,
         uint256 batchId,
         address[] memory accounts,
         int256[] memory liquidity
@@ -150,8 +150,8 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
      * - The caller must be the original submitter of the batch.
      */
     function settleLiquidityFromBatch(
-        uint32 eid,
         address app,
+        uint32 eid,
         uint256 batchId,
         uint256 mainTreeIndex,
         bytes32[] memory mainTreeProof
@@ -166,7 +166,7 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
         bytes32 appRoot = b.liquidityTree[batchId].root;
         (bytes32 root, uint256 timestamp) = getLastSyncedLiquidityRoot(eid);
         _verifyRoot(app, appRoot, mainTreeIndex, mainTreeProof, root);
-        _settleLiquidity(SettleLiquidityParams(eid, app, root, timestamp, batch.accounts, batch.liquidity));
+        _settleLiquidity(SettleLiquidityParams(app, eid, root, timestamp, batch.accounts, batch.liquidity));
     }
 
     /**
@@ -180,7 +180,7 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
      * - The `keys` and `values` arrays must have the same length.
      * - The caller must be a registered application.
      */
-    function createDataBatch(uint32 eid, address app, bytes32[] calldata keys, bytes[] calldata values)
+    function createDataBatch(address app, uint32 eid, bytes32[] calldata keys, bytes[] calldata values)
         external
         onlyApp(app)
     {
@@ -197,7 +197,7 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
             b.dataHashTree[id].update(key, keccak256(value));
         }
 
-        emit CreateDataBatch(eid, app, msg.sender, id);
+        emit CreateDataBatch(app, eid, msg.sender, id);
     }
 
     /**
@@ -212,7 +212,7 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
      * - The `keys` and `values` arrays must have the same length.
      * - The caller must be the original submitter of the batch.
      */
-    function submitDataBatch(uint32 eid, address app, uint256 batchId, bytes32[] memory keys, bytes[] memory values)
+    function submitDataBatch(address app, uint32 eid, uint256 batchId, bytes32[] memory keys, bytes[] memory values)
         external
         onlyApp(app)
     {
@@ -242,8 +242,8 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
      * - The caller must be the original submitter of the batch.
      */
     function settleDataFromBatch(
-        uint32 eid,
         address app,
+        uint32 eid,
         uint256 batchId,
         uint256 mainTreeIndex,
         bytes32[] memory mainTreeProof
@@ -255,7 +255,7 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
         bytes32 appRoot = b.dataHashTree[batchId].root;
         (bytes32 root, uint256 timestamp) = getLastSyncedDataRoot(eid);
         _verifyRoot(app, appRoot, mainTreeIndex, mainTreeProof, root);
-        _settleData(SettleDataParams(eid, timestamp, app, root, batch.keys, batch.values));
+        _settleData(SettleDataParams(app, eid, root, timestamp, batch.keys, batch.values));
     }
 
     function _verifyRoot(

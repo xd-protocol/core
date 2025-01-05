@@ -179,12 +179,12 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
 
     /**
      * @notice Retrieves the local account address mapped to a given remote account for an application from a specific chain.
-     * @param eid The endpoint ID of the remote chain associated with the account mapping.
      * @param app The address of the application that owns the mapping.
+     * @param eid The endpoint ID of the remote chain associated with the account mapping.
      * @param remote The address of the remote account.
      * @return local The address of the corresponding local account, or `address(0)` if no mapping exists.
      */
-    function getLocalAccount(uint32 eid, address app, address remote) public view returns (address local) {
+    function getLocalAccount(address app, uint32 eid, address remote) public view returns (address local) {
         local = _appStates[app].accountsRemoteToLocal[eid][remote];
         return local == address(0) ? remote : local;
     }

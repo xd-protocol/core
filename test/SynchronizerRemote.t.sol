@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import { Synchronizer } from "src/Synchronizer.sol";
+import { ISynchronizer } from "src/interfaces/ISynchronizer.sol";
 import { ArrayLib } from "src/libraries/ArrayLib.sol";
 import { MerkleTreeLib } from "src/libraries/MerkleTreeLib.sol";
 import { Test, console } from "forge-std/Test.sol";
@@ -41,6 +42,13 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
 
         local.setReadChannel(READ_CHANNEL, true);
         remote.setReadChannel(READ_CHANNEL, true);
+
+        ISynchronizer.ChainConfig[] memory configs = new ISynchronizer.ChainConfig[](1);
+        configs[0] = ISynchronizer.ChainConfig(EID_REMOTE, 0, address(remote));
+        local.configChains(configs);
+        configs[0] = ISynchronizer.ChainConfig(EID_LOCAL, 0, address(local));
+        remote.configChains(configs);
+
         localApp.registerApp(false);
         remoteApp.registerApp(false);
 
@@ -62,37 +70,101 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         assertEq(local.getRemoteApp(address(localApp), EID_REMOTE), address(remoteApp));
     }
 
-    function test_settleLiquidity(bytes32 seed) public {
-        address[] memory accounts = _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
+    function test_settleLiquidity_withEmptyData(bytes32 seed) public {
+        assertEq(local.getSettledTotalLiquidity(address(localApp)), 0);
+        assertEq(local.getFinalizedTotalLiquidity(address(localApp)), 0);
 
-        _receiveRoots(local, EID_REMOTE, remoteStorage.mainLiquidityTree.root, remoteStorage.mainDataTree.root);
+        (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
+            _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
 
-        int256[] memory liquidity = new int256[](3);
-        liquidity[0] = remoteStorage.liquidity[accounts[0]];
-        liquidity[1] = remoteStorage.liquidity[accounts[1]];
-        liquidity[2] = remoteStorage.liquidity[accounts[2]];
+        bytes32 liquidityRoot = remoteStorage.mainLiquidityTree.root;
+        bytes32 dataRoot = remoteStorage.mainDataTree.root;
+        uint256 timestamp = vm.getBlockTimestamp();
+        _receiveRoots(local, EID_REMOTE, liquidityRoot, dataRoot, timestamp);
 
         uint256 mainIndex = 0;
         bytes32[] memory mainProof = _getMainProof(address(remoteApp), mainIndex);
 
-        local.settleLiquidity(EID_REMOTE, address(localApp), mainIndex, mainProof, accounts, liquidity);
+        local.settleLiquidity(address(localApp), EID_REMOTE, mainIndex, mainProof, accounts, liquidity);
 
-        int256 total;
         for (uint256 i; i < accounts.length; ++i) {
             assertEq(localApp.remoteLiquidity(EID_REMOTE, accounts[i]), liquidity[i]);
-            total += liquidity[i];
         }
-        assertEq(localApp.remoteTotalLiquidity(EID_REMOTE), total);
+        assertEq(localApp.remoteTotalLiquidity(EID_REMOTE), totalLiquidity);
+
+        (bytes32 _liquidityRoot, uint256 _timestamp) = local.getLastSettledLiquidityRoot(address(localApp), EID_REMOTE);
+        assertEq(_liquidityRoot, liquidityRoot);
+        assertEq(_timestamp, timestamp);
+        assertEq(local.getSettledTotalLiquidity(address(localApp)), totalLiquidity);
+        assertEq(local.isLiquidityRootSettled(address(localApp), EID_REMOTE, timestamp), true);
+        assertEq(local.isDataRootSettled(address(localApp), EID_REMOTE, timestamp), true);
+
+        (_liquidityRoot, _timestamp) = local.getLastFinalizedLiquidityRoot(address(localApp), EID_REMOTE);
+        assertEq(_liquidityRoot, liquidityRoot);
+        assertEq(_timestamp, timestamp);
+        assertEq(local.getFinalizedTotalLiquidity(address(localApp)), totalLiquidity);
+        assertEq(local.areRootsFinalized(address(localApp), EID_REMOTE, timestamp), true);
+    }
+
+    function test_settleLiquidity_withDataUpdated(bytes32 seed) public {
+        assertEq(local.getSettledTotalLiquidity(address(localApp)), 0);
+        assertEq(local.getFinalizedTotalLiquidity(address(localApp)), 0);
+
+        (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
+            _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
+        (bytes32[] memory keys, bytes[] memory values) = _updateLocalData(remote, remoteApp, remoteStorage, seed);
+
+        bytes32 liquidityRoot = remoteStorage.mainLiquidityTree.root;
+        bytes32 dataRoot = remoteStorage.mainDataTree.root;
+        uint256 timestamp = vm.getBlockTimestamp();
+        _receiveRoots(local, EID_REMOTE, liquidityRoot, dataRoot, timestamp);
+
+        uint256 mainIndex = 0;
+        bytes32[] memory mainProof = _getMainProof(address(remoteApp), mainIndex);
+
+        local.settleLiquidity(address(localApp), EID_REMOTE, mainIndex, mainProof, accounts, liquidity);
+
+        for (uint256 i; i < accounts.length; ++i) {
+            assertEq(localApp.remoteLiquidity(EID_REMOTE, accounts[i]), liquidity[i]);
+        }
+        assertEq(localApp.remoteTotalLiquidity(EID_REMOTE), totalLiquidity);
+
+        (bytes32 _liquidityRoot, uint256 _timestamp) = local.getLastSettledLiquidityRoot(address(localApp), EID_REMOTE);
+        assertEq(_liquidityRoot, liquidityRoot);
+        assertEq(_timestamp, timestamp);
+        assertEq(local.getSettledTotalLiquidity(address(localApp)), totalLiquidity);
+        assertEq(local.isLiquidityRootSettled(address(localApp), EID_REMOTE, timestamp), true);
+        assertEq(local.isDataRootSettled(address(localApp), EID_REMOTE, timestamp), false);
+
+        (_liquidityRoot, _timestamp) = local.getLastFinalizedLiquidityRoot(address(localApp), EID_REMOTE);
+        assertEq(_liquidityRoot, bytes32(0));
+        assertEq(_timestamp, 0);
+        assertEq(local.getFinalizedTotalLiquidity(address(localApp)), 0);
+        assertEq(local.areRootsFinalized(address(localApp), EID_REMOTE, timestamp), false);
+
+        mainIndex = 0;
+        mainProof = _getMainProof(address(remoteApp), mainIndex);
+        local.settleData(address(localApp), EID_REMOTE, mainIndex, mainProof, keys, values);
+        assertEq(local.isDataRootSettled(address(localApp), EID_REMOTE, timestamp), true);
+
+        (_liquidityRoot, _timestamp) = local.getLastFinalizedLiquidityRoot(address(localApp), EID_REMOTE);
+        assertEq(_liquidityRoot, liquidityRoot);
+        assertEq(_timestamp, timestamp);
+        assertEq(local.getFinalizedTotalLiquidity(address(localApp)), totalLiquidity);
+        assertEq(local.areRootsFinalized(address(localApp), EID_REMOTE, timestamp), true);
     }
 
     function test_settleData(bytes32 seed) public {
         (bytes32[] memory keys, bytes[] memory values) = _updateLocalData(remote, remoteApp, remoteStorage, seed);
 
-        _receiveRoots(local, EID_REMOTE, remoteStorage.mainLiquidityTree.root, remoteStorage.mainDataTree.root);
+        uint256 timestamp = vm.getBlockTimestamp();
+        _receiveRoots(
+            local, EID_REMOTE, remoteStorage.mainLiquidityTree.root, remoteStorage.mainDataTree.root, timestamp
+        );
 
         uint256 mainIndex = 0;
         bytes32[] memory mainProof = _getMainProof(address(remoteApp), mainIndex);
-        local.settleData(EID_REMOTE, address(localApp), mainIndex, mainProof, keys, values);
+        local.settleData(address(localApp), EID_REMOTE, mainIndex, mainProof, keys, values);
 
         for (uint256 i; i < keys.length; ++i) {
             assertEq(localApp.remoteData(EID_REMOTE, keys[i]), values[i]);

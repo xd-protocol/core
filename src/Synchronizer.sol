@@ -53,7 +53,6 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
-    error RemoteAppNotFound(uint32 eid, address app);
     error InvalidAddress();
     error DuplicateTargetEid();
     error InvalidCmd();

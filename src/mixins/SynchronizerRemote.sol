@@ -68,8 +68,8 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     }
 
     struct SettleLiquidityParams {
-        uint32 eid;
         address app;
+        uint32 eid;
         bytes32 root;
         uint256 timestamp;
         address[] accounts;
@@ -77,10 +77,10 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     }
 
     struct SettleDataParams {
-        uint32 eid;
-        uint256 timestamp;
         address app;
+        uint32 eid;
         bytes32 root;
+        uint256 timestamp;
         bytes32[] keys;
         bytes[] values;
     }
@@ -88,6 +88,8 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
+    uint256 public constant MAX_LOOP = 4096;
+
     mapping(address app => mapping(uint32 eid => RemoteState)) internal _remoteStates;
 
     mapping(uint32 eid => uint256[]) rootTimestamps;
@@ -161,7 +163,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         liquidity = getLocalTotalLiquidity(app);
         for (uint256 i; i < eidsLength(); ++i) {
             uint32 eid = eidAt(i);
-            (, uint256 timestamp) = getLastSettledLiquidityRoot(eid, app);
+            (, uint256 timestamp) = getLastSettledLiquidityRoot(app, eid);
             if (timestamp == 0) continue;
             liquidity += _remoteStates[app][eid].totalLiquidity.getAsInt(timestamp);
         }
@@ -176,7 +178,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         liquidity = getLocalTotalLiquidity(app);
         for (uint256 i; i < eidsLength(); ++i) {
             uint32 eid = eidAt(i);
-            (, uint256 timestamp) = getLastFinalizedLiquidityRoot(eid, app);
+            (, uint256 timestamp) = getLastFinalizedLiquidityRoot(app, eid);
             if (timestamp == 0) continue;
             liquidity += _remoteStates[app][eid].totalLiquidity.getAsInt(timestamp);
         }
@@ -208,7 +210,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         liquidity = getLocalLiquidity(app, account);
         for (uint256 i; i < eidsLength(); ++i) {
             uint32 eid = eidAt(i);
-            (, uint256 timestamp) = getLastSettledLiquidityRoot(eid, app);
+            (, uint256 timestamp) = getLastSettledLiquidityRoot(app, eid);
             if (timestamp == 0) continue;
             liquidity += _remoteStates[app][eid].liquidity[account].getAsInt(timestamp);
         }
@@ -224,7 +226,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         liquidity = getLocalLiquidity(app, account);
         for (uint256 i; i < eidsLength(); ++i) {
             uint32 eid = eidAt(i);
-            (, uint256 timestamp) = getLastFinalizedLiquidityRoot(eid, app);
+            (, uint256 timestamp) = getLastFinalizedLiquidityRoot(app, eid);
             if (timestamp == 0) continue;
             liquidity += _remoteStates[app][eid].liquidity[account].getAsInt(timestamp);
         }
@@ -257,10 +259,10 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @param app The address of the application.
      * @return liquidity The total liquidity for the specified `eid`.
      */
-    function getSettledRemoteTotalLiquidity(uint32 eid, address app) public view returns (int256 liquidity) {
-        (, uint256 timestamp) = getLastSettledLiquidityRoot(eid, app);
+    function getSettledRemoteTotalLiquidity(address app, uint32 eid) public view returns (int256 liquidity) {
+        (, uint256 timestamp) = getLastSettledLiquidityRoot(app, eid);
         if (timestamp == 0) return 0;
-        return getRemoteTotalLiquidityAt(eid, app, timestamp);
+        return getRemoteTotalLiquidityAt(app, eid, timestamp);
     }
 
     /**
@@ -269,10 +271,10 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @param app The address of the application.
      * @return liquidity The total liquidity for the specified `eid`.
      */
-    function getFinalizedRemoteTotalLiquidity(uint32 eid, address app) public view returns (int256 liquidity) {
-        (, uint256 timestamp) = getLastFinalizedLiquidityRoot(eid, app);
+    function getFinalizedRemoteTotalLiquidity(address app, uint32 eid) public view returns (int256 liquidity) {
+        (, uint256 timestamp) = getLastFinalizedLiquidityRoot(app, eid);
         if (timestamp == 0) return 0;
-        return getRemoteTotalLiquidityAt(eid, app, timestamp);
+        return getRemoteTotalLiquidityAt(app, eid, timestamp);
     }
 
     /**
@@ -282,7 +284,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @param timestamp The timestamp to query liquidity at.
      * @return liquidity The total liquidity for the specified `eid`.
      */
-    function getRemoteTotalLiquidityAt(uint32 eid, address app, uint256 timestamp)
+    function getRemoteTotalLiquidityAt(address app, uint32 eid, uint256 timestamp)
         public
         view
         returns (int256 liquidity)
@@ -297,14 +299,14 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @param account The account whose liquidity is being queried.
      * @return liquidity The liquidity of the specified account for the specified `eid`.
      */
-    function getSettledRemoteLiquidity(uint32 eid, address app, address account)
+    function getSettledRemoteLiquidity(address app, uint32 eid, address account)
         public
         view
         returns (int256 liquidity)
     {
-        (, uint256 timestamp) = getLastSettledLiquidityRoot(eid, app);
+        (, uint256 timestamp) = getLastSettledLiquidityRoot(app, eid);
         if (timestamp == 0) return 0;
-        return getRemoteLiquidityAt(eid, app, account, timestamp);
+        return getRemoteLiquidityAt(app, eid, account, timestamp);
     }
 
     /**
@@ -314,14 +316,14 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @param account The account whose liquidity is being queried.
      * @return liquidity The liquidity of the specified account for the specified `eid`.
      */
-    function getFinalizedRemoteLiquidity(uint32 eid, address app, address account)
+    function getFinalizedRemoteLiquidity(address app, uint32 eid, address account)
         public
         view
         returns (int256 liquidity)
     {
-        (, uint256 timestamp) = getLastFinalizedLiquidityRoot(eid, app);
+        (, uint256 timestamp) = getLastFinalizedLiquidityRoot(app, eid);
         if (timestamp == 0) return 0;
-        return getRemoteLiquidityAt(eid, app, account, timestamp);
+        return getRemoteLiquidityAt(app, eid, account, timestamp);
     }
 
     /**
@@ -332,7 +334,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @param timestamp The timestamp to query liquidity at.
      * @return liquidity The liquidity of the specified account for the specified `eid`.
      */
-    function getRemoteLiquidityAt(uint32 eid, address app, address account, uint256 timestamp)
+    function getRemoteLiquidityAt(address app, uint32 eid, address account, uint256 timestamp)
         public
         view
         returns (int256 liquidity)
@@ -347,10 +349,10 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @param key The key of the data to query.
      * @return value The value of the specified key for the specified `eid`.
      */
-    function getSettledRemoteDataHash(uint32 eid, address app, bytes32 key) public view returns (bytes32 value) {
-        (, uint256 timestamp) = getLastSettledLiquidityRoot(eid, app);
+    function getSettledRemoteDataHash(address app, uint32 eid, bytes32 key) public view returns (bytes32 value) {
+        (, uint256 timestamp) = getLastSettledLiquidityRoot(app, eid);
         if (timestamp == 0) return 0;
-        return getRemoteDataHashAt(eid, app, key, timestamp);
+        return getRemoteDataHashAt(app, eid, key, timestamp);
     }
 
     /**
@@ -360,10 +362,10 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @param key The key of the data to query.
      * @return value The value of the specified key for the specified `eid`.
      */
-    function getFinalizedRemoteDataHash(uint32 eid, address app, bytes32 key) public view returns (bytes32 value) {
-        (, uint256 timestamp) = getLastFinalizedLiquidityRoot(eid, app);
+    function getFinalizedRemoteDataHash(address app, uint32 eid, bytes32 key) public view returns (bytes32 value) {
+        (, uint256 timestamp) = getLastFinalizedLiquidityRoot(app, eid);
         if (timestamp == 0) return 0;
-        return getRemoteDataHashAt(eid, app, key, timestamp);
+        return getRemoteDataHashAt(app, eid, key, timestamp);
     }
 
     /**
@@ -374,7 +376,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @param timestamp The timestamp to query liquidity at.
      * @return value The value of the specified key for the specified `eid`.
      */
-    function getRemoteDataHashAt(uint32 eid, address app, bytes32 key, uint256 timestamp)
+    function getRemoteDataHashAt(address app, uint32 eid, bytes32 key, uint256 timestamp)
         public
         view
         returns (bytes32 value)
@@ -403,14 +405,16 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @return root The last liquidity root for the specified `eid`.
      * @return timestamp The timestamp associated with the last liquidity root.
      */
-    function getLastSettledLiquidityRoot(uint32 eid, address app)
+    function getLastSettledLiquidityRoot(address app, uint32 eid)
         public
         view
         returns (bytes32 root, uint256 timestamp)
     {
         RemoteState storage state = _remoteStates[app][eid];
-        for (uint256 i = rootTimestamps[eid].length; i > 0; --i) {
-            uint256 ts = rootTimestamps[eid][i - 1];
+        uint256[] storage timestamps = rootTimestamps[eid];
+        uint256 length = timestamps.length;
+        for (uint256 i; i < length && i < MAX_LOOP; ++i) {
+            uint256 ts = timestamps[length - i - 1];
             if (state.liquiditySettled[ts]) return (liquidityRoots[eid][ts], ts);
         }
     }
@@ -422,15 +426,16 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @return root The last liquidity root for the specified `eid`.
      * @return timestamp The timestamp associated with the last liquidity root.
      */
-    function getLastFinalizedLiquidityRoot(uint32 eid, address app)
+    function getLastFinalizedLiquidityRoot(address app, uint32 eid)
         public
         view
         returns (bytes32 root, uint256 timestamp)
     {
-        RemoteState storage state = _remoteStates[app][eid];
-        for (uint256 i = rootTimestamps[eid].length; i > 0; --i) {
-            uint256 ts = rootTimestamps[eid][i - 1];
-            if (state.liquiditySettled[ts] && state.dataSettled[ts]) return (liquidityRoots[eid][ts], ts);
+        uint256[] storage timestamps = rootTimestamps[eid];
+        uint256 length = timestamps.length;
+        for (uint256 i; i < length && i < MAX_LOOP; ++i) {
+            uint256 ts = timestamps[length - i - 1];
+            if (areRootsFinalized(app, eid, ts)) return (liquidityRoots[eid][ts], ts);
         }
     }
 
@@ -455,10 +460,12 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @return root The last data root for the specified `eid`.
      * @return timestamp The timestamp associated with the last data root.
      */
-    function getLastSettledDataRoot(uint32 eid, address app) public view returns (bytes32 root, uint256 timestamp) {
+    function getLastSettledDataRoot(address app, uint32 eid) public view returns (bytes32 root, uint256 timestamp) {
         RemoteState storage state = _remoteStates[app][eid];
-        for (uint256 i = rootTimestamps[eid].length; i > 0; --i) {
-            uint256 ts = rootTimestamps[eid][i - 1];
+        uint256[] storage timestamps = rootTimestamps[eid];
+        uint256 length = timestamps.length;
+        for (uint256 i; i < length && i < MAX_LOOP; ++i) {
+            uint256 ts = timestamps[i - 1];
             if (state.dataSettled[ts]) return (dataRoots[eid][ts], ts);
         }
     }
@@ -470,12 +477,31 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @return root The last data root for the specified `eid`.
      * @return timestamp The timestamp associated with the last data root.
      */
-    function getLastFinalizedDataRoot(uint32 eid, address app) public view returns (bytes32 root, uint256 timestamp) {
-        RemoteState storage state = _remoteStates[app][eid];
-        for (uint256 i = rootTimestamps[eid].length; i > 0; --i) {
-            uint256 ts = rootTimestamps[eid][i - 1];
-            if (state.liquiditySettled[ts] && state.dataSettled[ts]) return (dataRoots[eid][ts], ts);
+    function getLastFinalizedDataRoot(address app, uint32 eid) public view returns (bytes32 root, uint256 timestamp) {
+        uint256[] storage timestamps = rootTimestamps[eid];
+        uint256 length = timestamps.length;
+        for (uint256 i; i < length && i < MAX_LOOP; ++i) {
+            uint256 ts = timestamps[i - 1];
+            if (areRootsFinalized(app, eid, ts)) return (dataRoots[eid][ts], ts);
         }
+    }
+
+    function isLiquidityRootSettled(address app, uint32 eid, uint256 timestamp) public view returns (bool) {
+        return _remoteStates[app][eid].liquiditySettled[timestamp] || liquidityRoots[eid][timestamp] == bytes32(0);
+    }
+
+    function isDataRootSettled(address app, uint32 eid, uint256 timestamp) public view returns (bool) {
+        return _remoteStates[app][eid].dataSettled[timestamp] || dataRoots[eid][timestamp] == bytes32(0);
+    }
+
+    function areRootsFinalized(address app, uint32 eid, uint256 timestamp) public view returns (bool) {
+        RemoteState storage state = _remoteStates[app][eid];
+        bool liquiditySettled = state.liquiditySettled[timestamp];
+        bool dataSettled = state.dataSettled[timestamp];
+        if (liquiditySettled && dataSettled) return true;
+        if (liquiditySettled && dataRoots[eid][timestamp] == bytes32(0)) return true;
+        if (dataSettled && liquidityRoots[eid][timestamp] == bytes32(0)) return true;
+        return false;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -511,8 +537,8 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * - The `accounts` and `liquidity` arrays must have the same length.
      */
     function settleLiquidity(
-        uint32 eid,
         address app,
+        uint32 eid,
         uint256 mainTreeIndex,
         bytes32[] memory mainTreeProof,
         address[] calldata accounts,
@@ -533,7 +559,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
             root
         );
 
-        _settleLiquidity(SettleLiquidityParams(eid, app, root, timestamp, accounts, liquidity));
+        _settleLiquidity(SettleLiquidityParams(app, eid, root, timestamp, accounts, liquidity));
     }
 
     /**
@@ -549,8 +575,8 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * - The `keys` and `values` arrays must have the same length.
      */
     function settleData(
-        uint32 eid,
         address app,
+        uint32 eid,
         uint256 mainTreeIndex,
         bytes32[] memory mainTreeProof,
         bytes32[] calldata keys,
@@ -564,7 +590,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         (bytes32 root, uint256 timestamp) = getLastSyncedDataRoot(eid);
         _verifyRoot(remoteApp, keys, ArrayLib.hashElements(values), mainTreeIndex, mainTreeProof, root);
 
-        _settleData(SettleDataParams(eid, timestamp, app, root, keys, values));
+        _settleData(SettleDataParams(app, eid, root, timestamp, keys, values));
     }
 
     /**
@@ -611,7 +637,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         int256 totalLiquidity;
         for (uint256 i; i < params.accounts.length; i++) {
             (address account, int256 liquidity) = (params.accounts[i], params.liquidity[i]);
-            account = getLocalAccount(params.eid, params.app, account);
+            account = getLocalAccount(params.app, params.eid, account);
             if (account.isContract() && !syncContracts) continue;
 
             SnapshotsLib.Snapshots storage snapshots = state.liquidity[account];

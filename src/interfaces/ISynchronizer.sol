@@ -12,7 +12,7 @@ interface ISynchronizer {
 
     function getAppSetting(address app) external view returns (bool registered, bool syncContracts);
 
-    function getLocalAccount(uint32 eid, address app, address remote) external view returns (address local);
+    function getLocalAccount(address app, uint32 eid, address remote) external view returns (address local);
 
     function getLocalTotalLiquidity(address app) external view returns (int256 liquidity);
 
@@ -54,35 +54,35 @@ interface ISynchronizer {
         view
         returns (int256 liquidity);
 
-    function getSettledRemoteTotalLiquidity(uint32 eid, address app) external view returns (int256 liquidity);
+    function getSettledRemoteTotalLiquidity(address app, uint32 eid) external view returns (int256 liquidity);
 
-    function getFinalizedRemoteTotalLiquidity(uint32 eid, address app) external view returns (int256 liquidity);
+    function getFinalizedRemoteTotalLiquidity(address app, uint32 eid) external view returns (int256 liquidity);
 
-    function getRemoteTotalLiquidityAt(uint32 eid, address app, uint256 timestamp)
+    function getRemoteTotalLiquidityAt(address app, uint32 eid, uint256 timestamp)
         external
         view
         returns (int256 liquidity);
 
-    function getSettledRemoteLiquidity(uint32 eid, address app, address account)
+    function getSettledRemoteLiquidity(address app, uint32 eid, address account)
         external
         view
         returns (int256 liquidity);
 
-    function getFinalizedRemoteLiquidity(uint32 eid, address app, address account)
+    function getFinalizedRemoteLiquidity(address app, uint32 eid, address account)
         external
         view
         returns (int256 liquidity);
 
-    function getRemoteLiquidityAt(uint32 eid, address app, address account, uint256 timestamp)
+    function getRemoteLiquidityAt(address app, uint32 eid, address account, uint256 timestamp)
         external
         view
         returns (int256 liquidity);
 
-    function getSettledRemoteDataHash(uint32 eid, address app, bytes32 key) external view returns (bytes32 value);
+    function getSettledRemoteDataHash(address app, uint32 eid, bytes32 key) external view returns (bytes32 value);
 
-    function getFinalizedRemoteDataHash(uint32 eid, address app, bytes32 key) external view returns (bytes32 value);
+    function getFinalizedRemoteDataHash(address app, uint32 eid, bytes32 key) external view returns (bytes32 value);
 
-    function getRemoteDataHashAt(uint32 eid, address app, bytes32 key, uint256 timestamp)
+    function getRemoteDataHashAt(address app, uint32 eid, bytes32 key, uint256 timestamp)
         external
         view
         returns (bytes32 value);

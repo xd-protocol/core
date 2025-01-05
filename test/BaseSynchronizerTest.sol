@@ -24,6 +24,9 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
         mapping(address account => uint256[]) liquidityTimestamps;
         mapping(uint256 timestamp => int256) totalLiquidityAt;
         uint256[] totalLiquidityTimestamps;
+        mapping(bytes32 key => bytes) data;
+        mapping(bytes32 key => mapping(uint256 timestamp => bytes)) dataAt;
+        mapping(bytes32 key => uint256[]) dataTimestamps;
     }
 
     uint32 constant READ_CHANNEL = 4_294_967_295;
@@ -46,32 +49,32 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
         Storage storage s,
         address[] memory users,
         bytes32 seed
-    ) internal returns (address[] memory accounts) {
+    ) internal returns (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) {
         accounts = new address[](users.length);
+        liquidity = new int256[](accounts.length);
 
         uint256 userIndex;
-        int256 total;
         for (uint256 i; i < 256; ++i) {
             uint256 timestamp = vm.getBlockTimestamp();
             address user = users[uint256(seed) % 3];
-            int256 liquidity = int256(uint256(seed)) / 1000;
-            total -= s.liquidity[user];
-            total += liquidity;
-            s.liquidity[user] = liquidity;
-            s.liquidityAt[user][timestamp] = liquidity;
+            int256 l = int256(uint256(seed)) / 1000;
+            totalLiquidity -= s.liquidity[user];
+            totalLiquidity += l;
+            s.liquidity[user] = l;
+            s.liquidityAt[user][timestamp] = l;
             s.liquidityTimestamps[user].push(timestamp);
-            s.totalLiquidityAt[timestamp] = total;
+            s.totalLiquidityAt[timestamp] = totalLiquidity;
             s.totalLiquidityTimestamps.push(timestamp);
 
-            (, uint256 index) = app.updateLocalLiquidity(user, liquidity);
+            (, uint256 index) = app.updateLocalLiquidity(user, l);
             if (userIndex == index) {
                 accounts[index] = user;
                 userIndex++;
             }
-            assertEq(synchronizer.getLocalLiquidity(address(app), user), liquidity);
-            assertEq(synchronizer.getLocalTotalLiquidity(address(app)), total);
+            assertEq(synchronizer.getLocalLiquidity(address(app), user), l);
+            assertEq(synchronizer.getLocalTotalLiquidity(address(app)), totalLiquidity);
 
-            s.appLiquidityTree.update(bytes32(uint256(uint160(user))), bytes32(uint256(liquidity)));
+            s.appLiquidityTree.update(bytes32(uint256(uint160(user))), bytes32(uint256(l)));
             assertEq(synchronizer.getLocalLiquidityRoot(address(app)), s.appLiquidityTree.root);
             s.mainLiquidityTree.update(bytes32(uint256(uint160(address(app)))), s.appLiquidityTree.root);
             assertEq(synchronizer.getMainLiquidityRoot(), s.mainLiquidityTree.root);
@@ -88,6 +91,7 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
                     synchronizer.getLocalLiquidityAt(address(app), user, timestamp), s.liquidityAt[user][timestamp]
                 );
             }
+            liquidity[i] = s.liquidity[accounts[i]];
         }
         for (uint256 i; i < s.totalLiquidityTimestamps.length; ++i) {
             uint256 timestamp = s.totalLiquidityTimestamps[i];
@@ -103,8 +107,12 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
         values = new bytes[](256);
 
         for (uint256 i; i < 256; ++i) {
+            uint256 timestamp = vm.getBlockTimestamp();
             keys[i] = seed;
             values[i] = abi.encodePacked(keccak256(abi.encodePacked(keys[i], i)));
+            s.data[keys[i]] = values[i];
+            s.dataAt[keys[i]][timestamp] = values[i];
+            s.dataTimestamps[keys[i]].push(timestamp);
 
             app.updateLocalData(keys[i], values[i]);
             assertEq(synchronizer.getLocalDataHash(address(app), keys[i]), keccak256(values[i]));
@@ -116,9 +124,24 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
 
             seed = keccak256(abi.encodePacked(values[i], i));
         }
+        for (uint256 i; i < keys.length; ++i) {
+            bytes32 key = keys[i];
+            for (uint256 j; j < s.dataTimestamps[key].length; ++j) {
+                uint256 timestamp = s.dataTimestamps[key][j];
+                assertEq(
+                    synchronizer.getLocalDataHashAt(address(app), key, timestamp), keccak256(s.dataAt[key][timestamp])
+                );
+            }
+        }
     }
 
-    function _receiveRoots(ILayerZeroReceiver receiver, uint32 eid, bytes32 liquidityRoot, bytes32 dataRoot) internal {
+    function _receiveRoots(
+        ILayerZeroReceiver receiver,
+        uint32 eid,
+        bytes32 liquidityRoot,
+        bytes32 dataRoot,
+        uint256 timestamp
+    ) internal {
         address endpoint = address(IOAppCore(address(receiver)).endpoint());
         changePrank(endpoint, endpoint);
 
@@ -130,7 +153,7 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
         bytes32[] memory dataRoots = new bytes32[](1);
         dataRoots[0] = dataRoot;
         uint256[] memory timestamps = new uint256[](1);
-        timestamps[0] = vm.getBlockTimestamp();
+        timestamps[0] = timestamp;
 
         receiver.lzReceive(
             origin, "", abi.encode(CMD_SYNC, eids, liquidityRoots, dataRoots, timestamps), address(0), ""
