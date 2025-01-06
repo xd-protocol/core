@@ -83,9 +83,10 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         _receiveRoots(local, EID_REMOTE, liquidityRoot, dataRoot, timestamp);
 
         uint256 mainIndex = 0;
-        bytes32[] memory mainProof = _getMainProof(address(remoteApp), mainIndex);
+        bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
 
-        local.settleLiquidity(address(localApp), EID_REMOTE, mainIndex, mainProof, accounts, liquidity);
+        (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
+        local.settleLiquidity(address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, accounts, liquidity);
 
         for (uint256 i; i < accounts.length; ++i) {
             assertEq(localApp.remoteLiquidity(EID_REMOTE, accounts[i]), liquidity[i]);
@@ -120,9 +121,10 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         _receiveRoots(local, EID_REMOTE, liquidityRoot, dataRoot, timestamp);
 
         uint256 mainIndex = 0;
-        bytes32[] memory mainProof = _getMainProof(address(remoteApp), mainIndex);
+        bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
 
-        local.settleLiquidity(address(localApp), EID_REMOTE, mainIndex, mainProof, accounts, liquidity);
+        (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
+        local.settleLiquidity(address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, accounts, liquidity);
 
         for (uint256 i; i < accounts.length; ++i) {
             assertEq(localApp.remoteLiquidity(EID_REMOTE, accounts[i]), liquidity[i]);
@@ -143,8 +145,9 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         assertEq(local.areRootsFinalized(address(localApp), EID_REMOTE, timestamp), false);
 
         mainIndex = 0;
-        mainProof = _getMainProof(address(remoteApp), mainIndex);
-        local.settleData(address(localApp), EID_REMOTE, mainIndex, mainProof, keys, values);
+        mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
+
+        local.settleData(address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, keys, values);
         assertEq(local.isDataRootSettled(address(localApp), EID_REMOTE, timestamp), true);
 
         (_liquidityRoot, _timestamp) = local.getLastFinalizedLiquidityRoot(address(localApp), EID_REMOTE);
@@ -163,19 +166,13 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         );
 
         uint256 mainIndex = 0;
-        bytes32[] memory mainProof = _getMainProof(address(remoteApp), mainIndex);
-        local.settleData(address(localApp), EID_REMOTE, mainIndex, mainProof, keys, values);
+        bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
+
+        (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
+        local.settleData(address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, keys, values);
 
         for (uint256 i; i < keys.length; ++i) {
             assertEq(localApp.remoteData(EID_REMOTE, keys[i]), values[i]);
         }
-    }
-
-    function _getMainProof(address app, uint256 mainIndex) internal view returns (bytes32[] memory) {
-        bytes32[] memory keys = new bytes32[](1);
-        keys[0] = bytes32(uint256(uint160(app)));
-        bytes32[] memory values = new bytes32[](1);
-        values[0] = remoteStorage.appLiquidityTree.root;
-        return MerkleTreeLib.getProof(keys, values, mainIndex);
     }
 }

@@ -50,13 +50,12 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
         address[] memory users,
         bytes32 seed
     ) internal returns (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) {
-        accounts = new address[](users.length);
-        liquidity = new int256[](accounts.length);
+        address[] memory _accounts = new address[](users.length);
 
-        uint256 userIndex;
+        uint256 size;
         for (uint256 i; i < 256; ++i) {
             uint256 timestamp = vm.getBlockTimestamp();
-            address user = users[uint256(seed) % 3];
+            address user = users[uint256(seed) % users.length];
             int256 l = int256(uint256(seed)) / 1000;
             totalLiquidity -= s.liquidity[user];
             totalLiquidity += l;
@@ -67,9 +66,9 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
             s.totalLiquidityTimestamps.push(timestamp);
 
             (, uint256 index) = app.updateLocalLiquidity(user, l);
-            if (userIndex == index) {
-                accounts[index] = user;
-                userIndex++;
+            _accounts[index] = user;
+            if (size <= index) {
+                size = index + 1;
             }
             assertEq(synchronizer.getLocalLiquidity(address(app), user), l);
             assertEq(synchronizer.getLocalTotalLiquidity(address(app)), totalLiquidity);
@@ -91,11 +90,18 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
                     synchronizer.getLocalLiquidityAt(address(app), user, timestamp), s.liquidityAt[user][timestamp]
                 );
             }
-            liquidity[i] = s.liquidity[accounts[i]];
         }
         for (uint256 i; i < s.totalLiquidityTimestamps.length; ++i) {
             uint256 timestamp = s.totalLiquidityTimestamps[i];
             assertEq(synchronizer.getLocalTotalLiquidityAt(address(app), timestamp), s.totalLiquidityAt[timestamp]);
+        }
+
+        accounts = new address[](size);
+        liquidity = new int256[](size);
+        for (uint256 i; i < size; ++i) {
+            address account = _accounts[i];
+            accounts[i] = account;
+            liquidity[i] = s.liquidity[account];
         }
     }
 
@@ -158,5 +164,13 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
         receiver.lzReceive(
             origin, "", abi.encode(CMD_SYNC, eids, liquidityRoots, dataRoots, timestamps), address(0), ""
         );
+    }
+
+    function _getMainProof(address app, bytes32 appRoot, uint256 mainIndex) internal pure returns (bytes32[] memory) {
+        bytes32[] memory keys = new bytes32[](1);
+        keys[0] = bytes32(uint256(uint160(app)));
+        bytes32[] memory values = new bytes32[](1);
+        values[0] = appRoot;
+        return MerkleTreeLib.getProof(keys, values, mainIndex);
     }
 }

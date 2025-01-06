@@ -144,13 +144,26 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
 
     function eidAt(uint256) public view virtual returns (uint32);
 
+    function getLiquidityRootAt(uint32 eid, uint256 timestamp) public view returns (bytes32 root) {
+        return liquidityRoots[eid][timestamp];
+    }
+
+    function getDataRootAt(uint32 eid, uint256 timestamp) public view returns (bytes32 root) {
+        return dataRoots[eid][timestamp];
+    }
+
+    function _getRemoteAppOrRevert(address app, uint32 eid) public view returns (address remoteApp) {
+        remoteApp = getRemoteApp(app, eid);
+        if (remoteApp == address(0)) revert RemoteAppNotSet();
+    }
+
     /**
      * @notice Returns the address of the remote application for a local application.
      * @param app The address of the application.
      * @param eid The endpoint ID of the remote chain.
      * @return The remote application's address.
      */
-    function getRemoteApp(address app, uint32 eid) external view returns (address) {
+    function getRemoteApp(address app, uint32 eid) public view returns (address) {
         return _remoteStates[app][eid].app;
     }
 
@@ -465,7 +478,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         uint256[] storage timestamps = rootTimestamps[eid];
         uint256 length = timestamps.length;
         for (uint256 i; i < length && i < MAX_LOOP; ++i) {
-            uint256 ts = timestamps[i - 1];
+            uint256 ts = timestamps[length - i - 1];
             if (state.dataSettled[ts]) return (dataRoots[eid][ts], ts);
         }
     }
@@ -481,7 +494,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         uint256[] storage timestamps = rootTimestamps[eid];
         uint256 length = timestamps.length;
         for (uint256 i; i < length && i < MAX_LOOP; ++i) {
-            uint256 ts = timestamps[i - 1];
+            uint256 ts = timestamps[length - i - 1];
             if (areRootsFinalized(app, eid, ts)) return (dataRoots[eid][ts], ts);
         }
     }
@@ -527,6 +540,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     /**
      * @notice Settles liquidity states directly without batching, verifying the proof for the app-tree root.
      * @param eid The endpoint ID of the remote chain.
+     * @param timestamp The timestamp of the root.
      * @param app The address of the application on the current chain.
      * @param mainTreeIndex the index of app in the liquidity tree on the remote chain.
      * @param mainTreeProof The proof array to verify the app-root within the main tree.
@@ -539,6 +553,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     function settleLiquidity(
         address app,
         uint32 eid,
+        uint256 timestamp,
         uint256 mainTreeIndex,
         bytes32[] memory mainTreeProof,
         address[] calldata accounts,
@@ -546,25 +561,22 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     ) external nonReentrant onlyApp(app) {
         if (accounts.length != liquidity.length) revert InvalidLengths();
 
-        address remoteApp = _remoteStates[app][eid].app;
-        if (remoteApp == address(0)) revert RemoteAppNotSet();
-
-        (bytes32 root, uint256 timestamp) = getLastSyncedLiquidityRoot(eid);
+        bytes32 root = liquidityRoots[eid][timestamp];
         _verifyRoot(
-            remoteApp,
+            _getRemoteAppOrRevert(app, eid),
             ArrayLib.convertToBytes32(accounts),
             ArrayLib.convertToBytes32(liquidity),
             mainTreeIndex,
             mainTreeProof,
             root
         );
-
         _settleLiquidity(SettleLiquidityParams(app, eid, root, timestamp, accounts, liquidity));
     }
 
     /**
      * @notice Finalizes data states directly without batching, verifying the proof for the app-tree root.
      * @param eid The endpoint ID of the remote chain.
+     * @param timestamp The timestamp of the root.
      * @param app The address of the application on the current chain.
      * @param mainTreeIndex the index of app in the data tree on the remote chain.
      * @param mainTreeProof The proof array to verify the app-root within the main tree.
@@ -577,6 +589,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     function settleData(
         address app,
         uint32 eid,
+        uint256 timestamp,
         uint256 mainTreeIndex,
         bytes32[] memory mainTreeProof,
         bytes32[] calldata keys,
@@ -584,12 +597,10 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     ) external nonReentrant onlyApp(app) {
         if (keys.length != values.length) revert InvalidLengths();
 
-        address remoteApp = _remoteStates[app][eid].app;
-        if (remoteApp == address(0)) revert RemoteAppNotSet();
-
-        (bytes32 root, uint256 timestamp) = getLastSyncedDataRoot(eid);
-        _verifyRoot(remoteApp, keys, ArrayLib.hashElements(values), mainTreeIndex, mainTreeProof, root);
-
+        bytes32 root = dataRoots[eid][timestamp];
+        _verifyRoot(
+            _getRemoteAppOrRevert(app, eid), keys, ArrayLib.hashElements(values), mainTreeIndex, mainTreeProof, root
+        );
         _settleData(SettleDataParams(app, eid, root, timestamp, keys, values));
     }
 
