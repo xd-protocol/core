@@ -10,6 +10,8 @@ import { AppMock } from "./mocks/AppMock.sol";
 import { IAppMock } from "./mocks/IAppMock.sol";
 import { BaseSynchronizerTest } from "./BaseSynchronizerTest.sol";
 
+contract Dummy { }
+
 contract SynchronizerRemoteTest is BaseSynchronizerTest {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
@@ -18,7 +20,6 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
 
     Synchronizer local;
     IAppMock localApp;
-    Storage localStorage;
 
     Synchronizer remote;
     IAppMock remoteApp;
@@ -29,6 +30,7 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
     address bob = makeAddr("bob");
     address charlie = makeAddr("charlie");
     address[] users = [alice, bob, charlie];
+    address[] contracts = [address(new Dummy()), address(new Dummy()), address(new Dummy())];
 
     function setUp() public override {
         super.setUp();
@@ -56,9 +58,6 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         local.updateRemoteApp(EID_REMOTE, address(remoteApp));
         changePrank(address(remoteApp), address(remoteApp));
         remote.updateRemoteApp(EID_LOCAL, address(localApp));
-
-        initialize(localStorage);
-        initialize(remoteStorage);
 
         changePrank(owner, owner);
     }
@@ -155,6 +154,50 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         assertEq(_timestamp, timestamp);
         assertEq(local.getFinalizedTotalLiquidity(address(localApp)), totalLiquidity);
         assertEq(local.areRootsFinalized(address(localApp), EID_REMOTE, timestamp), true);
+    }
+
+    function test_settleLiquidity_withSyncContractsOff(bytes32 seed) public {
+        (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
+            _updateLocalLiquidity(remote, remoteApp, remoteStorage, contracts, seed);
+
+        bytes32 liquidityRoot = remoteStorage.mainLiquidityTree.root;
+        bytes32 dataRoot = remoteStorage.mainDataTree.root;
+        uint256 timestamp = vm.getBlockTimestamp();
+        _receiveRoots(local, EID_REMOTE, liquidityRoot, dataRoot, timestamp);
+
+        uint256 mainIndex = 0;
+        bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
+        (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
+        local.settleLiquidity(address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, accounts, liquidity);
+
+        for (uint256 i; i < accounts.length; ++i) {
+            assertEq(localApp.remoteLiquidity(EID_REMOTE, accounts[i]), 0); // not synced
+        }
+        assertEq(localApp.remoteTotalLiquidity(EID_REMOTE), totalLiquidity); // synced
+    }
+
+    function test_settleLiquidity_withSyncContractOn(bytes32 seed) public {
+        // turn on syncContracts
+        localApp.updateSyncContracts(true);
+
+        initialize(remoteStorage);
+        (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
+            _updateLocalLiquidity(remote, remoteApp, remoteStorage, contracts, seed);
+
+        bytes32 liquidityRoot = remoteStorage.mainLiquidityTree.root;
+        bytes32 dataRoot = remoteStorage.mainDataTree.root;
+        uint256 timestamp = vm.getBlockTimestamp();
+        _receiveRoots(local, EID_REMOTE, liquidityRoot, dataRoot, timestamp);
+
+        uint256 mainIndex = 0;
+        bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
+        (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
+        local.settleLiquidity(address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, accounts, liquidity);
+
+        for (uint256 i; i < accounts.length; ++i) {
+            assertEq(localApp.remoteLiquidity(EID_REMOTE, accounts[i]), liquidity[i]); // synced
+        }
+        assertEq(localApp.remoteTotalLiquidity(EID_REMOTE), totalLiquidity); // synced
     }
 
     function test_settleData(bytes32 seed) public {

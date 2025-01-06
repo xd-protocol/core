@@ -41,10 +41,11 @@ contract AppMock is ISynchronizerCallbacks {
         }
     }
 
-    function onUpdateLiquidity(uint32 eid, uint256, address account, int256 liquidity, int256 totalLiquidity)
-        external
-    {
+    function onUpdateLiquidity(uint32 eid, uint256, address account, int256 liquidity) external {
         _remoteLiquidity[eid][account] = liquidity;
+    }
+
+    function onUpdateTotalLiquidity(uint32 eid, uint256, int256 totalLiquidity) external {
         _remoteTotalLiquidity[eid] = totalLiquidity;
     }
 

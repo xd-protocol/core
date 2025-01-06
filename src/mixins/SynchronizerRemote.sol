@@ -102,12 +102,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
 
     event UpdateRemoteApp(uint32 indexed eid, address indexed app, address indexed remoteApp);
     event OnUpdateLiquidityFailure(
-        uint32 indexed eid,
-        uint256 indexed timestamp,
-        address indexed account,
-        int256 liquidity,
-        int256 totalLiquidity,
-        bytes reason
+        uint32 indexed eid, uint256 indexed timestamp, address indexed account, int256 liquidity, bytes reason
     );
     event OnUpdateTotalLiquidityFailure(
         uint32 indexed eid, uint256 indexed timestamp, int256 totalLiquidity, bytes reason
@@ -649,22 +644,26 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         for (uint256 i; i < params.accounts.length; i++) {
             (address account, int256 liquidity) = (params.accounts[i], params.liquidity[i]);
             account = getLocalAccount(params.app, params.eid, account);
+            totalLiquidity += liquidity;
+
             if (account.isContract() && !syncContracts) continue;
 
             SnapshotsLib.Snapshots storage snapshots = state.liquidity[account];
             int256 accLiquidity = snapshots.getAsInt(params.timestamp) + liquidity;
             snapshots.appendAsInt(accLiquidity, params.timestamp);
-            totalLiquidity += liquidity;
 
             try ISynchronizerCallbacks(params.app).onUpdateLiquidity(
-                params.eid, params.timestamp, account, accLiquidity, totalLiquidity
+                params.eid, params.timestamp, account, accLiquidity
             ) { } catch (bytes memory reason) {
-                emit OnUpdateLiquidityFailure(
-                    params.eid, params.timestamp, account, accLiquidity, totalLiquidity, reason
-                );
+                emit OnUpdateLiquidityFailure(params.eid, params.timestamp, account, accLiquidity, reason);
             }
         }
+
         state.totalLiquidity.appendAsInt(totalLiquidity, params.timestamp);
+        try ISynchronizerCallbacks(params.app).onUpdateTotalLiquidity(params.eid, params.timestamp, totalLiquidity) { }
+        catch (bytes memory reason) {
+            emit OnUpdateTotalLiquidityFailure(params.eid, params.timestamp, totalLiquidity, reason);
+        }
 
         emit SettleLiquidity(params.eid, params.app, params.root, params.timestamp);
     }
