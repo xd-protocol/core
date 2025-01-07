@@ -95,6 +95,7 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
         bool registered;
         bool syncContracts;
         mapping(uint32 eid => mapping(address remote => address local)) accountsRemoteToLocal;
+        mapping(uint32 eid => mapping(address local => bool)) remoteAccountMapped;
         SnapshotsLib.Snapshots totalLiquidity;
         mapping(address account => SnapshotsLib.Snapshots) liquidity;
         MerkleTreeLib.Tree liquidityTree;

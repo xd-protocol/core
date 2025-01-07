@@ -5,9 +5,11 @@ import {
     MessagingReceipt,
     MessagingFee
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
-import { ILayerZeroReceiver } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppReceiver.sol";
+import { ILayerZeroReceiver } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroReceiver.sol";
+import { IOAppCore } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppCore.sol";
+import { IOAppReducer } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppReducer.sol";
 
-interface ISynchronizer is ILayerZeroReceiver {
+interface ISynchronizer is ILayerZeroReceiver, IOAppCore, IOAppReducer {
     struct ChainConfig {
         uint32 targetEid;
         uint16 confirmations;
@@ -28,10 +30,12 @@ interface ISynchronizer is ILayerZeroReceiver {
         uint32 eid,
         address app,
         address remoteApp,
-        address[] memory locals,
         address[] memory remotes,
+        address[] memory locals,
         uint128 gasLimit
     ) external view returns (MessagingFee memory fee);
+
+    function getSyncCmd() external view returns (bytes memory);
 
     function getAppSetting(address app) external view returns (bool registered, bool syncContracts);
 
@@ -237,10 +241,10 @@ interface ISynchronizer is ILayerZeroReceiver {
     function sync(uint128 gasLimit, uint32 calldataSize) external payable returns (MessagingReceipt memory fee);
 
     function requestUpdateRemoteAccounts(
-        uint32[] memory eids,
-        address[] memory remoteApps,
-        address[][] memory remotes,
-        address[][] memory locals,
-        uint128[] memory gasLimits
+        uint32 eid,
+        address remoteApp,
+        address[] memory remotes,
+        address[] memory locals,
+        uint128 gasLimit
     ) external payable;
 }

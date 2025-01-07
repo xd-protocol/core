@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
+import {
+    ILayerZeroEndpointV2,
+    MessagingParams,
+    MessagingReceipt,
+    MessagingFee,
+    Origin
+} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { ISynchronizer } from "src/interfaces/ISynchronizer.sol";
 import { MerkleTreeLib } from "src/libraries/MerkleTreeLib.sol";
 import { Test, console } from "forge-std/Test.sol";
@@ -35,12 +42,14 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
     uint16 constant CMD_SYNC = 1;
 
     ISynchronizer local;
-    IAppMock localApp;
+    address localApp;
     Storage localStorage;
 
     ISynchronizer remote;
-    IAppMock remoteApp;
+    address remoteApp;
     Storage remoteStorage;
+
+    mapping(uint32 fromEid => mapping(uint32 toEid => mapping(address fromAccount => address toAccount))) mappedAccounts;
 
     function initialize(Storage storage s) internal {
         s.appLiquidityTree.initialize();
@@ -55,7 +64,7 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
 
     function _updateLocalLiquidity(
         ISynchronizer synchronizer,
-        IAppMock app,
+        address app,
         Storage storage s,
         address[] memory users,
         bytes32 seed
@@ -76,7 +85,8 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
             s.totalLiquidityAt[timestamp] = totalLiquidity;
             s.totalLiquidityTimestamps.push(timestamp);
 
-            (, uint256 index) = app.updateLocalLiquidity(user, l);
+            changePrank(app, app);
+            (, uint256 index) = synchronizer.updateLocalLiquidity(user, l);
             _accounts[index] = user;
             if (size <= index) {
                 size = index + 1;
@@ -116,7 +126,7 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
         }
     }
 
-    function _updateLocalData(ISynchronizer synchronizer, IAppMock app, Storage storage s, bytes32 seed)
+    function _updateLocalData(ISynchronizer synchronizer, address app, Storage storage s, bytes32 seed)
         internal
         returns (bytes32[] memory keys, bytes[] memory values)
     {
@@ -131,7 +141,8 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
             s.dataAt[keys[i]][timestamp] = values[i];
             s.dataTimestamps[keys[i]].push(timestamp);
 
-            app.updateLocalData(keys[i], values[i]);
+            changePrank(app, app);
+            synchronizer.updateLocalData(keys[i], values[i]);
             assertEq(synchronizer.getLocalDataHash(address(app), keys[i]), keccak256(values[i]));
 
             s.appDataTree.update(keys[i], keccak256(values[i]));
@@ -152,29 +163,100 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
         }
     }
 
-    function _receiveRoots(
-        ILayerZeroReceiver receiver,
-        uint32 eid,
-        bytes32 liquidityRoot,
-        bytes32 dataRoot,
-        uint256 timestamp
+    function _sync(ISynchronizer _local)
+        internal
+        returns (bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp)
+    {
+        ISynchronizer[] memory _remotes = new ISynchronizer[](1);
+        _remotes[0] = address(_local) == address(local) ? remote : local;
+        (bytes32[] memory liquidityRoots, bytes32[] memory dataRoots, uint256[] memory timestamps) =
+            _sync(_local, _remotes);
+        return (liquidityRoots[0], dataRoots[0], timestamps[0]);
+    }
+
+    function _sync(ISynchronizer _local, ISynchronizer[] memory _remotes)
+        internal
+        returns (bytes32[] memory liquidityRoots, bytes32[] memory dataRoots, uint256[] memory timestamps)
+    {
+        liquidityRoots = new bytes32[](_remotes.length);
+        dataRoots = new bytes32[](_remotes.length);
+        timestamps = new uint256[](_remotes.length);
+
+        uint128 gasLimit = 200_000 * uint128(_remotes.length);
+        uint32 calldataSize = 128 * uint32(_remotes.length);
+        MessagingFee memory fee = _local.quoteSync(gasLimit, calldataSize);
+        _local.sync{ value: fee.nativeFee }(gasLimit, calldataSize);
+
+        bytes[] memory responses = new bytes[](_remotes.length);
+        for (uint256 i; i < _remotes.length; ++i) {
+            (liquidityRoots[i], dataRoots[i], timestamps[i]) = _remotes[i].getMainRoots();
+            responses[i] = abi.encode(liquidityRoots[i], dataRoots[i], timestamps[i]);
+        }
+        bytes memory payload = _local.lzReduce(_local.getSyncCmd(), responses);
+
+        verifyPackets(_eid(_local), bytes32(uint256(uint160(address(_local)))), 0, address(0), payload);
+
+        for (uint256 i; i < _remotes.length; ++i) {
+            uint32 eid = _eid(_remotes[i]);
+            (bytes32 _liquidityRoot, uint256 _liquidityTimestamp) = _local.getLastSyncedLiquidityRoot(eid);
+            assertEq(_liquidityRoot, liquidityRoots[i]);
+            assertEq(_liquidityTimestamp, timestamps[i]);
+            (bytes32 _dataRoot, uint256 _dataTimestamp) = _local.getLastSyncedDataRoot(eid);
+            assertEq(_dataRoot, dataRoots[i]);
+            assertEq(_dataTimestamp, timestamps[i]);
+        }
+    }
+
+    function _requestUpdateRemoteAccounts(
+        ISynchronizer _local,
+        address _localApp,
+        ISynchronizer _remote,
+        address _remoteApp,
+        address[] memory users
     ) internal {
-        address endpoint = address(IOAppCore(address(receiver)).endpoint());
-        changePrank(endpoint, endpoint);
+        ISynchronizer[] memory remotes = new ISynchronizer[](1);
+        remotes[0] = _remote;
+        address[] memory remoteApps = new address[](1);
+        remoteApps[0] = _remoteApp;
+        _requestUpdateRemoteAccounts(_local, _localApp, remotes, remoteApps, users);
+    }
 
-        Origin memory origin = Origin(DEFAULT_CHANNEL_ID, AddressCast.toBytes32(address(receiver)), 0);
-        uint32[] memory eids = new uint32[](1);
-        eids[0] = eid;
-        bytes32[] memory liquidityRoots = new bytes32[](1);
-        liquidityRoots[0] = liquidityRoot;
-        bytes32[] memory dataRoots = new bytes32[](1);
-        dataRoots[0] = dataRoot;
-        uint256[] memory timestamps = new uint256[](1);
-        timestamps[0] = timestamp;
+    function _requestUpdateRemoteAccounts(
+        ISynchronizer _local,
+        address _localApp,
+        ISynchronizer[] memory remotes,
+        address[] memory remoteApps,
+        address[] memory users
+    ) internal {
+        changePrank(_localApp, _localApp);
+        uint32 fromEid = _local.endpoint().eid();
+        for (uint32 i; i < remotes.length; ++i) {
+            ISynchronizer _remote = remotes[i];
+            uint32 toEid = _remote.endpoint().eid();
+            address[] memory from = new address[](users.length);
+            address[] memory to = new address[](from.length);
+            for (uint256 j; j < to.length; ++j) {
+                from[j] = users[j];
+                to[j] = users[(j + 1) % to.length];
+                mappedAccounts[fromEid][toEid][from[j]] = to[j];
+            }
 
-        receiver.lzReceive(
-            origin, "", abi.encode(CMD_SYNC, eids, liquidityRoots, dataRoots, timestamps), address(0), ""
-        );
+            uint128 gasLimit = uint128(50_000 * to.length);
+            MessagingFee memory fee =
+                _local.quoteRequestUpdateRemoteAccounts(toEid, _localApp, remoteApps[i], from, to, gasLimit);
+            _local.requestUpdateRemoteAccounts{ value: fee.nativeFee }(toEid, remoteApps[i], from, to, gasLimit);
+            verifyPackets(toEid, address(_remote));
+
+            for (uint256 j; j < to.length; ++j) {
+                assertEq(
+                    _remote.getLocalAccount(remoteApps[i], fromEid, from[j]), mappedAccounts[fromEid][toEid][from[j]]
+                );
+            }
+        }
+    }
+
+    function _eid(ISynchronizer synchronizer) internal view returns (uint32) {
+        return ILayerZeroEndpointV2(synchronizer.endpoint()).eid();
     }
 
     function _getMainProof(address app, bytes32 appRoot, uint256 mainIndex) internal pure returns (bytes32[] memory) {

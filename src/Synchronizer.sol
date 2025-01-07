@@ -62,6 +62,7 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
     error AlreadyRequested();
     error InvalidMsgType();
     error InvalidMessage();
+    error RemoteAccountAlreadyMapped();
 
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
@@ -114,7 +115,7 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
     function quoteSync(uint128 gasLimit, uint32 calldataSize) public view returns (MessagingFee memory fee) {
         return _quote(
             READ_CHANNEL,
-            getCmd(),
+            getSyncCmd(),
             OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0),
             false
         );
@@ -146,7 +147,7 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
      * @dev Uses `_computeSettings` to determine the compute settings for the command.
      * @return The encoded command with all configured chain requests.
      */
-    function getCmd() public view returns (bytes memory) {
+    function getSyncCmd() public view returns (bytes memory) {
         uint256 length = _chainConfigs.length;
         EVMCallRequestV1[] memory readRequests = new EVMCallRequestV1[](length);
 
@@ -215,7 +216,7 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
         if (block.timestamp <= _lastSyncRequestTimestamp) revert AlreadyRequested();
         _lastSyncRequestTimestamp = block.timestamp;
 
-        bytes memory cmd = getCmd();
+        bytes memory cmd = getSyncCmd();
         bytes memory options = OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0);
         fee = _lzSend(READ_CHANNEL, cmd, options, MessagingFee(msg.value, 0), payable(msg.sender));
 
@@ -223,30 +224,22 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
     }
 
     function requestUpdateRemoteAccounts(
-        uint32[] memory eids,
-        address[] memory remoteApps,
-        address[][] memory remotes,
-        address[][] memory locals,
-        uint128[] memory gasLimits
+        uint32 eid,
+        address remoteApp,
+        address[] memory locals,
+        address[] memory remotes,
+        uint128 gasLimit
     ) external payable onlyApp(msg.sender) {
-        if (
-            eids.length != remoteApps.length || remoteApps.length != remotes.length || remotes.length != locals.length
-                || locals.length != gasLimits.length
-        ) {
-            revert InvalidLengths();
-        }
+        if (remotes.length != locals.length) revert InvalidLengths();
 
-        for (uint256 i; i < eids.length; ++i) {
-            uint32 eid = eids[i];
-            _lzSend(
-                eid,
-                abi.encode(UPDATE_REMOTE_ACCOUNTS, msg.sender, remoteApps[i], remotes[i], locals[i]),
-                OptionsBuilder.newOptions().addExecutorLzReceiveOption(gasLimits[i], 0),
-                MessagingFee(msg.value, 0),
-                payable(msg.sender)
-            );
-            emit RequestUpdateRemoteAccounts(eid, msg.sender, remoteApps[i], remotes[i], locals[i]);
-        }
+        _lzSend(
+            eid,
+            abi.encode(UPDATE_REMOTE_ACCOUNTS, msg.sender, remoteApp, locals, remotes),
+            OptionsBuilder.newOptions().addExecutorLzReceiveOption(gasLimit, 0),
+            MessagingFee(msg.value, 0),
+            payable(msg.sender)
+        );
+        emit RequestUpdateRemoteAccounts(eid, msg.sender, remoteApp, remotes, locals);
     }
 
     /**
@@ -283,7 +276,9 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
                 AppState storage state = _appStates[app];
                 for (uint256 i; i < remotes.length; ++i) {
                     (address remote, address local) = (remotes[i], locals[i]);
+                    if (state.remoteAccountMapped[eid][local]) revert RemoteAccountAlreadyMapped();
                     state.accountsRemoteToLocal[eid][remote] = local;
+                    state.remoteAccountMapped[eid][local] = true;
                 }
             } else {
                 revert InvalidMsgType();

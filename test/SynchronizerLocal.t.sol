@@ -12,10 +12,6 @@ import { BaseSynchronizerTest } from "./BaseSynchronizerTest.sol";
 contract SynchronizerLocalTest is BaseSynchronizerTest {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
-    SynchronizerLocal synchronizer;
-    IAppMock app;
-    Storage s;
-
     address owner = makeAddr("owner");
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
@@ -26,35 +22,41 @@ contract SynchronizerLocalTest is BaseSynchronizerTest {
         super.setUp();
         setUpEndpoints(1, LibraryType.UltraLightNode);
 
-        synchronizer = new Synchronizer(DEFAULT_CHANNEL_ID, endpoints[1], owner);
-        app = IAppMock(address(new AppMock(address(synchronizer))));
-        initialize(s);
+        local = new Synchronizer(DEFAULT_CHANNEL_ID, endpoints[1], owner);
+        localApp = address(new AppMock(address(local)));
+        initialize(localStorage);
+
+        vm.deal(localApp, 10_000e18);
     }
 
     function test_registerApp() public {
-        app.registerApp(false);
+        changePrank(localApp, localApp);
+        local.registerApp(false);
 
-        (bool registered,) = synchronizer.getAppSetting(address(app));
+        (bool registered,) = local.getAppSetting(localApp);
         assertTrue(registered);
     }
 
     function test_updateSyncContracts() public {
-        app.registerApp(false);
-        app.updateSyncContracts(true);
+        changePrank(localApp, localApp);
+        local.registerApp(false);
+        local.updateSyncContracts(true);
 
-        (, bool syncContracts) = synchronizer.getAppSetting(address(app));
+        (, bool syncContracts) = local.getAppSetting(address(localApp));
         assertTrue(syncContracts);
     }
 
     function test_updateLocalLiquidity(bytes32 seed) public {
-        app.registerApp(false);
+        changePrank(localApp, localApp);
+        local.registerApp(false);
 
-        _updateLocalLiquidity(synchronizer, app, s, users, seed);
+        _updateLocalLiquidity(local, localApp, localStorage, users, seed);
     }
 
     function test_updateLocalData(bytes32 seed) public {
-        app.registerApp(false);
+        changePrank(localApp, localApp);
+        local.registerApp(false);
 
-        _updateLocalData(synchronizer, app, s, seed);
+        _updateLocalData(local, localApp, localStorage, seed);
     }
 }
