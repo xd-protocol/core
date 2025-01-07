@@ -15,16 +15,6 @@ contract Dummy { }
 contract SynchronizerRemoteTest is BaseSynchronizerTest {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
-    uint32 constant EID_LOCAL = 1;
-    uint32 constant EID_REMOTE = 2;
-
-    Synchronizer local;
-    IAppMock localApp;
-
-    Synchronizer remote;
-    IAppMock remoteApp;
-    Storage remoteStorage;
-
     address owner = makeAddr("owner");
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
@@ -37,13 +27,10 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         setUpEndpoints(2, LibraryType.UltraLightNode);
 
         changePrank(owner, owner);
-        local = new Synchronizer(endpoints[EID_LOCAL], owner);
-        remote = new Synchronizer(endpoints[EID_REMOTE], owner);
+        local = new Synchronizer(DEFAULT_CHANNEL_ID, endpoints[EID_LOCAL], owner);
+        remote = new Synchronizer(DEFAULT_CHANNEL_ID, endpoints[EID_REMOTE], owner);
         localApp = IAppMock(address(new AppMock(address(local))));
         remoteApp = IAppMock(address(new AppMock(address(remote))));
-
-        local.setReadChannel(READ_CHANNEL, true);
-        remote.setReadChannel(READ_CHANNEL, true);
 
         ISynchronizer.ChainConfig[] memory configs = new ISynchronizer.ChainConfig[](1);
         configs[0] = ISynchronizer.ChainConfig(EID_REMOTE, 0, address(remote));

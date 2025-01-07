@@ -14,6 +14,7 @@ import {
     MessagingFee,
     ILayerZeroEndpointV2
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
+import { AddressCast } from "@layerzerolabs/lz-evm-protocol-v2/contracts/libs/AddressCast.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
 import { ISynchronizer } from "./interfaces/ISynchronizer.sol";
@@ -44,8 +45,7 @@ contract MirroedOFT is OAppRead, ReentrancyGuard {
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
-    uint32 public constant READ_CHANNEL = 4_294_967_295;
-
+    uint32 public immutable READ_CHANNEL;
     address public immutable synchronizer;
 
     mapping(uint32 eid => uint64) internal _mirrorTransferDelays;
@@ -94,7 +94,10 @@ contract MirroedOFT is OAppRead, ReentrancyGuard {
      */
     constructor(address _synchronizer, address _endpoint, address _owner) OAppRead(_endpoint, _owner) Ownable(_owner) {
         synchronizer = _synchronizer;
+        READ_CHANNEL = ISynchronizer(_synchronizer).READ_CHANNEL();
         _pendingTransfers.push();
+
+        _setPeer(READ_CHANNEL, AddressCast.toBytes32(address(this)));
     }
 
     /*//////////////////////////////////////////////////////////////

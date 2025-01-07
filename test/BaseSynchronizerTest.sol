@@ -22,6 +22,7 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
         mapping(address account => int256) liquidity;
         mapping(address account => mapping(uint256 timestamp => int256)) liquidityAt;
         mapping(address account => uint256[]) liquidityTimestamps;
+        int256 totalLiquidity;
         mapping(uint256 timestamp => int256) totalLiquidityAt;
         uint256[] totalLiquidityTimestamps;
         mapping(bytes32 key => bytes) data;
@@ -29,8 +30,17 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
         mapping(bytes32 key => uint256[]) dataTimestamps;
     }
 
-    uint32 constant READ_CHANNEL = 4_294_967_295;
+    uint32 constant EID_LOCAL = 1;
+    uint32 constant EID_REMOTE = 2;
     uint16 constant CMD_SYNC = 1;
+
+    ISynchronizer local;
+    IAppMock localApp;
+    Storage localStorage;
+
+    ISynchronizer remote;
+    IAppMock remoteApp;
+    Storage remoteStorage;
 
     function initialize(Storage storage s) internal {
         s.appLiquidityTree.initialize();
@@ -62,6 +72,7 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
             s.liquidity[user] = l;
             s.liquidityAt[user][timestamp] = l;
             s.liquidityTimestamps[user].push(timestamp);
+            s.totalLiquidity = totalLiquidity;
             s.totalLiquidityAt[timestamp] = totalLiquidity;
             s.totalLiquidityTimestamps.push(timestamp);
 
@@ -151,7 +162,7 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
         address endpoint = address(IOAppCore(address(receiver)).endpoint());
         changePrank(endpoint, endpoint);
 
-        Origin memory origin = Origin(READ_CHANNEL, AddressCast.toBytes32(address(receiver)), 0);
+        Origin memory origin = Origin(DEFAULT_CHANNEL_ID, AddressCast.toBytes32(address(receiver)), 0);
         uint32[] memory eids = new uint32[](1);
         eids[0] = eid;
         bytes32[] memory liquidityRoots = new bytes32[](1);

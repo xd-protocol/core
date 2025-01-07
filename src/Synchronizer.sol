@@ -14,6 +14,7 @@ import {
     MessagingFee,
     ILayerZeroEndpointV2
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
+import { AddressCast } from "@layerzerolabs/lz-evm-protocol-v2/contracts/libs/AddressCast.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { SynchronizerLocal } from "./mixins/SynchronizerLocal.sol";
 import { SynchronizerRemoteBatched } from "./mixins/SynchronizerRemoteBatched.sol";
@@ -33,9 +34,11 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
-    uint32 public constant READ_CHANNEL = 4_294_967_295;
+    uint32 constant READ_CHANNEL_EID_THRESHOLD = 4_294_965_694;
     uint16 public constant CMD_SYNC = 1;
     uint16 public constant UPDATE_REMOTE_ACCOUNTS = 1;
+
+    uint32 public immutable READ_CHANNEL;
 
     ChainConfig[] internal _chainConfigs;
 
@@ -64,7 +67,11 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
                              CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address _endpoint, address _owner) OAppRead(_endpoint, _owner) Ownable(_owner) { }
+    constructor(uint32 _readChannel, address _endpoint, address _owner) OAppRead(_endpoint, _owner) Ownable(_owner) {
+        READ_CHANNEL = _readChannel;
+
+        _setPeer(_readChannel, AddressCast.toBytes32(address(this)));
+    }
 
     /*//////////////////////////////////////////////////////////////
                              VIEW FUNCTIONS

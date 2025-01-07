@@ -26,7 +26,7 @@ contract SynchronizerLocalTest is BaseSynchronizerTest {
         super.setUp();
         setUpEndpoints(1, LibraryType.UltraLightNode);
 
-        synchronizer = new Synchronizer(endpoints[1], owner);
+        synchronizer = new Synchronizer(DEFAULT_CHANNEL_ID, endpoints[1], owner);
         app = IAppMock(address(new AppMock(address(synchronizer))));
         initialize(s);
     }
