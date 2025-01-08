@@ -44,11 +44,11 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         remote.configChains(configs);
 
         changePrank(localApp, localApp);
-        local.registerApp(false);
+        local.registerApp(true, true);
         local.updateRemoteApp(EID_REMOTE, address(remoteApp));
 
         changePrank(remoteApp, remoteApp);
-        remote.registerApp(false);
+        remote.registerApp(true, true);
         remote.updateRemoteApp(EID_LOCAL, address(localApp));
 
         initialize(localStorage);
@@ -149,6 +149,10 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
     }
 
     function test_settleLiquidity_withSyncContractsOff(bytes32 seed) public {
+        // turn off syncContracts
+        changePrank(localApp, localApp);
+        local.updateSyncContracts(false);
+
         (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
             _updateLocalLiquidity(remote, remoteApp, remoteStorage, contracts, seed);
         _sync(local);
@@ -159,15 +163,36 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         local.settleLiquidity(address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, accounts, liquidity);
 
         for (uint256 i; i < accounts.length; ++i) {
+            assertEq(local.getSettledRemoteLiquidity(localApp, EID_REMOTE, accounts[i]), 0);
             assertEq(IAppMock(localApp).remoteLiquidity(EID_REMOTE, accounts[i]), 0); // not synced
         }
+        assertEq(local.getSettledRemoteTotalLiquidity(localApp, EID_REMOTE), totalLiquidity);
         assertEq(IAppMock(localApp).remoteTotalLiquidity(EID_REMOTE), totalLiquidity); // synced
     }
 
     function test_settleLiquidity_withSyncContractOn(bytes32 seed) public {
-        // turn on syncContracts
+        initialize(remoteStorage);
+        (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
+            _updateLocalLiquidity(remote, remoteApp, remoteStorage, contracts, seed);
+        _sync(local);
+
+        uint256 mainIndex = 0;
+        bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
+        (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
+        local.settleLiquidity(address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, accounts, liquidity);
+
+        for (uint256 i; i < accounts.length; ++i) {
+            assertEq(local.getSettledRemoteLiquidity(localApp, EID_REMOTE, accounts[i]), liquidity[i]);
+            assertEq(IAppMock(localApp).remoteLiquidity(EID_REMOTE, accounts[i]), liquidity[i]); // synced
+        }
+        assertEq(local.getSettledRemoteTotalLiquidity(localApp, EID_REMOTE), totalLiquidity);
+        assertEq(IAppMock(localApp).remoteTotalLiquidity(EID_REMOTE), totalLiquidity); // synced
+    }
+
+    function test_settleLiquidity_withUseCallbacksOff(bytes32 seed) public {
+        // turn off useCallbacks
         changePrank(localApp, localApp);
-        local.updateSyncContracts(true);
+        local.updateUseCallbacks(false);
 
         initialize(remoteStorage);
         (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
@@ -180,9 +205,11 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         local.settleLiquidity(address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, accounts, liquidity);
 
         for (uint256 i; i < accounts.length; ++i) {
-            assertEq(IAppMock(localApp).remoteLiquidity(EID_REMOTE, accounts[i]), liquidity[i]); // synced
+            assertEq(local.getSettledRemoteLiquidity(localApp, EID_REMOTE, accounts[i]), liquidity[i]);
+            assertEq(IAppMock(localApp).remoteLiquidity(EID_REMOTE, accounts[i]), 0); // since callback not used
         }
-        assertEq(IAppMock(localApp).remoteTotalLiquidity(EID_REMOTE), totalLiquidity); // synced
+        assertEq(local.getSettledRemoteTotalLiquidity(localApp, EID_REMOTE), totalLiquidity);
+        assertEq(IAppMock(localApp).remoteTotalLiquidity(EID_REMOTE), 0); // since callback not used
     }
 
     function test_settleLiquidity_withAccountsMapped(bytes32 seed) public {

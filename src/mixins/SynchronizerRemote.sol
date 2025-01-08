@@ -635,6 +635,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     function _settleLiquidity(SettleLiquidityParams memory params) internal {
         AppState storage localState = _appStates[params.app];
         bool syncContracts = localState.syncContracts;
+        bool useCallbacks = localState.useCallbacks;
 
         RemoteState storage state = _remoteStates[params.app][params.eid];
         if (state.liquiditySettled[params.timestamp]) revert LiquidityAlreadySettled();
@@ -652,17 +653,21 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
             int256 accLiquidity = snapshots.getAsInt(params.timestamp) + liquidity;
             snapshots.appendAsInt(accLiquidity, params.timestamp);
 
-            try ISynchronizerCallbacks(params.app).onUpdateLiquidity(
-                params.eid, params.timestamp, account, accLiquidity
-            ) { } catch (bytes memory reason) {
-                emit OnUpdateLiquidityFailure(params.eid, params.timestamp, account, accLiquidity, reason);
+            if (useCallbacks) {
+                try ISynchronizerCallbacks(params.app).onUpdateLiquidity(
+                    params.eid, params.timestamp, account, accLiquidity
+                ) { } catch (bytes memory reason) {
+                    emit OnUpdateLiquidityFailure(params.eid, params.timestamp, account, accLiquidity, reason);
+                }
             }
         }
 
         state.totalLiquidity.appendAsInt(totalLiquidity, params.timestamp);
-        try ISynchronizerCallbacks(params.app).onUpdateTotalLiquidity(params.eid, params.timestamp, totalLiquidity) { }
-        catch (bytes memory reason) {
-            emit OnUpdateTotalLiquidityFailure(params.eid, params.timestamp, totalLiquidity, reason);
+        if (useCallbacks) {
+            try ISynchronizerCallbacks(params.app).onUpdateTotalLiquidity(params.eid, params.timestamp, totalLiquidity)
+            { } catch (bytes memory reason) {
+                emit OnUpdateTotalLiquidityFailure(params.eid, params.timestamp, totalLiquidity, reason);
+            }
         }
 
         emit SettleLiquidity(params.eid, params.app, params.root, params.timestamp);

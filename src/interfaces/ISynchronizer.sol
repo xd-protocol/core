@@ -37,7 +37,10 @@ interface ISynchronizer is ILayerZeroReceiver, IOAppCore, IOAppReducer {
 
     function getSyncCmd() external view returns (bytes memory);
 
-    function getAppSetting(address app) external view returns (bool registered, bool syncContracts);
+    function getAppSetting(address app)
+        external
+        view
+        returns (bool registered, bool syncContracts, bool useCallbacks);
 
     function getLocalAccount(address app, uint32 eid, address remote) external view returns (address local);
 
@@ -159,9 +162,11 @@ interface ISynchronizer is ILayerZeroReceiver, IOAppCore, IOAppReducer {
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    function registerApp(bool syncContracts) external;
+    function registerApp(bool syncContracts, bool useCallbacks) external;
 
     function updateSyncContracts(bool syncContracts) external;
+
+    function updateUseCallbacks(bool useCallbacks) external;
 
     function updateLocalLiquidity(address account, int256 liquidity)
         external

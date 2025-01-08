@@ -94,6 +94,7 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
     struct AppState {
         bool registered;
         bool syncContracts;
+        bool useCallbacks;
         mapping(uint32 eid => mapping(address remote => address local)) accountsRemoteToLocal;
         mapping(uint32 eid => mapping(address local => bool)) remoteAccountMapped;
         SnapshotsLib.Snapshots totalLiquidity;
@@ -172,10 +173,15 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
      * @param app The address of the application.
      * @return registered A boolean indicating whether the application is registered.
      * @return syncContracts A boolean indicating whether contract synchronization is enabled.
+     * @return useCallbacks A boolean indicating whether to listen to ISynchronizerCallbacks.
      */
-    function getAppSetting(address app) external view returns (bool registered, bool syncContracts) {
+    function getAppSetting(address app)
+        external
+        view
+        returns (bool registered, bool syncContracts, bool useCallbacks)
+    {
         AppState storage state = _appStates[app];
-        return (state.registered, state.syncContracts);
+        return (state.registered, state.syncContracts, state.useCallbacks);
     }
 
     /**
@@ -307,12 +313,13 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
     /**
      * @notice Registers a new application, initializing its liquidity and data trees.
      * @param syncContracts A boolean indicating whether contract accounts should be synchronized.
+     * @param useCallbacks A boolean indicating whether to listen to ISynchronizerCallbacks.
      *
      * Requirements:
      * - Caller must be a contract.
      * - App must not already be registered.
      */
-    function registerApp(bool syncContracts) external {
+    function registerApp(bool syncContracts, bool useCallbacks) external {
         if (!msg.sender.isContract()) revert NotContract();
 
         AppState storage state = _appStates[msg.sender];
@@ -320,6 +327,7 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
 
         state.registered = true;
         state.syncContracts = syncContracts;
+        state.useCallbacks = useCallbacks;
 
         state.liquidityTree.initialize();
         state.dataTree.initialize();
@@ -336,6 +344,17 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
      */
     function updateSyncContracts(bool syncContracts) external onlyApp(msg.sender) {
         _appStates[msg.sender].syncContracts = syncContracts;
+    }
+
+    /**
+     * @notice Updates the `useCallbacks` flag for the application.
+     * @param useCallbacks A boolean indicating whether to enable or disable contract synchronization.
+     *
+     * Requirements:
+     * - Caller must be a registered application.
+     */
+    function updateUseCallbacks(bool useCallbacks) external onlyApp(msg.sender) {
+        _appStates[msg.sender].useCallbacks = useCallbacks;
     }
 
     /**

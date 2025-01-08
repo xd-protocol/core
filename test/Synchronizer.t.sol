@@ -43,7 +43,7 @@ contract SynchronizerTest is BaseSynchronizerTest {
         for (uint32 i; i < CHAINS; ++i) {
             vm.deal(apps[i], 1000e18);
             changePrank(apps[i], apps[i]);
-            synchronizers[i].registerApp(false);
+            synchronizers[i].registerApp(false, false);
 
             ISynchronizer.ChainConfig[] memory configs = new ISynchronizer.ChainConfig[](CHAINS - 1);
             uint32 count;

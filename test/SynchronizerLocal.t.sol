@@ -31,31 +31,42 @@ contract SynchronizerLocalTest is BaseSynchronizerTest {
 
     function test_registerApp() public {
         changePrank(localApp, localApp);
-        local.registerApp(false);
+        local.registerApp(true, true);
 
-        (bool registered,) = local.getAppSetting(localApp);
+        (bool registered, bool syncContracts, bool useCallbacks) = local.getAppSetting(localApp);
         assertTrue(registered);
+        assertTrue(syncContracts);
+        assertTrue(useCallbacks);
     }
 
     function test_updateSyncContracts() public {
         changePrank(localApp, localApp);
-        local.registerApp(false);
+        local.registerApp(false, false);
         local.updateSyncContracts(true);
 
-        (, bool syncContracts) = local.getAppSetting(address(localApp));
+        (, bool syncContracts,) = local.getAppSetting(address(localApp));
         assertTrue(syncContracts);
+    }
+
+    function test_updateUseCallbacks() public {
+        changePrank(localApp, localApp);
+        local.registerApp(false, false);
+        local.updateUseCallbacks(true);
+
+        (,, bool useCallbacks) = local.getAppSetting(address(localApp));
+        assertTrue(useCallbacks);
     }
 
     function test_updateLocalLiquidity(bytes32 seed) public {
         changePrank(localApp, localApp);
-        local.registerApp(false);
+        local.registerApp(false, false);
 
         _updateLocalLiquidity(local, localApp, localStorage, users, seed);
     }
 
     function test_updateLocalData(bytes32 seed) public {
         changePrank(localApp, localApp);
-        local.registerApp(false);
+        local.registerApp(false, false);
 
         _updateLocalData(local, localApp, localStorage, seed);
     }
