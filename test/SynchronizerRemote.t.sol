@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { LibString } from "solmate/utils/LibString.sol";
 import { Synchronizer } from "src/Synchronizer.sol";
 import { ISynchronizer } from "src/interfaces/ISynchronizer.sol";
 import { ArrayLib } from "src/libraries/ArrayLib.sol";
@@ -11,14 +10,11 @@ import { AppMock } from "./mocks/AppMock.sol";
 import { IAppMock } from "./mocks/IAppMock.sol";
 import { BaseSynchronizerTest } from "./BaseSynchronizerTest.sol";
 
-contract Dummy { }
-
 contract SynchronizerRemoteTest is BaseSynchronizerTest {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
     address owner = makeAddr("owner");
     address[] users;
-    address[] contracts = [address(new Dummy()), address(new Dummy()), address(new Dummy())];
 
     function setUp() public override {
         super.setUp();
@@ -44,18 +40,18 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         remote.configChains(configs);
 
         changePrank(localApp, localApp);
-        local.registerApp(true, true);
+        local.registerApp(false, true);
         local.updateRemoteApp(EID_REMOTE, address(remoteApp));
 
         changePrank(remoteApp, remoteApp);
-        remote.registerApp(true, true);
+        remote.registerApp(false, true);
         remote.updateRemoteApp(EID_LOCAL, address(localApp));
 
         initialize(localStorage);
         initialize(remoteStorage);
 
         for (uint256 i; i < 100; ++i) {
-            users.push(makeAddr(string(abi.encodePacked("account", LibString.toString(i)))));
+            users.push(makeAddr(string.concat("account", vm.toString(i))));
         }
 
         vm.deal(users[0], 10_000e18);
@@ -148,32 +144,10 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         assertEq(local.areRootsFinalized(address(localApp), EID_REMOTE, timestamp), true);
     }
 
-    function test_settleLiquidity_withSyncContractsOff(bytes32 seed) public {
-        // turn off syncContracts
-        changePrank(localApp, localApp);
-        local.updateSyncContracts(false);
-
-        (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
-            _updateLocalLiquidity(remote, remoteApp, remoteStorage, contracts, seed);
-        _sync(local);
-
-        uint256 mainIndex = 0;
-        bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
-        (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
-        local.settleLiquidity(address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, accounts, liquidity);
-
-        for (uint256 i; i < accounts.length; ++i) {
-            assertEq(local.getSettledRemoteLiquidity(localApp, EID_REMOTE, accounts[i]), 0);
-            assertEq(IAppMock(localApp).remoteLiquidity(EID_REMOTE, accounts[i]), 0); // not synced
-        }
-        assertEq(local.getSettledRemoteTotalLiquidity(localApp, EID_REMOTE), totalLiquidity);
-        assertEq(IAppMock(localApp).remoteTotalLiquidity(EID_REMOTE), totalLiquidity); // synced
-    }
-
-    function test_settleLiquidity_withSyncContractOn(bytes32 seed) public {
+    function test_settleLiquidity_withSyncMappedAccountsOnlyOff(bytes32 seed) public {
         initialize(remoteStorage);
         (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
-            _updateLocalLiquidity(remote, remoteApp, remoteStorage, contracts, seed);
+            _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
         _sync(local);
 
         uint256 mainIndex = 0;
@@ -189,6 +163,28 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         assertEq(IAppMock(localApp).remoteTotalLiquidity(EID_REMOTE), totalLiquidity); // synced
     }
 
+    function test_settleLiquidity_withSyncMappedAccountsOnlyOn(bytes32 seed) public {
+        // turn on syncMappedAccountsOnly
+        changePrank(localApp, localApp);
+        local.updateSyncMappedAccountsOnly(true);
+
+        (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
+            _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
+        _sync(local);
+
+        uint256 mainIndex = 0;
+        bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
+        (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
+        local.settleLiquidity(address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, accounts, liquidity);
+
+        for (uint256 i; i < accounts.length; ++i) {
+            assertEq(local.getSettledRemoteLiquidity(localApp, EID_REMOTE, accounts[i]), 0);
+            assertEq(IAppMock(localApp).remoteLiquidity(EID_REMOTE, accounts[i]), 0); // not synced
+        }
+        assertEq(local.getSettledRemoteTotalLiquidity(localApp, EID_REMOTE), totalLiquidity);
+        assertEq(IAppMock(localApp).remoteTotalLiquidity(EID_REMOTE), totalLiquidity); // synced
+    }
+
     function test_settleLiquidity_withUseCallbacksOff(bytes32 seed) public {
         // turn off useCallbacks
         changePrank(localApp, localApp);
@@ -196,7 +192,7 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
 
         initialize(remoteStorage);
         (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
-            _updateLocalLiquidity(remote, remoteApp, remoteStorage, contracts, seed);
+            _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
         _sync(local);
 
         uint256 mainIndex = 0;
@@ -213,9 +209,8 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
     }
 
     function test_settleLiquidity_withAccountsMapped(bytes32 seed) public {
-        _requestUpdateRemoteAccounts(remote, remoteApp, local, localApp, users);
+        _requestMapRemoteAccounts(remote, remoteApp, local, localApp, users);
         for (uint256 i; i < users.length; ++i) {
-            console.log(users[i]);
             assertNotEq(mappedAccounts[EID_REMOTE][EID_LOCAL][users[i]], address(0));
         }
 
@@ -230,11 +225,11 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         local.settleLiquidity(address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, accounts, liquidity);
 
         for (uint256 i; i < accounts.length; ++i) {
-            address mappedAccount = local.getLocalAccount(localApp, EID_REMOTE, accounts[i]);
-            assertEq(mappedAccount, mappedAccounts[EID_REMOTE][EID_LOCAL][accounts[i]]);
+            address mappedContract = local.getMappedAccount(localApp, EID_REMOTE, accounts[i]);
+            assertEq(mappedContract, mappedAccounts[EID_REMOTE][EID_LOCAL][accounts[i]]);
             assertEq(remote.getLocalLiquidity(remoteApp, accounts[i]), liquidity[i]);
-            assertEq(local.getSettledRemoteLiquidity(localApp, EID_REMOTE, mappedAccount), liquidity[i]);
-            // assertEq(IAppMock(localApp).remoteLiquidity(EID_REMOTE, mappedAccount), liquidity[i]);
+            assertEq(local.getSettledRemoteLiquidity(localApp, EID_REMOTE, mappedContract), liquidity[i]);
+            // assertEq(IAppMock(localApp).remoteLiquidity(EID_REMOTE, mappedContract), liquidity[i]);
         }
         assertEq(IAppMock(localApp).remoteTotalLiquidity(EID_REMOTE), totalLiquidity);
     }

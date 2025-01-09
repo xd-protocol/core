@@ -42,11 +42,11 @@ contract SynchronizerRemoteBatchedTest is BaseSynchronizerTest {
         remote.configChains(configs);
 
         changePrank(localApp, localApp);
-        local.registerApp(true, true);
+        local.registerApp(false, true);
         local.updateRemoteApp(EID_REMOTE, address(remoteApp));
 
         changePrank(remoteApp, remoteApp);
-        remote.registerApp(true, true);
+        remote.registerApp(false, true);
         remote.updateRemoteApp(EID_LOCAL, address(localApp));
 
         initialize(localStorage);

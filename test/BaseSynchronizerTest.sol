@@ -207,49 +207,50 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
         }
     }
 
-    function _requestUpdateRemoteAccounts(
+    function _requestMapRemoteAccounts(
         ISynchronizer _local,
         address _localApp,
         ISynchronizer _remote,
         address _remoteApp,
-        address[] memory users
+        address[] memory contracts
     ) internal {
         ISynchronizer[] memory remotes = new ISynchronizer[](1);
         remotes[0] = _remote;
         address[] memory remoteApps = new address[](1);
         remoteApps[0] = _remoteApp;
-        _requestUpdateRemoteAccounts(_local, _localApp, remotes, remoteApps, users);
+        _requestMapRemoteAccounts(_local, _localApp, remotes, remoteApps, contracts);
     }
 
-    function _requestUpdateRemoteAccounts(
+    function _requestMapRemoteAccounts(
         ISynchronizer _local,
         address _localApp,
         ISynchronizer[] memory remotes,
         address[] memory remoteApps,
-        address[] memory users
+        address[] memory contracts
     ) internal {
         changePrank(_localApp, _localApp);
         uint32 fromEid = _local.endpoint().eid();
         for (uint32 i; i < remotes.length; ++i) {
             ISynchronizer _remote = remotes[i];
             uint32 toEid = _remote.endpoint().eid();
-            address[] memory from = new address[](users.length);
+            address[] memory from = new address[](contracts.length);
             address[] memory to = new address[](from.length);
             for (uint256 j; j < to.length; ++j) {
-                from[j] = users[j];
-                to[j] = users[(j + 1) % to.length];
+                from[j] = contracts[j];
+                to[j] = contracts[(j + 1) % to.length];
                 mappedAccounts[fromEid][toEid][from[j]] = to[j];
+                IAppMock(remoteApps[i]).setShouldMapAccounts(fromEid, from[j], to[j], true);
             }
 
-            uint128 gasLimit = uint128(50_000 * to.length);
+            uint128 gasLimit = uint128(150_000 * to.length);
             MessagingFee memory fee =
-                _local.quoteRequestUpdateRemoteAccounts(toEid, _localApp, remoteApps[i], from, to, gasLimit);
-            _local.requestUpdateRemoteAccounts{ value: fee.nativeFee }(toEid, remoteApps[i], from, to, gasLimit);
+                _local.quoteRequestMapRemoteAccounts(toEid, _localApp, remoteApps[i], from, to, gasLimit);
+            _local.requestMapRemoteAccounts{ value: fee.nativeFee }(toEid, remoteApps[i], from, to, gasLimit);
             verifyPackets(toEid, address(_remote));
 
             for (uint256 j; j < to.length; ++j) {
                 assertEq(
-                    _remote.getLocalAccount(remoteApps[i], fromEid, from[j]), mappedAccounts[fromEid][toEid][from[j]]
+                    _remote.getMappedAccount(remoteApps[i], fromEid, from[j]), mappedAccounts[fromEid][toEid][from[j]]
                 );
             }
         }

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { ISynchronizerCallbacks } from "src/interfaces/ISynchronizerCallbacks.sol";
+import { IAppMock } from "./IAppMock.sol";
 
-contract AppMock is ISynchronizerCallbacks {
+contract AppMock is IAppMock {
     address immutable synchronizer;
+    mapping(uint32 remoteEid => mapping(address remoteAccount => mapping(address localAccont => bool))) public
+        shouldMapAccounts;
 
     mapping(uint32 eid => mapping(address account => int256)) _remoteLiquidity;
     mapping(uint32 eid => int256) _remoteTotalLiquidity;
@@ -26,19 +28,12 @@ contract AppMock is ISynchronizerCallbacks {
         return _remoteData[eid][key];
     }
 
-    fallback() external {
-        address target = synchronizer;
-        assembly {
-            let ptr := mload(0x40)
-            calldatacopy(ptr, 0, calldatasize())
-            let result := call(gas(), target, 0, ptr, calldatasize(), 0, 0)
-            let size := returndatasize()
-            returndatacopy(ptr, 0, size)
+    function setShouldMapAccounts(uint32 eid, address remote, address local, bool shouldMap) external {
+        shouldMapAccounts[eid][remote][local] = shouldMap;
+    }
 
-            switch result
-            case 0 { revert(ptr, size) }
-            default { return(ptr, size) }
-        }
+    function onMapAccounts(uint32 eid, address remoteAccount, address localAccount) external {
+        // Empty
     }
 
     function onUpdateLiquidity(uint32 eid, uint256, address account, int256 liquidity) external {

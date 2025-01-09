@@ -93,10 +93,8 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
 
     struct AppState {
         bool registered;
-        bool syncContracts;
+        bool syncMappedAccountsOnly;
         bool useCallbacks;
-        mapping(uint32 eid => mapping(address remote => address local)) accountsRemoteToLocal;
-        mapping(uint32 eid => mapping(address local => bool)) remoteAccountMapped;
         SnapshotsLib.Snapshots totalLiquidity;
         mapping(address account => SnapshotsLib.Snapshots) liquidity;
         MerkleTreeLib.Tree liquidityTree;
@@ -136,6 +134,7 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
         uint256 appTreeIndex,
         uint256 indexed timestamp
     );
+    event MapAccount(address indexed app, uint32 indexed eid, address remote, address indexed local);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -172,28 +171,16 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
      * @notice Retrieves the registration and synchronization settings for an application.
      * @param app The address of the application.
      * @return registered A boolean indicating whether the application is registered.
-     * @return syncContracts A boolean indicating whether contract synchronization is enabled.
+     * @return syncMappedAccountsOnly A boolean indicating whether to synchronize only mapped accounts.
      * @return useCallbacks A boolean indicating whether to listen to ISynchronizerCallbacks.
      */
     function getAppSetting(address app)
         external
         view
-        returns (bool registered, bool syncContracts, bool useCallbacks)
+        returns (bool registered, bool syncMappedAccountsOnly, bool useCallbacks)
     {
         AppState storage state = _appStates[app];
-        return (state.registered, state.syncContracts, state.useCallbacks);
-    }
-
-    /**
-     * @notice Retrieves the local account address mapped to a given remote account for an application from a specific chain.
-     * @param app The address of the application that owns the mapping.
-     * @param eid The endpoint ID of the remote chain associated with the account mapping.
-     * @param remote The address of the remote account.
-     * @return local The address of the corresponding local account, or `address(0)` if no mapping exists.
-     */
-    function getLocalAccount(address app, uint32 eid, address remote) public view returns (address local) {
-        local = _appStates[app].accountsRemoteToLocal[eid][remote];
-        return local == address(0) ? remote : local;
+        return (state.registered, state.syncMappedAccountsOnly, state.useCallbacks);
     }
 
     /**
@@ -312,21 +299,21 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
 
     /**
      * @notice Registers a new application, initializing its liquidity and data trees.
-     * @param syncContracts A boolean indicating whether contract accounts should be synchronized.
+     * @param syncMappedAccountsOnly A boolean indicating whether contract accounts should be synchronized.
      * @param useCallbacks A boolean indicating whether to listen to ISynchronizerCallbacks.
      *
      * Requirements:
      * - Caller must be a contract.
      * - App must not already be registered.
      */
-    function registerApp(bool syncContracts, bool useCallbacks) external {
+    function registerApp(bool syncMappedAccountsOnly, bool useCallbacks) external {
         if (!msg.sender.isContract()) revert NotContract();
 
         AppState storage state = _appStates[msg.sender];
         if (state.registered) revert AlreadyRegistered();
 
         state.registered = true;
-        state.syncContracts = syncContracts;
+        state.syncMappedAccountsOnly = syncMappedAccountsOnly;
         state.useCallbacks = useCallbacks;
 
         state.liquidityTree.initialize();
@@ -336,14 +323,14 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
     }
 
     /**
-     * @notice Updates the `syncContracts` flag for the application.
-     * @param syncContracts A boolean indicating whether to enable or disable contract synchronization.
+     * @notice Updates the `syncMappedAccountsOnly` flag for the application.
+     * @param syncMappedAccountsOnly A boolean indicating whether to enable or disable contract synchronization.
      *
      * Requirements:
      * - Caller must be a registered application.
      */
-    function updateSyncContracts(bool syncContracts) external onlyApp(msg.sender) {
-        _appStates[msg.sender].syncContracts = syncContracts;
+    function updateSyncMappedAccountsOnly(bool syncMappedAccountsOnly) external onlyApp(msg.sender) {
+        _appStates[msg.sender].syncMappedAccountsOnly = syncMappedAccountsOnly;
     }
 
     /**
@@ -378,9 +365,9 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
         int256 prevLiquidity = state.liquidity[account].getLastAsInt();
         // optimization
         if (liquidity != prevLiquidity) {
-            state.liquidity[account].appendAsInt(liquidity);
+            state.liquidity[account].setAsInt(liquidity);
             int256 prevTotalLiquidity = state.totalLiquidity.getLastAsInt();
-            state.totalLiquidity.appendAsInt(prevTotalLiquidity + liquidity - prevLiquidity);
+            state.totalLiquidity.setAsInt(prevTotalLiquidity + liquidity - prevLiquidity);
         }
 
         emit UpdateLocalLiquidity(app, mainTreeIndex, account, liquidity, appTreeIndex, block.timestamp);
@@ -410,7 +397,7 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
         bytes32 prevHash = state.dataHashes[key].getLast();
         // optimization
         if (hash != prevHash) {
-            state.dataHashes[key].append(hash);
+            state.dataHashes[key].set(hash);
         }
 
         emit UpdateLocalData(app, mainTreeIndex, key, value, hash, appTreeIndex, block.timestamp);

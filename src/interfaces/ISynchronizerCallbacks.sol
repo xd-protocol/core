@@ -2,6 +2,8 @@
 pragma solidity ^0.8.0;
 
 interface ISynchronizerCallbacks {
+    function onMapAccounts(uint32 eid, address remoteAccount, address localAccount) external;
+
     function onUpdateLiquidity(uint32 eid, uint256 timestamp, address account, int256 liquidity) external;
 
     function onUpdateTotalLiquidity(uint32 eid, uint256 timestamp, int256 totalLiquidity) external;

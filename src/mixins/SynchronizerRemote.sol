@@ -8,6 +8,7 @@ import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
 import { SnapshotsLib } from "../libraries/SnapshotsLib.sol";
 import { SynchronizerLocal } from "./SynchronizerLocal.sol";
 import { ISynchronizerCallbacks } from "../interfaces/ISynchronizerCallbacks.sol";
+import { ISynchronizerAccountMapper } from "../interfaces/ISynchronizerAccountMapper.sol";
 
 /**
  * @title SynchronizerRemote
@@ -59,6 +60,8 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
 
     struct RemoteState {
         address app;
+        mapping(address remote => address local) mappedAccounts;
+        mapping(address local => bool) localAccountMapped;
         SnapshotsLib.Snapshots totalLiquidity;
         mapping(address account => SnapshotsLib.Snapshots) liquidity;
         mapping(bytes32 key => SnapshotsLib.Snapshots) dataHashes;
@@ -130,6 +133,9 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     error LiquidityAlreadySettled();
     error DataAlreadySettled();
     error InvalidRoot();
+    error RemoteAccountAlreadyMapped(uint32 remoteEid, address remoteAccount);
+    error LocalAccountAlreadyMapped(uint32 remoteEid, address localAccount);
+    error AccountsNotMapped(uint32 remoteEid, address remoteAccount, address localAccount);
 
     /*//////////////////////////////////////////////////////////////
                              VIEW FUNCTIONS
@@ -138,6 +144,29 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     function eidsLength() public view virtual returns (uint256);
 
     function eidAt(uint256) public view virtual returns (uint32);
+
+    /**
+     * @notice Retrieves the local account mapped to a given remote account for an application from a specific chain.
+     * @param app The address of the application that owns the mapping.
+     * @param eid The endpoint ID of the remote chain associated with the account mapping.
+     * @param remote The address of the remote account.
+     * @return local The address of the corresponding local account, or `address(0)` if no mapping exists.
+     */
+    function getMappedAccount(address app, uint32 eid, address remote) external view returns (address local) {
+        local = _remoteStates[app][eid].mappedAccounts[remote];
+        return local == address(0) ? remote : local;
+    }
+
+    /**
+     * @notice Retrieves whether the local account was mapped for an application from a specific chain.
+     * @param app The address of the application that owns the mapping.
+     * @param eid The endpoint ID of the remote chain associated with the account mapping.
+     * @param local The address of the local account.
+     * @return `true` if the local account was mapped, `false` otherwise.
+     */
+    function isLocalAccountMapped(address app, uint32 eid, address local) external view returns (bool) {
+        return _remoteStates[app][eid].localAccountMapped[local];
+    }
 
     function getLiquidityRootAt(uint32 eid, uint256 timestamp) public view returns (bytes32 root) {
         return liquidityRoots[eid][timestamp];
@@ -634,7 +663,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
 
     function _settleLiquidity(SettleLiquidityParams memory params) internal {
         AppState storage localState = _appStates[params.app];
-        bool syncContracts = localState.syncContracts;
+        bool syncMappedAccountsOnly = localState.syncMappedAccountsOnly;
         bool useCallbacks = localState.useCallbacks;
 
         RemoteState storage state = _remoteStates[params.app][params.eid];
@@ -644,25 +673,28 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         int256 totalLiquidity;
         for (uint256 i; i < params.accounts.length; i++) {
             (address account, int256 liquidity) = (params.accounts[i], params.liquidity[i]);
-            account = getLocalAccount(params.app, params.eid, account);
             totalLiquidity += liquidity;
 
-            if (account.isContract() && !syncContracts) continue;
+            address _account = state.mappedAccounts[account];
+            if (syncMappedAccountsOnly && _account == address(0)) continue;
+            if (_account == address(0)) {
+                _account = account;
+            }
 
-            SnapshotsLib.Snapshots storage snapshots = state.liquidity[account];
+            SnapshotsLib.Snapshots storage snapshots = state.liquidity[_account];
             int256 accLiquidity = snapshots.getAsInt(params.timestamp) + liquidity;
-            snapshots.appendAsInt(accLiquidity, params.timestamp);
+            snapshots.setAsInt(accLiquidity, params.timestamp);
 
             if (useCallbacks) {
                 try ISynchronizerCallbacks(params.app).onUpdateLiquidity(
-                    params.eid, params.timestamp, account, accLiquidity
+                    params.eid, params.timestamp, _account, accLiquidity
                 ) { } catch (bytes memory reason) {
-                    emit OnUpdateLiquidityFailure(params.eid, params.timestamp, account, accLiquidity, reason);
+                    emit OnUpdateLiquidityFailure(params.eid, params.timestamp, _account, accLiquidity, reason);
                 }
             }
         }
 
-        state.totalLiquidity.appendAsInt(totalLiquidity, params.timestamp);
+        state.totalLiquidity.setAsInt(totalLiquidity, params.timestamp);
         if (useCallbacks) {
             try ISynchronizerCallbacks(params.app).onUpdateTotalLiquidity(params.eid, params.timestamp, totalLiquidity)
             { } catch (bytes memory reason) {
@@ -682,7 +714,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
             (bytes32 key, bytes memory value) = (params.keys[i], params.values[i]);
 
             bytes32 hash = keccak256(value);
-            state.dataHashes[key].append(hash, params.timestamp);
+            state.dataHashes[key].set(hash, params.timestamp);
 
             try ISynchronizerCallbacks(params.app).onUpdateData(params.eid, params.timestamp, key, value) { }
             catch (bytes memory reason) {
@@ -712,5 +744,38 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         dataRoots[eid][timestamp] = dataRoot;
 
         emit OnReceiveRoots(eid, liquidityRoot, dataRoot, timestamp);
+    }
+
+    function _mapRemoteAccounts(address app, uint32 eid, address[] memory remotes, address[] memory locals) internal {
+        // guaranteed that remotes and locals have same lengths
+        // see `requestMapRemoteAccounts()`
+        bool useCallbacks = _appStates[app].useCallbacks;
+        RemoteState storage state = _remoteStates[app][eid];
+        for (uint256 i; i < remotes.length; ++i) {
+            (address remote, address local) = (remotes[i], locals[i]);
+            // guaranteed that remote isn't address(0) nor local isn't address(0)
+            // see `requestMapRemoteAccounts()`
+            // only 1-1 mapping between remote-local is allowed and it can't be changed once set
+            if (state.mappedAccounts[remote] != address(0)) revert RemoteAccountAlreadyMapped(eid, remote);
+            if (state.localAccountMapped[local]) revert LocalAccountAlreadyMapped(eid, local);
+            if (!ISynchronizerAccountMapper(app).shouldMapAccounts(eid, remote, local)) {
+                revert AccountsNotMapped(eid, remote, local);
+            }
+            state.mappedAccounts[remote] = local;
+            state.localAccountMapped[local] = true;
+
+            // after mapping, `remote` account's liquidity is set to 0
+            // and that amount is aggregated to `local` account's liquidity
+            int256 prevRemote = state.liquidity[remote].getLastAsInt();
+            state.liquidity[remote].setAsInt(0);
+            int256 prevLocal = state.liquidity[local].getLastAsInt();
+            state.liquidity[local].setAsInt(prevLocal + prevRemote);
+
+            if (useCallbacks) {
+                ISynchronizerCallbacks(app).onMapAccounts(eid, remote, local);
+            }
+
+            emit MapAccount(app, eid, remote, local);
+        }
     }
 }

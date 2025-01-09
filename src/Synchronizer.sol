@@ -36,7 +36,7 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
     //////////////////////////////////////////////////////////////*/
     uint32 constant READ_CHANNEL_EID_THRESHOLD = 4_294_965_694;
     uint16 public constant CMD_SYNC = 1;
-    uint16 public constant UPDATE_REMOTE_ACCOUNTS = 1;
+    uint16 public constant MAP_REMOTE_ACCOUNTS = 1;
 
     uint32 public immutable READ_CHANNEL;
 
@@ -48,8 +48,8 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
     event Sync(address indexed caller);
-    event RequestUpdateRemoteAccounts(
-        uint32 indexed eid, address indexed app, address indexed remoteApp, address[] locals, address[] remotes
+    event RequestMapRemoteAccounts(
+        address indexed app, uint32 indexed eid, address indexed remoteApp, address[] locals, address[] remotes
     );
 
     /*//////////////////////////////////////////////////////////////
@@ -62,7 +62,6 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
     error AlreadyRequested();
     error InvalidMsgType();
     error InvalidMessage();
-    error RemoteAccountAlreadyMapped();
 
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
@@ -126,7 +125,7 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
      * @param gasLimit The amount of gas to allocate for the executor.
      * @return fee The estimated messaging fee for the request.
      */
-    function quoteRequestUpdateRemoteAccounts(
+    function quoteRequestMapRemoteAccounts(
         uint32 eid,
         address app,
         address remoteApp,
@@ -136,7 +135,7 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
     ) public view returns (MessagingFee memory fee) {
         return _quote(
             eid,
-            abi.encode(UPDATE_REMOTE_ACCOUNTS, app, remoteApp, locals, remotes),
+            abi.encode(MAP_REMOTE_ACCOUNTS, app, remoteApp, locals, remotes),
             OptionsBuilder.newOptions().addExecutorLzReceiveOption(gasLimit, 0),
             false
         );
@@ -223,7 +222,7 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
         emit Sync(msg.sender);
     }
 
-    function requestUpdateRemoteAccounts(
+    function requestMapRemoteAccounts(
         uint32 eid,
         address remoteApp,
         address[] memory locals,
@@ -231,15 +230,19 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
         uint128 gasLimit
     ) external payable onlyApp(msg.sender) {
         if (remotes.length != locals.length) revert InvalidLengths();
+        for (uint256 i; i < locals.length; ++i) {
+            (address local, address remote) = (locals[i], remotes[i]);
+            if (local == address(0) || remote == address(0)) revert InvalidAddress();
+        }
 
         _lzSend(
             eid,
-            abi.encode(UPDATE_REMOTE_ACCOUNTS, msg.sender, remoteApp, locals, remotes),
+            abi.encode(MAP_REMOTE_ACCOUNTS, msg.sender, remoteApp, locals, remotes),
             OptionsBuilder.newOptions().addExecutorLzReceiveOption(gasLimit, 0),
             MessagingFee(msg.value, 0),
             payable(msg.sender)
         );
-        emit RequestUpdateRemoteAccounts(eid, msg.sender, remoteApp, remotes, locals);
+        emit RequestMapRemoteAccounts(msg.sender, eid, remoteApp, remotes, locals);
     }
 
     /**
@@ -267,19 +270,13 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
             }
         } else {
             uint16 msgType = abi.decode(_message, (uint16));
-            if (msgType == UPDATE_REMOTE_ACCOUNTS) {
+            if (msgType == MAP_REMOTE_ACCOUNTS) {
                 uint32 eid = _origin.srcEid;
                 (, address remoteApp, address app, address[] memory remotes, address[] memory locals) =
                     abi.decode(_message, (uint16, address, address, address[], address[]));
                 if (_remoteStates[app][eid].app != remoteApp) revert Forbidden();
 
-                AppState storage state = _appStates[app];
-                for (uint256 i; i < remotes.length; ++i) {
-                    (address remote, address local) = (remotes[i], locals[i]);
-                    if (state.remoteAccountMapped[eid][local]) revert RemoteAccountAlreadyMapped();
-                    state.accountsRemoteToLocal[eid][remote] = local;
-                    state.remoteAccountMapped[eid][local] = true;
-                }
+                _mapRemoteAccounts(app, eid, remotes, locals);
             } else {
                 revert InvalidMsgType();
             }

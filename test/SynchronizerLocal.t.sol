@@ -33,19 +33,19 @@ contract SynchronizerLocalTest is BaseSynchronizerTest {
         changePrank(localApp, localApp);
         local.registerApp(true, true);
 
-        (bool registered, bool syncContracts, bool useCallbacks) = local.getAppSetting(localApp);
+        (bool registered, bool syncMappedAccountsOnly, bool useCallbacks) = local.getAppSetting(localApp);
         assertTrue(registered);
-        assertTrue(syncContracts);
+        assertTrue(syncMappedAccountsOnly);
         assertTrue(useCallbacks);
     }
 
-    function test_updateSyncContracts() public {
+    function test_updateMappedAccountsOnly() public {
         changePrank(localApp, localApp);
         local.registerApp(false, false);
-        local.updateSyncContracts(true);
+        local.updateSyncMappedAccountsOnly(true);
 
-        (, bool syncContracts,) = local.getAppSetting(address(localApp));
-        assertTrue(syncContracts);
+        (, bool syncMappedAccountsOnly,) = local.getAppSetting(address(localApp));
+        assertTrue(syncMappedAccountsOnly);
     }
 
     function test_updateUseCallbacks() public {

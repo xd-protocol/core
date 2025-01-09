@@ -26,7 +26,7 @@ interface ISynchronizer is ILayerZeroReceiver, IOAppCore, IOAppReducer {
 
     function quoteSync(uint128 gasLimit, uint32 calldataSize) external view returns (MessagingFee memory fee);
 
-    function quoteRequestUpdateRemoteAccounts(
+    function quoteRequestMapRemoteAccounts(
         uint32 eid,
         address app,
         address remoteApp,
@@ -40,9 +40,7 @@ interface ISynchronizer is ILayerZeroReceiver, IOAppCore, IOAppReducer {
     function getAppSetting(address app)
         external
         view
-        returns (bool registered, bool syncContracts, bool useCallbacks);
-
-    function getLocalAccount(address app, uint32 eid, address remote) external view returns (address local);
+        returns (bool registered, bool syncMappedAccountsOnly, bool useCallbacks);
 
     function getLocalTotalLiquidity(address app) external view returns (int256 liquidity);
 
@@ -68,6 +66,10 @@ interface ISynchronizer is ILayerZeroReceiver, IOAppCore, IOAppReducer {
     function getMainLiquidityRoot() external view returns (bytes32);
 
     function getMainDataRoot() external view returns (bytes32);
+
+    function getMappedAccount(address app, uint32 eid, address remote) external view returns (address local);
+
+    function isLocalAccountMapped(address app, uint32 eid, address local) external view returns (bool);
 
     function getLiquidityRootAt(uint32 eid, uint256 timestamp) external view returns (bytes32 root);
 
@@ -162,9 +164,9 @@ interface ISynchronizer is ILayerZeroReceiver, IOAppCore, IOAppReducer {
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    function registerApp(bool syncContracts, bool useCallbacks) external;
+    function registerApp(bool syncMappedAccountsOnly, bool useCallbacks) external;
 
-    function updateSyncContracts(bool syncContracts) external;
+    function updateSyncMappedAccountsOnly(bool syncMappedAccountsOnly) external;
 
     function updateUseCallbacks(bool useCallbacks) external;
 
@@ -245,7 +247,7 @@ interface ISynchronizer is ILayerZeroReceiver, IOAppCore, IOAppReducer {
 
     function sync(uint128 gasLimit, uint32 calldataSize) external payable returns (MessagingReceipt memory fee);
 
-    function requestUpdateRemoteAccounts(
+    function requestMapRemoteAccounts(
         uint32 eid,
         address remoteApp,
         address[] memory remotes,

@@ -2,7 +2,6 @@
 pragma solidity ^0.8.28;
 
 import { MessagingFee } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
-import { LibString } from "solmate/utils/LibString.sol";
 import { Synchronizer } from "src/Synchronizer.sol";
 import { ISynchronizer } from "src/interfaces/ISynchronizer.sol";
 import { ArrayLib } from "src/libraries/ArrayLib.sol";
@@ -59,7 +58,7 @@ contract SynchronizerTest is BaseSynchronizerTest {
         }
 
         for (uint256 i; i < 100; ++i) {
-            users.push(makeAddr(string(abi.encodePacked("account", LibString.toString(i)))));
+            users.push(makeAddr(string.concat("account", vm.toString(i))));
         }
 
         vm.deal(users[0], 10_000e18);
@@ -76,13 +75,13 @@ contract SynchronizerTest is BaseSynchronizerTest {
         _sync(synchronizers[0], remotes);
     }
 
-    function test_requestUpdateRemoteAccounts() public {
+    function test_requestMapRemoteAccounts() public {
         ISynchronizer[] memory remotes = new ISynchronizer[](CHAINS - 1);
         address[] memory remoteApps = new address[](CHAINS - 1);
         for (uint32 i = 1; i < CHAINS; ++i) {
             remotes[i - 1] = synchronizers[i];
             remoteApps[i - 1] = apps[i];
         }
-        _requestUpdateRemoteAccounts(synchronizers[0], apps[0], remotes, remoteApps, users);
+        _requestMapRemoteAccounts(synchronizers[0], apps[0], remotes, remoteApps, users);
     }
 }
