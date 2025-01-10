@@ -8,7 +8,7 @@ import {
     MessagingFee,
     Origin
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
-import { ISynchronizer } from "src/interfaces/ISynchronizer.sol";
+import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { MerkleTreeLib } from "src/libraries/MerkleTreeLib.sol";
 import { Test, console } from "forge-std/Test.sol";
 import { AddressCast } from "@layerzerolabs/lz-evm-protocol-v2/contracts/libs/AddressCast.sol";
@@ -18,7 +18,7 @@ import { IOAppCore } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOA
 import { TestHelperOz5 } from "@layerzerolabs/test-devtools-evm-foundry/contracts/TestHelperOz5.sol";
 import { IAppMock } from "./mocks/IAppMock.sol";
 
-abstract contract BaseSynchronizerTest is TestHelperOz5 {
+abstract contract BaseLiquidityMatrixTest is TestHelperOz5 {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
     struct Storage {
@@ -41,11 +41,11 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
     uint32 constant EID_REMOTE = 2;
     uint16 constant CMD_SYNC = 1;
 
-    ISynchronizer local;
+    ILiquidityMatrix local;
     address localApp;
     Storage localStorage;
 
-    ISynchronizer remote;
+    ILiquidityMatrix remote;
     address remoteApp;
     Storage remoteStorage;
 
@@ -63,7 +63,7 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
     }
 
     function _updateLocalLiquidity(
-        ISynchronizer synchronizer,
+        ILiquidityMatrix liquidityMatrix,
         address app,
         Storage storage s,
         address[] memory users,
@@ -86,18 +86,18 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
             s.totalLiquidityTimestamps.push(timestamp);
 
             changePrank(app, app);
-            (, uint256 index) = synchronizer.updateLocalLiquidity(user, l);
+            (, uint256 index) = liquidityMatrix.updateLocalLiquidity(user, l);
             _accounts[index] = user;
             if (size <= index) {
                 size = index + 1;
             }
-            assertEq(synchronizer.getLocalLiquidity(address(app), user), l);
-            assertEq(synchronizer.getLocalTotalLiquidity(address(app)), totalLiquidity);
+            assertEq(liquidityMatrix.getLocalLiquidity(address(app), user), l);
+            assertEq(liquidityMatrix.getLocalTotalLiquidity(address(app)), totalLiquidity);
 
             s.appLiquidityTree.update(bytes32(uint256(uint160(user))), bytes32(uint256(l)));
-            assertEq(synchronizer.getLocalLiquidityRoot(address(app)), s.appLiquidityTree.root);
+            assertEq(liquidityMatrix.getLocalLiquidityRoot(address(app)), s.appLiquidityTree.root);
             s.mainLiquidityTree.update(bytes32(uint256(uint160(address(app)))), s.appLiquidityTree.root);
-            assertEq(synchronizer.getMainLiquidityRoot(), s.mainLiquidityTree.root);
+            assertEq(liquidityMatrix.getMainLiquidityRoot(), s.mainLiquidityTree.root);
 
             skip(uint256(seed) % 1000);
             seed = keccak256(abi.encodePacked(seed, i));
@@ -108,13 +108,13 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
             for (uint256 j; j < s.liquidityTimestamps[user].length; ++j) {
                 uint256 timestamp = s.liquidityTimestamps[user][j];
                 assertEq(
-                    synchronizer.getLocalLiquidityAt(address(app), user, timestamp), s.liquidityAt[user][timestamp]
+                    liquidityMatrix.getLocalLiquidityAt(address(app), user, timestamp), s.liquidityAt[user][timestamp]
                 );
             }
         }
         for (uint256 i; i < s.totalLiquidityTimestamps.length; ++i) {
             uint256 timestamp = s.totalLiquidityTimestamps[i];
-            assertEq(synchronizer.getLocalTotalLiquidityAt(address(app), timestamp), s.totalLiquidityAt[timestamp]);
+            assertEq(liquidityMatrix.getLocalTotalLiquidityAt(address(app), timestamp), s.totalLiquidityAt[timestamp]);
         }
 
         accounts = new address[](size);
@@ -126,7 +126,7 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
         }
     }
 
-    function _updateLocalData(ISynchronizer synchronizer, address app, Storage storage s, bytes32 seed)
+    function _updateLocalData(ILiquidityMatrix liquidityMatrix, address app, Storage storage s, bytes32 seed)
         internal
         returns (bytes32[] memory keys, bytes[] memory values)
     {
@@ -142,13 +142,13 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
             s.dataTimestamps[keys[i]].push(timestamp);
 
             changePrank(app, app);
-            synchronizer.updateLocalData(keys[i], values[i]);
-            assertEq(synchronizer.getLocalDataHash(address(app), keys[i]), keccak256(values[i]));
+            liquidityMatrix.updateLocalData(keys[i], values[i]);
+            assertEq(liquidityMatrix.getLocalDataHash(address(app), keys[i]), keccak256(values[i]));
 
             s.appDataTree.update(keys[i], keccak256(values[i]));
-            assertEq(synchronizer.getLocalDataRoot(address(app)), s.appDataTree.root);
+            assertEq(liquidityMatrix.getLocalDataRoot(address(app)), s.appDataTree.root);
             s.mainDataTree.update(bytes32(uint256(uint160(address(app)))), s.appDataTree.root);
-            assertEq(synchronizer.getMainDataRoot(), s.mainDataTree.root);
+            assertEq(liquidityMatrix.getMainDataRoot(), s.mainDataTree.root);
 
             seed = keccak256(abi.encodePacked(values[i], i));
         }
@@ -157,24 +157,25 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
             for (uint256 j; j < s.dataTimestamps[key].length; ++j) {
                 uint256 timestamp = s.dataTimestamps[key][j];
                 assertEq(
-                    synchronizer.getLocalDataHashAt(address(app), key, timestamp), keccak256(s.dataAt[key][timestamp])
+                    liquidityMatrix.getLocalDataHashAt(address(app), key, timestamp),
+                    keccak256(s.dataAt[key][timestamp])
                 );
             }
         }
     }
 
-    function _sync(ISynchronizer _local)
+    function _sync(ILiquidityMatrix _local)
         internal
         returns (bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp)
     {
-        ISynchronizer[] memory _remotes = new ISynchronizer[](1);
+        ILiquidityMatrix[] memory _remotes = new ILiquidityMatrix[](1);
         _remotes[0] = address(_local) == address(local) ? remote : local;
         (bytes32[] memory liquidityRoots, bytes32[] memory dataRoots, uint256[] memory timestamps) =
             _sync(_local, _remotes);
         return (liquidityRoots[0], dataRoots[0], timestamps[0]);
     }
 
-    function _sync(ISynchronizer _local, ISynchronizer[] memory _remotes)
+    function _sync(ILiquidityMatrix _local, ILiquidityMatrix[] memory _remotes)
         internal
         returns (bytes32[] memory liquidityRoots, bytes32[] memory dataRoots, uint256[] memory timestamps)
     {
@@ -208,13 +209,13 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
     }
 
     function _requestMapRemoteAccounts(
-        ISynchronizer _local,
+        ILiquidityMatrix _local,
         address _localApp,
-        ISynchronizer _remote,
+        ILiquidityMatrix _remote,
         address _remoteApp,
         address[] memory contracts
     ) internal {
-        ISynchronizer[] memory remotes = new ISynchronizer[](1);
+        ILiquidityMatrix[] memory remotes = new ILiquidityMatrix[](1);
         remotes[0] = _remote;
         address[] memory remoteApps = new address[](1);
         remoteApps[0] = _remoteApp;
@@ -222,16 +223,16 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
     }
 
     function _requestMapRemoteAccounts(
-        ISynchronizer _local,
+        ILiquidityMatrix _local,
         address _localApp,
-        ISynchronizer[] memory remotes,
+        ILiquidityMatrix[] memory remotes,
         address[] memory remoteApps,
         address[] memory contracts
     ) internal {
         changePrank(_localApp, _localApp);
         uint32 fromEid = _local.endpoint().eid();
         for (uint32 i; i < remotes.length; ++i) {
-            ISynchronizer _remote = remotes[i];
+            ILiquidityMatrix _remote = remotes[i];
             uint32 toEid = _remote.endpoint().eid();
             address[] memory from = new address[](contracts.length);
             address[] memory to = new address[](from.length);
@@ -256,8 +257,8 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
         }
     }
 
-    function _eid(ISynchronizer synchronizer) internal view returns (uint32) {
-        return ILayerZeroEndpointV2(synchronizer.endpoint()).eid();
+    function _eid(ILiquidityMatrix liquidityMatrix) internal view returns (uint32) {
+        return ILayerZeroEndpointV2(liquidityMatrix.endpoint()).eid();
     }
 
     function _getMainProof(address app, bytes32 appRoot, uint256 mainIndex) internal pure returns (bytes32[] memory) {

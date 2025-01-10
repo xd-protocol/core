@@ -9,7 +9,7 @@ import { ILayerZeroReceiver } from "@layerzerolabs/lz-evm-protocol-v2/contracts/
 import { IOAppCore } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppCore.sol";
 import { IOAppReducer } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppReducer.sol";
 
-interface ISynchronizer is ILayerZeroReceiver, IOAppCore, IOAppReducer {
+interface ILiquidityMatrix is ILayerZeroReceiver, IOAppCore, IOAppReducer {
     struct ChainConfig {
         uint32 targetEid;
         uint16 confirmations;

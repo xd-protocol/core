@@ -5,10 +5,10 @@ import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
 import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
 import { SnapshotsLib } from "../libraries/SnapshotsLib.sol";
-import { ISynchronizer } from "../interfaces/ISynchronizer.sol";
+import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
 
 /**
- * @title SynchronizerLocal
+ * @title LiquidityMatrixLocal
  * @dev A contract managing hierarchical Merkle trees to track and synchronize liquidity and data updates across applications.
  *
  * ## Architecture Overview:
@@ -82,7 +82,7 @@ import { ISynchronizer } from "../interfaces/ISynchronizer.sol";
  *    - Allows querying of the current roots of the main liquidity and data trees.
  *    - Enables synchronization across chains or with off-chain systems.
  */
-abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
+abstract contract LiquidityMatrixLocal is ReentrancyGuard, ILiquidityMatrix {
     using AddressLib for address;
     using MerkleTreeLib for MerkleTreeLib.Tree;
     using SnapshotsLib for SnapshotsLib.Snapshots;
@@ -172,7 +172,7 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
      * @param app The address of the application.
      * @return registered A boolean indicating whether the application is registered.
      * @return syncMappedAccountsOnly A boolean indicating whether to synchronize only mapped accounts.
-     * @return useCallbacks A boolean indicating whether to listen to ISynchronizerCallbacks.
+     * @return useCallbacks A boolean indicating whether to listen to ILiquidityMatirxCallbacks.
      */
     function getAppSetting(address app)
         external
@@ -300,7 +300,7 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
     /**
      * @notice Registers a new application, initializing its liquidity and data trees.
      * @param syncMappedAccountsOnly A boolean indicating whether contract accounts should be synchronized.
-     * @param useCallbacks A boolean indicating whether to listen to ISynchronizerCallbacks.
+     * @param useCallbacks A boolean indicating whether to listen to ILiquidityMatirxCallbacks.
      *
      * Requirements:
      * - Caller must be a contract.

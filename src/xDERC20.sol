@@ -17,10 +17,10 @@ import {
 import { AddressCast } from "@layerzerolabs/lz-evm-protocol-v2/contracts/libs/AddressCast.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
-import { ISynchronizer } from "./interfaces/ISynchronizer.sol";
+import { ILiquidityMatrix } from "./interfaces/ILiquidityMatrix.sol";
 import { AddressLib } from "./libraries/AddressLib.sol";
 
-contract MirroedOFT is OAppRead, ReentrancyGuard {
+contract xDERC20 is OAppRead, ReentrancyGuard {
     using AddressLib for address;
     using OptionsBuilder for bytes;
 
@@ -46,21 +46,21 @@ contract MirroedOFT is OAppRead, ReentrancyGuard {
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
     uint32 public immutable READ_CHANNEL;
-    address public immutable synchronizer;
+    address public immutable liquidityMatrix;
 
-    mapping(uint32 eid => uint64) internal _mirrorTransferDelays;
+    mapping(uint32 eid => uint64) internal _xdTransferDelays;
 
-    bool internal _mirrorTransferring;
+    bool internal _xdTransferring;
     PendingTransfer[] internal _pendingTransfers;
     mapping(address acount => uint256) internal _pendingNonce;
 
-    uint16 public constant CMD_MIRROR_TRANSFER = 1;
+    uint16 public constant CMD_XD_TRANSFER = 1;
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
-    event UpdateMirrorTransferDelay(uint32 indexed eid, uint64 delay);
-    event MirrorTransfer(address indexed from, uint256 amount, address indexed to, uint256 indexed nonce);
+    event UpdateXdTransferDelay(uint32 indexed eid, uint64 delay);
+    event XdTransfer(address indexed from, uint256 amount, address indexed to, uint256 indexed nonce);
     event InsufficientAvailability(uint256 indexed nonce, uint256 amount, int256 availabillity);
     event CallFailure(uint256 indexed nonce, address indexed to, bytes reason);
     event RefundFailure(address indexed to);
@@ -78,7 +78,7 @@ contract MirroedOFT is OAppRead, ReentrancyGuard {
     error InvalidAddress();
     error InsufficientValue();
     error TransferPending();
-    error ReentrantMirrorTransfer();
+    error ReentrantXdTransfer();
     error InsufficientBalance();
     error Overflow();
 
@@ -87,14 +87,17 @@ contract MirroedOFT is OAppRead, ReentrancyGuard {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Initializes the MirroredOFT contract with the necessary configurations.
-     * @param _synchronizer The address of the Synchronizer contract.
+     * @notice Initializes the xDERC20 contract with the necessary configurations.
+     * @param _liquidityMatrix The address of the LiquidityMatrix contract.
      * @param _endpoint The address of the LayerZero endpoint.
      * @param _owner The address that will be granted ownership privileges.
      */
-    constructor(address _synchronizer, address _endpoint, address _owner) OAppRead(_endpoint, _owner) Ownable(_owner) {
-        synchronizer = _synchronizer;
-        READ_CHANNEL = ISynchronizer(_synchronizer).READ_CHANNEL();
+    constructor(address _liquidityMatrix, address _endpoint, address _owner)
+        OAppRead(_endpoint, _owner)
+        Ownable(_owner)
+    {
+        liquidityMatrix = _liquidityMatrix;
+        READ_CHANNEL = ILiquidityMatrix(_liquidityMatrix).READ_CHANNEL();
         _pendingTransfers.push();
 
         _setPeer(READ_CHANNEL, AddressCast.toBytes32(address(this)));
@@ -109,7 +112,7 @@ contract MirroedOFT is OAppRead, ReentrancyGuard {
      * @return The total supply of the token as a `uint256`.
      */
     function totalSupply() public view returns (uint256) {
-        return _toUint(ISynchronizer(synchronizer).getSettledTotalLiquidity(address(this)));
+        return _toUint(ILiquidityMatrix(liquidityMatrix).getSettledTotalLiquidity(address(this)));
     }
 
     /**
@@ -118,7 +121,7 @@ contract MirroedOFT is OAppRead, ReentrancyGuard {
      * @return The synced balance of the account as a `uint256`.
      */
     function balanceOf(address account) public view returns (uint256) {
-        return _toUint(ISynchronizer(synchronizer).getSettledLiquidity(address(this), account));
+        return _toUint(ILiquidityMatrix(liquidityMatrix).getSettledLiquidity(address(this), account));
     }
 
     /**
@@ -135,7 +138,7 @@ contract MirroedOFT is OAppRead, ReentrancyGuard {
      * @return The total supply of the token as a `uint256`.
      */
     function localTotalSupply() public view returns (int256) {
-        return ISynchronizer(synchronizer).getSettledTotalLiquidity(address(this));
+        return ILiquidityMatrix(liquidityMatrix).getSettledTotalLiquidity(address(this));
     }
 
     /**
@@ -144,17 +147,17 @@ contract MirroedOFT is OAppRead, ReentrancyGuard {
      * @return The local balance of the account on this chain as a `uint256`.
      */
     function localBalanceOf(address account) public view returns (int256) {
-        return ISynchronizer(synchronizer).getLocalLiquidity(address(this), account);
+        return ILiquidityMatrix(liquidityMatrix).getLocalLiquidity(address(this), account);
     }
 
     /**
      * @notice Quotes the messaging fee for sending a read request with specific gas and calldata size.
-     * @param from The address initiating the mirror transfer.
+     * @param from The address initiating the cross-chain transfer.
      * @param gasLimit The amount of gas to allocate for the executor.
      * @param calldataSize The size of the calldata in bytes.
      * @return fee The estimated messaging fee for the request.
      */
-    function quoteMirrorTransfer(address from, uint128 gasLimit, uint32 calldataSize)
+    function quoteXdTransfer(address from, uint128 gasLimit, uint32 calldataSize)
         public
         view
         returns (MessagingFee memory fee)
@@ -184,11 +187,11 @@ contract MirroedOFT is OAppRead, ReentrancyGuard {
      * @param _cmd The encoded command specifying the request details.
      * @param _responses An array of responses corresponding to each read request.
      * @return The aggregated result.
-     * @dev Specifically handles CMD_MIRROR_TRANSFER by summing up available balances across chains.
+     * @dev Specifically handles CMD_XD_TRANSFER by summing up available balances across chains.
      */
     function lzReduce(bytes calldata _cmd, bytes[] calldata _responses) external pure returns (bytes memory) {
         (uint16 appCmdLabel, EVMCallRequestV1[] memory requests,) = ReadCodecV1.decode(_cmd);
-        if (appCmdLabel == CMD_MIRROR_TRANSFER) {
+        if (appCmdLabel == CMD_XD_TRANSFER) {
             if (requests.length == 0) revert InvalidRequests();
             // decode callData for availableLocalBalanceOf(address account, uint256 dummy)
             (, uint256 nonce) = abi.decode(requests[0].callData, (address, uint256));
@@ -198,40 +201,40 @@ contract MirroedOFT is OAppRead, ReentrancyGuard {
                 int256 balance = abi.decode(_responses[i], (int256));
                 availability += balance;
             }
-            return abi.encode(CMD_MIRROR_TRANSFER, nonce, availability);
+            return abi.encode(CMD_XD_TRANSFER, nonce, availability);
         } else {
             revert InvalidCmd();
         }
     }
 
     /**
-     * @notice Constructs the command payload for initiating a mirror transfer read request.
-     * @param from The address initiating the mirror transfer.
+     * @notice Constructs the command payload for initiating a cross-chain transfer read request.
+     * @param from The address initiating the cross-chain transfer.
      * @param nonce The unique identifier for the transfer.
      * @return cmd The encoded command data.
-     * @dev Constructs read requests for each configured chain in the Synchronizer.
+     * @dev Constructs read requests for each configured chain in the LiquidityMatrix.
      */
     function getCmd(address from, uint256 nonce) public view returns (bytes memory) {
-        ISynchronizer.ChainConfig[] memory _chainConfigs = ISynchronizer(synchronizer).chainConfigs();
+        ILiquidityMatrix.ChainConfig[] memory _chainConfigs = ILiquidityMatrix(liquidityMatrix).chainConfigs();
         uint256 length = _chainConfigs.length;
         EVMCallRequestV1[] memory readRequests = new EVMCallRequestV1[](length);
 
         uint64 timestamp = uint64(block.timestamp);
         for (uint256 i; i < length; i++) {
-            ISynchronizer.ChainConfig memory chainConfig = _chainConfigs[i];
+            ILiquidityMatrix.ChainConfig memory chainConfig = _chainConfigs[i];
             uint32 eid = chainConfig.targetEid;
             readRequests[i] = EVMCallRequestV1({
                 appRequestLabel: uint16(i + 1),
                 targetEid: eid,
                 isBlockNum: false,
-                blockNumOrTimestamp: timestamp + _mirrorTransferDelays[eid],
+                blockNumOrTimestamp: timestamp + _xdTransferDelays[eid],
                 confirmations: chainConfig.confirmations,
                 to: chainConfig.to,
                 callData: abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from, nonce)
             });
         }
 
-        return ReadCodecV1.encode(CMD_MIRROR_TRANSFER, readRequests, _computeSettings());
+        return ReadCodecV1.encode(CMD_XD_TRANSFER, readRequests, _computeSettings());
     }
 
     function _computeSettings() internal view returns (EVMCallComputeV1 memory) {
@@ -250,27 +253,27 @@ contract MirroedOFT is OAppRead, ReentrancyGuard {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Updates the mirror transfer delays for specified endpoint IDs.
+     * @notice Updates the cross-chain transfer delays for specified endpoint IDs.
      * @dev Only callable by the contract owner.
      * @param eids An array of endpoint IDs whose delays are to be updated.
      * @param delays An array of delay values corresponding to each endpoint ID.
      * @dev Both arrays must be of the same length.
      */
-    function updateMirrorTransferDelays(uint32[] memory eids, uint64[] memory delays) external onlyOwner {
+    function updateXdTransferDelays(uint32[] memory eids, uint64[] memory delays) external onlyOwner {
         if (eids.length != delays.length) revert InvalidLengths();
 
         for (uint256 i; i < eids.length; ++i) {
             uint32 eid = eids[i];
             uint64 delay = delays[i];
 
-            _mirrorTransferDelays[eid] = delay;
+            _xdTransferDelays[eid] = delay;
 
-            emit UpdateMirrorTransferDelay(eid, delay);
+            emit UpdateXdTransferDelay(eid, delay);
         }
     }
 
     /**
-     * @notice Initiates a cross-chain mirror transfer operation.
+     * @notice Initiates a cross-chain cross-chain transfer operation.
      * @dev Sends a read request with specified gas and calldata size.
      *      The user must provide sufficient fees via `msg.value`.
      *      It performs a global availability check using LayerZero's read protocol to ensure `amount <= availability`.
@@ -282,9 +285,9 @@ contract MirroedOFT is OAppRead, ReentrancyGuard {
      * @param calldataSize The size of the calldata for the request, in bytes.
      * @return fee The messaging receipt from LayerZero, confirming the request details.
      *         Includes the `guid` and `block` parameters for tracking.
-     * @dev Emits a `MirrorTransfer` event upon successful initiation.
+     * @dev Emits a `XdTransfer` event upon successful initiation.
      */
-    function mirrorTransfer(
+    function xdTransfer(
         uint256 amount,
         address to,
         bytes memory callData,
@@ -308,11 +311,11 @@ contract MirroedOFT is OAppRead, ReentrancyGuard {
         bytes memory options = OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0);
         fee = _lzSend(READ_CHANNEL, cmd, options, MessagingFee(msg.value - value, 0), payable(msg.sender));
 
-        emit MirrorTransfer(msg.sender, amount, to, nonce);
+        emit XdTransfer(msg.sender, amount, to, nonce);
     }
 
     /**
-     * @notice Cancels a pending mirror transfer.
+     * @notice Cancels a pending cross-chain transfer.
      * @dev Only callable by the user who initiated the transfer.
      * @dev Emits a `CancelPendingTransfer` event upon successful cancellation.
      */
@@ -336,9 +339,9 @@ contract MirroedOFT is OAppRead, ReentrancyGuard {
     ) internal override nonReentrant {
         if (_origin.srcEid == READ_CHANNEL) {
             uint16 appCmdLabel = abi.decode(_message, (uint16));
-            if (appCmdLabel == CMD_MIRROR_TRANSFER) {
+            if (appCmdLabel == CMD_XD_TRANSFER) {
                 (, uint256 nonce, int256 globalAvailability) = abi.decode(_message, (uint16, uint256, int256));
-                _onMirrorTransfer(nonce, globalAvailability);
+                _onXdTransfer(nonce, globalAvailability);
             } else {
                 revert InvalidCmd();
             }
@@ -346,13 +349,13 @@ contract MirroedOFT is OAppRead, ReentrancyGuard {
     }
 
     /**
-     * @notice Finalizes a mirror transfer after receiving global availability data.
+     * @notice Finalizes a cross-chain transfer after receiving global availability data.
      * @param nonce The unique identifier for the transfer.
      * @param globalAvailability The total available liquidity across all chains.
      * @dev This function performs availability checks, executes any optional calldata, and transfers tokens.
      *      It ensures that transfers are not reentrant and handles refunds in case of failures.
      */
-    function _onMirrorTransfer(uint256 nonce, int256 globalAvailability) internal {
+    function _onXdTransfer(uint256 nonce, int256 globalAvailability) internal {
         PendingTransfer storage pending = _pendingTransfers[nonce];
         address from = pending.from;
         if (!pending.pending) revert TransferNotPending(nonce);
@@ -368,14 +371,14 @@ contract MirroedOFT is OAppRead, ReentrancyGuard {
             return;
         }
 
-        if (_mirrorTransferring) revert ReentrantMirrorTransfer();
-        _mirrorTransferring = true;
+        if (_xdTransferring) revert ReentrantXdTransfer();
+        _xdTransferring = true;
 
         (address to, bytes memory callData) = (pending.to, pending.callData);
         if (to.isContract() && callData.length > 0) {
             // composability
             (bool ok, bytes memory reason) = to.call{ value: pending.value }(callData);
-            _mirrorTransferring = false;
+            _xdTransferring = false;
             if (!ok) {
                 emit CallFailure(nonce, to, reason);
                 _refund(to, pending.value);
@@ -391,30 +394,30 @@ contract MirroedOFT is OAppRead, ReentrancyGuard {
     }
 
     /**
-     * @notice Transfers tokens from one address to another, handling both local and mirrored transfers.
+     * @notice Transfers tokens from one address to another, handling both local and cross-chain transfers.
      * @param from The address from which tokens are transferred.
      * @param to The recipient address.
      * @param amount The amount of tokens to transfer.
-     * @dev If `_mirrorTransferring` is true, skips local liquidity checks, relying on global availability.
+     * @dev If `_xdTransferring` is true, skips local liquidity checks, relying on global availability.
      *      Otherwise, ensures the sender has sufficient local balance.
      *      Updates local liquidity balances accordingly.
      */
     function _transfer(address from, address to, uint256 amount) internal {
         if (amount > uint256(type(int256).max)) revert Overflow();
 
-        int256 localLiquidity = ISynchronizer(synchronizer).getLocalLiquidity(address(this), from);
-        if (_mirrorTransferring) {
-            _mirrorTransferring = false;
+        int256 localLiquidity = ILiquidityMatrix(liquidityMatrix).getLocalLiquidity(address(this), from);
+        if (_xdTransferring) {
+            _xdTransferring = false;
         } else {
             if (localLiquidity < int256(amount)) revert InsufficientBalance();
         }
 
         if (from != address(0)) {
-            ISynchronizer(synchronizer).updateLocalLiquidity(from, localLiquidity - int256(amount));
+            ILiquidityMatrix(liquidityMatrix).updateLocalLiquidity(from, localLiquidity - int256(amount));
         }
         if (to != address(0)) {
-            ISynchronizer(synchronizer).updateLocalLiquidity(
-                to, ISynchronizer(synchronizer).getLocalLiquidity(address(this), to) + int256(amount)
+            ILiquidityMatrix(liquidityMatrix).updateLocalLiquidity(
+                to, ILiquidityMatrix(liquidityMatrix).getLocalLiquidity(address(this), to) + int256(amount)
             );
         }
     }

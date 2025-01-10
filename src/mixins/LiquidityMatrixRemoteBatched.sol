@@ -3,11 +3,11 @@ pragma solidity ^0.8.28;
 
 import { ArrayLib } from "../libraries/ArrayLib.sol";
 import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
-import { SynchronizerRemote } from "./SynchronizerRemote.sol";
+import { LiquidityMatrixRemote } from "./LiquidityMatrixRemote.sol";
 
 /**
- * @title SynchronizerRemoteBatched
- * @dev Extends SynchronizerRemote with batch processing for liquidity and data settlements.
+ * @title LiquidityMatrixRemoteBatched
+ * @dev Extends LiquidityMatrixRemote with batch processing for liquidity and data settlements.
  * This contract allows applications to group liquidity and data updates into batches for efficient
  * Merkle tree generation and root verification.
  *
@@ -28,7 +28,7 @@ import { SynchronizerRemote } from "./SynchronizerRemote.sol";
  * - BatchedRemoteStates are tracked per application and chain (`eid`), ensuring isolated state management.
  * - Each batch has its own Merkle tree (`liquidityTree`, `dataHashTree`).
  */
-abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
+abstract contract LiquidityMatrixRemoteBatched is LiquidityMatrixRemote {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
     struct BatchedRemoteState {
