@@ -15,6 +15,16 @@ import { BasexDERC20 } from "src/mixins/BasexDERC20.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { BaseLiquidityMatrixTest } from "./BaseLiquidityMatrixTest.sol";
 
+contract Composable {
+    event Compose(address indexed token, uint256 amount);
+
+    function compose(address token, uint256 amount) external payable {
+        BasexDERC20(token).transferFrom(msg.sender, address(this), amount);
+
+        emit Compose(token, amount);
+    }
+}
+
 contract BasexDERC20Test is BaseLiquidityMatrixTest {
     uint8 public constant CHAINS = 8;
     uint16 public constant CMD_XD_TRANSFER = 1;
@@ -28,6 +38,7 @@ contract BasexDERC20Test is BaseLiquidityMatrixTest {
     address bob = makeAddr("bob");
     address charlie = makeAddr("charlie");
     address[] users = [alice, bob, charlie];
+    Composable composable = new Composable();
 
     function setUp() public override {
         super.setUp();
@@ -129,6 +140,28 @@ contract BasexDERC20Test is BaseLiquidityMatrixTest {
         assertEq(local.totalSupply(), CHAINS * 300e18);
         assertEq(local.balanceOf(alice), CHAINS * 100e18 - 101e18);
         assertEq(local.balanceOf(bob), CHAINS * 100e18 + 101e18);
+    }
+
+    function test_xdTransfer_composable() public {
+        xDERC20 local = erc20s[0];
+
+        changePrank(alice, alice);
+        uint256 amount = 100e18;
+        bytes memory callData = abi.encodeWithSelector(Composable.compose.selector, local, amount);
+        uint256 native = 1e18;
+        uint128 gasLimit = 1_000_000;
+        uint32 calldataSize = uint32(32) * CHAINS;
+        MessagingFee memory fee = local.quoteXdTransfer(bob, gasLimit, calldataSize);
+        local.xdTransfer{ value: fee.nativeFee + native }(
+            address(composable), amount, callData, native, gasLimit, calldataSize
+        );
+
+        vm.expectEmit();
+        emit Composable.Compose(address(local), amount);
+        _executeXdTransfer(alice, 1, "");
+
+        assertEq(local.balanceOf(address(composable)), amount);
+        assertEq(address(composable).balance, native);
     }
 
     function test_xdTransfer_revertInsufficientBalance() public {

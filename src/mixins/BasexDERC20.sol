@@ -12,6 +12,7 @@ import { OptionsBuilder } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/Opti
 import {
     MessagingReceipt,
     MessagingFee,
+    MessagingParams,
     ILayerZeroEndpointV2
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { AddressCast } from "@layerzerolabs/lz-evm-protocol-v2/contracts/libs/AddressCast.sol";
@@ -326,7 +327,10 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
 
         bytes memory cmd = getXdTransferCmd(msg.sender, nonce);
         bytes memory options = OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0);
-        fee = _lzSend(READ_CHANNEL, cmd, options, MessagingFee(msg.value - value, 0), payable(msg.sender));
+        // directly use endpoint.send() to bypass _payNative() check in _lzSend()
+        fee = endpoint.send{ value: msg.value - value }(
+            MessagingParams(READ_CHANNEL, _getPeerOrRevert(READ_CHANNEL), cmd, options, false), payable(msg.sender)
+        );
 
         emit XdTransfer(msg.sender, to, amount, nonce);
     }
@@ -393,6 +397,8 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
         (address to, bytes memory callData) = (pending.to, pending.callData);
         if (to.isContract() && callData.length > 0) {
             // composability
+            _transferWithoutCheck(from, address(this), amount);
+            allowance[address(this)][to] = amount;
             (bool ok, bytes memory reason) = to.call{ value: pending.value }(callData);
             _xdTransferring = false;
             if (!ok) revert CallFailure(nonce, to, reason);
@@ -415,14 +421,23 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
         if (from == to) return;
 
         if (from != address(0)) {
-            int256 localLiquidity = ILiquidityMatrix(liquidityMatrix).getLocalLiquidity(address(this), from);
             if (_xdTransferring) {
                 _xdTransferring = false;
             } else {
-                if (localLiquidity < int256(amount)) revert InsufficientBalance();
+                if (ILiquidityMatrix(liquidityMatrix).getLocalLiquidity(address(this), from) < int256(amount)) {
+                    revert InsufficientBalance();
+                }
             }
+        }
 
-            ILiquidityMatrix(liquidityMatrix).updateLocalLiquidity(from, localLiquidity - int256(amount));
+        _transferWithoutCheck(from, to, amount);
+    }
+
+    function _transferWithoutCheck(address from, address to, uint256 amount) internal {
+        if (from != address(0)) {
+            ILiquidityMatrix(liquidityMatrix).updateLocalLiquidity(
+                from, ILiquidityMatrix(liquidityMatrix).getLocalLiquidity(address(this), from) - int256(amount)
+            );
         }
         if (to != address(0)) {
             ILiquidityMatrix(liquidityMatrix).updateLocalLiquidity(
