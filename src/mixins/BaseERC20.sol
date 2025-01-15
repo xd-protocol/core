@@ -40,7 +40,6 @@ abstract contract BaseERC20 {
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
-    error InsufficientBalance();
     error PermitDeadlineExpired();
     error InvalidSigner();
 

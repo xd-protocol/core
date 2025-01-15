@@ -76,6 +76,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
     error TransferNotPending(uint256 nonce);
     error InvalidAmount();
     error InvalidAddress();
+    error InsufficientBalance();
     error InsufficientValue();
     error TransferPending();
     error ReentrantXdTransfer();
