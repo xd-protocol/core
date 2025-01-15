@@ -48,7 +48,7 @@ contract LiquidityMatrixTest is BaseLiquidityMatrixTest {
             uint32 count;
             for (uint32 j; j < CHAINS; ++j) {
                 if (i == j) continue;
-                configs[count++] = ILiquidityMatrix.ChainConfig(eids[j], 0, address(liquidityMatrixs[j]));
+                configs[count++] = ILiquidityMatrix.ChainConfig(eids[j], 0);
                 liquidityMatrixs[i].updateRemoteApp(eids[j], address(apps[j]));
             }
 

@@ -13,7 +13,6 @@ interface ILiquidityMatrix is ILayerZeroReceiver, IOAppCore, IOAppReducer {
     struct ChainConfig {
         uint32 targetEid;
         uint16 confirmations;
-        address to;
     }
 
     /*//////////////////////////////////////////////////////////////

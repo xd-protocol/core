@@ -32,13 +32,18 @@ contract LiquidityMatrixRemoteBatchedTest is BaseLiquidityMatrixTest {
         localApp = address(new AppMock(address(local)));
         remoteApp = address(new AppMock(address(remote)));
 
+        address[] memory oapps = new address[](2);
+        oapps[0] = address(local);
+        oapps[1] = address(remote);
+        wireOApps(oapps);
+
         vm.deal(localApp, 10_000e18);
         vm.deal(remoteApp, 10_000e18);
 
         ILiquidityMatrix.ChainConfig[] memory configs = new ILiquidityMatrix.ChainConfig[](1);
-        configs[0] = ILiquidityMatrix.ChainConfig(EID_REMOTE, 0, address(remote));
+        configs[0] = ILiquidityMatrix.ChainConfig(EID_REMOTE, 0);
         local.configChains(configs);
-        configs[0] = ILiquidityMatrix.ChainConfig(EID_LOCAL, 0, address(local));
+        configs[0] = ILiquidityMatrix.ChainConfig(EID_LOCAL, 0);
         remote.configChains(configs);
 
         changePrank(localApp, localApp);

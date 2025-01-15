@@ -56,8 +56,8 @@ contract LiquidityMatrix is LiquidityMatrixRemoteBatched, OAppRead {
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
-    error InvalidAddress();
     error DuplicateTargetEid();
+    error InvalidAddress();
     error InvalidCmd();
     error AlreadyRequested();
     error InvalidMsgType();
@@ -153,13 +153,15 @@ contract LiquidityMatrix is LiquidityMatrixRemoteBatched, OAppRead {
         uint64 timestamp = uint64(block.timestamp);
         for (uint256 i; i < length; i++) {
             ChainConfig memory chainConfig = _chainConfigs[i];
+            uint32 eid = chainConfig.targetEid;
+            address to = AddressCast.toAddress(_getPeerOrRevert(eid));
             readRequests[i] = EVMCallRequestV1({
                 appRequestLabel: uint16(i + 1),
-                targetEid: chainConfig.targetEid,
+                targetEid: eid,
                 isBlockNum: false,
                 blockNumOrTimestamp: timestamp,
                 confirmations: chainConfig.confirmations,
-                to: chainConfig.to,
+                to: to,
                 callData: abi.encodeWithSelector(LiquidityMatrixLocal.getMainRoots.selector)
             });
         }
@@ -192,8 +194,6 @@ contract LiquidityMatrix is LiquidityMatrixRemoteBatched, OAppRead {
      */
     function configChains(ChainConfig[] memory configs) external onlyOwner {
         for (uint256 i; i < configs.length; i++) {
-            if (configs[i].to == address(0)) revert InvalidAddress();
-
             for (uint256 j = i + 1; j < configs.length; j++) {
                 if (configs[i].targetEid == configs[j].targetEid) revert DuplicateTargetEid();
             }

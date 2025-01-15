@@ -16,6 +16,7 @@ import {
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { AddressCast } from "@layerzerolabs/lz-evm-protocol-v2/contracts/libs/AddressCast.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { BytesLib } from "solidity-bytes-utils/contracts/BytesLib.sol";
 import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
 import { BaseERC20 } from "./BaseERC20.sol";
 import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
@@ -24,21 +25,22 @@ import { AddressLib } from "../libraries/AddressLib.sol";
 abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
     using AddressLib for address;
     using OptionsBuilder for bytes;
+    using BytesLib for bytes;
 
     /**
      * @notice Represents a pending cross-chain transfer.
      * @param pending Indicates if the transfer is still pending.
      * @param from The address initiating the transfer.
-     * @param amount The amount of tokens to transfer.
      * @param to The recipient address on the target chain.
+     * @param amount The amount of tokens to transfer.
      * @param callData Optional calldata for executing a function on the recipient contract.
      * @param value The native cryptocurrency value to send with the callData, if any.
      */
     struct PendingTransfer {
         bool pending;
         address from;
-        uint256 amount;
         address to;
+        uint256 amount;
         bytes callData;
         uint256 value;
     }
@@ -60,11 +62,8 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
-    event UpdateXTransferDelay(uint32 indexed eid, uint64 delay);
-    event XTransfer(address indexed from, uint256 amount, address indexed to, uint256 indexed nonce);
-    event InsufficientAvailability(uint256 indexed nonce, uint256 amount, int256 availabillity);
-    event CallFailure(uint256 indexed nonce, address indexed to, bytes reason);
-    event RefundFailure(address indexed to);
+    event UpdateXdTransferDelay(uint32 indexed eid, uint64 delay);
+    event XdTransfer(address indexed from, address indexed to, uint256 amount, uint256 indexed nonce);
     event CancelPendingTransfer(uint256 indexed nonce);
 
     /*//////////////////////////////////////////////////////////////
@@ -79,8 +78,11 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
     error InvalidAddress();
     error InsufficientValue();
     error TransferPending();
-    error ReentrantXTransfer();
+    error ReentrantXdTransfer();
     error Overflow();
+    error RefundFailure(uint256 nonce);
+    error InsufficientAvailability(uint256 nonce, uint256 amount, int256 availabillity);
+    error CallFailure(uint256 nonce, address to, bytes reason);
 
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
@@ -109,6 +111,10 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
 
     function xdTransferDelay(uint32 eid) external view returns (uint256) {
         return _xdTransferDelays[eid];
+    }
+
+    function pendingNonce(address account) external view returns (uint256) {
+        return _pendingNonce[account];
     }
 
     function pendingTransfer(address account) external view returns (PendingTransfer memory) {
@@ -147,7 +153,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      * @return The total supply of the token as a `uint256`.
      */
     function localTotalSupply() public view returns (int256) {
-        return ILiquidityMatrix(liquidityMatrix).getSettledTotalLiquidity(address(this));
+        return ILiquidityMatrix(liquidityMatrix).getLocalTotalLiquidity(address(this));
     }
 
     /**
@@ -166,14 +172,14 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      * @param calldataSize The size of the calldata in bytes.
      * @return fee The estimated messaging fee for the request.
      */
-    function quoteXTransfer(address from, uint128 gasLimit, uint32 calldataSize)
+    function quoteXdTransfer(address from, uint128 gasLimit, uint32 calldataSize)
         public
         view
         returns (MessagingFee memory fee)
     {
         return _quote(
             READ_CHANNEL,
-            getCmd(from, _pendingTransfers.length),
+            getXdTransferCmd(from, _pendingTransfers.length),
             OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0),
             false
         );
@@ -202,8 +208,8 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
         (uint16 appCmdLabel, EVMCallRequestV1[] memory requests,) = ReadCodecV1.decode(_cmd);
         if (appCmdLabel == CMD_XD_TRANSFER) {
             if (requests.length == 0) revert InvalidRequests();
-            // decode callData for availableLocalBalanceOf(address account, uint256 dummy)
-            (, uint256 nonce) = abi.decode(requests[0].callData, (address, uint256));
+            // decode nonce from callData for availableLocalBalanceOf(address account, uint256 nonce)
+            uint256 nonce = uint256(bytes32(requests[0].callData.slice(36, 32)));
 
             int256 availability;
             for (uint256 i; i < _responses.length; ++i) {
@@ -223,7 +229,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      * @return cmd The encoded command data.
      * @dev Constructs read requests for each configured chain in the LiquidityMatrix.
      */
-    function getCmd(address from, uint256 nonce) public view returns (bytes memory) {
+    function getXdTransferCmd(address from, uint256 nonce) public view returns (bytes memory) {
         ILiquidityMatrix.ChainConfig[] memory _chainConfigs = ILiquidityMatrix(liquidityMatrix).chainConfigs();
         uint256 length = _chainConfigs.length;
         EVMCallRequestV1[] memory readRequests = new EVMCallRequestV1[](length);
@@ -232,13 +238,14 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
         for (uint256 i; i < length; i++) {
             ILiquidityMatrix.ChainConfig memory chainConfig = _chainConfigs[i];
             uint32 eid = chainConfig.targetEid;
+            address to = AddressCast.toAddress(_getPeerOrRevert(eid));
             readRequests[i] = EVMCallRequestV1({
                 appRequestLabel: uint16(i + 1),
                 targetEid: eid,
                 isBlockNum: false,
                 blockNumOrTimestamp: timestamp + _xdTransferDelays[eid],
                 confirmations: chainConfig.confirmations,
-                to: chainConfig.to,
+                to: to,
                 callData: abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from, nonce)
             });
         }
@@ -268,7 +275,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      * @param delays An array of delay values corresponding to each endpoint ID.
      * @dev Both arrays must be of the same length.
      */
-    function updateXTransferDelays(uint32[] memory eids, uint64[] memory delays) external onlyOwner {
+    function updateXdTransferDelays(uint32[] memory eids, uint64[] memory delays) external onlyOwner {
         if (eids.length != delays.length) revert InvalidLengths();
 
         for (uint256 i; i < eids.length; ++i) {
@@ -277,7 +284,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
 
             _xdTransferDelays[eid] = delay;
 
-            emit UpdateXTransferDelay(eid, delay);
+            emit UpdateXdTransferDelay(eid, delay);
         }
     }
 
@@ -286,41 +293,41 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      * @dev Sends a read request with specified gas and calldata size.
      *      The user must provide sufficient fees via `msg.value`.
      *      It performs a global availability check using LayerZero's read protocol to ensure `amount <= availability`.
-     * @param amount The amount of tokens to transfer.
      * @param to The recipient address on the target chain.
+     * @param amount The amount of tokens to transfer.
      * @param callData Optional calldata for executing a function on the recipient contract.
      * @param value Native cryptocurrency to be sent when calling the recipient with `callData`.
      * @param gasLimit The gas limit to allocate for the executor.
      * @param calldataSize The size of the calldata for the request, in bytes.
      * @return fee The messaging receipt from LayerZero, confirming the request details.
      *         Includes the `guid` and `block` parameters for tracking.
-     * @dev Emits a `XTransfer` event upon successful initiation.
+     * @dev Emits a `XDTransfer` event upon successful initiation.
      */
     function xdTransfer(
-        uint256 amount,
         address to,
+        uint256 amount,
         bytes memory callData,
         uint256 value,
         uint128 gasLimit,
         uint32 calldataSize
     ) external payable returns (MessagingReceipt memory fee) {
+        if (to == address(0)) revert InvalidAddress();
         if (amount == 0) revert InvalidAmount();
         if (amount > balanceOf(msg.sender)) revert InsufficientBalance();
-        if (to == address(0)) revert InvalidAddress();
         if (msg.value < value) revert InsufficientValue();
 
         uint256 nonce = _pendingNonce[msg.sender];
         if (nonce > 0) revert TransferPending();
 
         nonce = _pendingTransfers.length;
-        _pendingTransfers.push(PendingTransfer(true, msg.sender, amount, to, callData, value));
+        _pendingTransfers.push(PendingTransfer(true, msg.sender, to, amount, callData, value));
         _pendingNonce[msg.sender] = nonce;
 
-        bytes memory cmd = getCmd(msg.sender, nonce);
+        bytes memory cmd = getXdTransferCmd(msg.sender, nonce);
         bytes memory options = OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0);
         fee = _lzSend(READ_CHANNEL, cmd, options, MessagingFee(msg.value - value, 0), payable(msg.sender));
 
-        emit XTransfer(msg.sender, amount, to, nonce);
+        emit XdTransfer(msg.sender, to, amount, nonce);
     }
 
     /**
@@ -336,6 +343,9 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
         pending.pending = false;
         _pendingNonce[msg.sender] = 0;
 
+        (bool ok) = payable(msg.sender).send(pending.value);
+        if (!ok) revert RefundFailure(nonce);
+
         emit CancelPendingTransfer(nonce);
     }
 
@@ -350,7 +360,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
             uint16 appCmdLabel = abi.decode(_message, (uint16));
             if (appCmdLabel == CMD_XD_TRANSFER) {
                 (, uint256 nonce, int256 globalAvailability) = abi.decode(_message, (uint16, uint256, int256));
-                _onXTransfer(nonce, globalAvailability);
+                _onXdTransfer(nonce, globalAvailability);
             } else {
                 revert InvalidCmd();
             }
@@ -364,7 +374,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      * @dev This function performs availability checks, executes any optional calldata, and transfers tokens.
      *      It ensures that transfers are not reentrant and handles refunds in case of failures.
      */
-    function _onXTransfer(uint256 nonce, int256 globalAvailability) internal {
+    function _onXdTransfer(uint256 nonce, int256 globalAvailability) internal {
         PendingTransfer storage pending = _pendingTransfers[nonce];
         address from = pending.from;
         if (!pending.pending) revert TransferNotPending(nonce);
@@ -374,13 +384,9 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
 
         uint256 amount = pending.amount;
         int256 availability = localBalanceOf(from) + globalAvailability;
-        if (availability < int256(amount)) {
-            emit InsufficientAvailability(nonce, amount, availability);
-            _refund(pending.to, pending.value);
-            return;
-        }
+        if (availability < int256(amount)) revert InsufficientAvailability(nonce, amount, availability);
 
-        if (_xdTransferring) revert ReentrantXTransfer();
+        if (_xdTransferring) revert ReentrantXdTransfer();
         _xdTransferring = true;
 
         (address to, bytes memory callData) = (pending.to, pending.callData);
@@ -388,18 +394,10 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
             // composability
             (bool ok, bytes memory reason) = to.call{ value: pending.value }(callData);
             _xdTransferring = false;
-            if (!ok) {
-                emit CallFailure(nonce, to, reason);
-                _refund(to, pending.value);
-            }
+            if (!ok) revert CallFailure(nonce, to, reason);
         } else {
             _transfer(pending.from, pending.to, amount);
         }
-    }
-
-    function _refund(address to, uint256 value) internal {
-        (bool ok) = payable(to).send(value);
-        if (!ok) emit RefundFailure(to);
     }
 
     /**
@@ -413,15 +411,16 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      */
     function _transfer(address from, address to, uint256 amount) internal virtual override {
         if (amount > uint256(type(int256).max)) revert Overflow();
-
-        int256 localLiquidity = ILiquidityMatrix(liquidityMatrix).getLocalLiquidity(address(this), from);
-        if (_xdTransferring) {
-            _xdTransferring = false;
-        } else {
-            if (localLiquidity < int256(amount)) revert InsufficientBalance();
-        }
+        if (from == to) return;
 
         if (from != address(0)) {
+            int256 localLiquidity = ILiquidityMatrix(liquidityMatrix).getLocalLiquidity(address(this), from);
+            if (_xdTransferring) {
+                _xdTransferring = false;
+            } else {
+                if (localLiquidity < int256(amount)) revert InsufficientBalance();
+            }
+
             ILiquidityMatrix(liquidityMatrix).updateLocalLiquidity(from, localLiquidity - int256(amount));
         }
         if (to != address(0)) {
