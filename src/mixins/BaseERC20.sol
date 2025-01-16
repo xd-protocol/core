@@ -105,8 +105,6 @@ abstract contract BaseERC20 {
     function transfer(address to, uint256 amount) public virtual returns (bool) {
         _transfer(msg.sender, to, amount);
 
-        emit Transfer(msg.sender, to, amount);
-
         return true;
     }
 
@@ -125,8 +123,6 @@ abstract contract BaseERC20 {
 
         _transfer(from, to, amount);
 
-        emit Transfer(from, to, amount);
-
         return true;
     }
 
@@ -138,8 +134,6 @@ abstract contract BaseERC20 {
      */
     function _mint(address to, uint256 amount) internal virtual {
         _transfer(address(0), to, amount);
-
-        emit Transfer(address(0), to, amount);
     }
 
     /**
@@ -149,8 +143,6 @@ abstract contract BaseERC20 {
      */
     function _burn(uint256 amount) internal virtual {
         _transfer(msg.sender, address(0), amount);
-
-        emit Transfer(msg.sender, address(0), amount);
     }
 
     /**

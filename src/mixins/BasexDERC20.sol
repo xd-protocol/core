@@ -315,6 +315,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
     ) external payable returns (MessagingReceipt memory fee) {
         if (to == address(0)) revert InvalidAddress();
         if (amount == 0) revert InvalidAmount();
+        if (amount > uint256(type(int256).max)) revert Overflow();
         if (amount > balanceOf(msg.sender)) revert InsufficientBalance();
         if (msg.value < value) revert InsufficientValue();
 
@@ -444,5 +445,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
                 to, ILiquidityMatrix(liquidityMatrix).getLocalLiquidity(address(this), to) + int256(amount)
             );
         }
+
+        emit Transfer(from, to, amount);
     }
 }
