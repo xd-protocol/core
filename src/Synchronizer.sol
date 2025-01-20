@@ -17,17 +17,17 @@ import {
 import { AddressCast } from "@layerzerolabs/lz-evm-protocol-v2/contracts/libs/AddressCast.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { SynchronizerLocal } from "./mixins/SynchronizerLocal.sol";
-import { SynchronizerRemoteBatched } from "./mixins/SynchronizerRemoteBatched.sol";
+import { SynchronizerRemote } from "./mixins/SynchronizerRemote.sol";
 import { SnapshotsLib } from "./libraries/SnapshotsLib.sol";
 
 /**
  * @title Synchronizer
- * @dev Extends SynchronizerRemoteBatched and integrates LayerZero's read and messaging protocols
+ * @dev Extends SynchronizerRemote and integrates LayerZero's read and messaging protocols
  *      to synchronize liquidity and data roots across multiple chains. This contract provides:
  *      - Chain configuration for read requests.
  *      - Messaging-based remote application and account updates.
  */
-contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
+contract Synchronizer is SynchronizerRemote, OAppRead {
     using OptionsBuilder for bytes;
     using SnapshotsLib for SnapshotsLib.Snapshots;
 
@@ -56,12 +56,12 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
-    error DuplicateTargetEid();
-    error InvalidAddress();
     error InvalidCmd();
     error AlreadyRequested();
+    error DuplicateTargetEid();
+    error InvalidAddress();
+    error Forbidden();
     error InvalidMsgType();
-    error InvalidMessage();
 
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
@@ -188,6 +188,10 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
         return _chainConfigs[index].targetEid;
     }
 
+    /*//////////////////////////////////////////////////////////////
+                                LOGIC
+    //////////////////////////////////////////////////////////////*/
+
     /**
      * @notice Updates the configuration for target chains used in LayerZero read requests.
      * @param configs An array of new `ChainConfig` objects defining the target chains.
@@ -200,6 +204,10 @@ contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
         }
 
         _chainConfigs = configs;
+    }
+
+    function updateSettlerWhitelisted(address account, bool whitelisted) external onlyOwner {
+        _updateSettlerWhitelisted(account, whitelisted);
     }
 
     /**

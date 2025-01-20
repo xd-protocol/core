@@ -21,12 +21,12 @@ import { ISynchronizerAccountMapper } from "../interfaces/ISynchronizerAccountMa
  *    - The initial state where no root exists for a given chain and timestamp.
  *
  * 2. **Synced**:
- *    - Roots are received via `_onReceiveRoots` and stored in `liquidityRoots` or `dataRoots` for their respective timestamps.
+ *    - Roots are received via `_onReceiveRoots` and stored in `_liquidityRoots` or `_dataRoots` for their respective timestamps.
  *    - Roots are accessible for verification but remain unprocessed.
  *
  * 3. **Settled**:
  *    - Settled roots are tracked in `liquiditySettled` or `dataSettled` mappings.
- *    - Once settled, data is processed via `_settleLiquidity` or `_settleData`, updating local states and triggering application-specific callbacks.
+ *    - Once settled, data is processed via `settleLiquidity` or `settleData`, updating local states and triggering application-specific callbacks.
  *
  * 4. **Finalized**:
  *    - A root becomes finalized when both the liquidity root and data root for the same timestamp are settled.
@@ -36,14 +36,14 @@ import { ISynchronizerAccountMapper } from "../interfaces/ISynchronizerAccountMa
  *
  * 1. **Root Reception**:
  *    - `_onReceiveRoots` processes incoming roots from remote chains.
- *    - Stores roots in `liquidityRoots` and `dataRoots`, indexed by `eid` and timestamp.
+ *    - Stores roots in `_liquidityRoots` and `_dataRoots`, indexed by `eid` and timestamp.
  *
  * 2. **Verification**:
  *    - `_verifyRoot` reconstructs subtree roots and validates proofs against the main tree root.
  *    - Marks roots as settled if valid.
  *
  * 3. **Settlement**:
- *    - `_settleLiquidity` and `_settleData` process settled roots, updating snapshots and triggering application-specific callbacks.
+ *    - `settleLiquidity` and `settleData` process settled roots, updating snapshots and triggering application-specific callbacks.
  *    - Calls `ISynchronizerCallbacks` hooks to notify applications of updates.
  *
  * 4. **Finalization**:
@@ -70,34 +70,18 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         mapping(uint256 timestamp => bool) dataSettled;
     }
 
-    struct SettleLiquidityParams {
-        address app;
-        uint32 eid;
-        bytes32 root;
-        uint256 timestamp;
-        address[] accounts;
-        int256[] liquidity;
-    }
-
-    struct SettleDataParams {
-        address app;
-        uint32 eid;
-        bytes32 root;
-        uint256 timestamp;
-        bytes32[] keys;
-        bytes[] values;
-    }
-
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
     uint256 public constant MAX_LOOP = 4096;
 
+    mapping(address => bool) internal _isSettlerWhitelisted;
+
     mapping(address app => mapping(uint32 eid => RemoteState)) internal _remoteStates;
 
-    mapping(uint32 eid => uint256[]) rootTimestamps;
-    mapping(uint32 eid => mapping(uint256 timestamp => bytes32)) liquidityRoots;
-    mapping(uint32 eid => mapping(uint256 timestamp => bytes32)) dataRoots;
+    mapping(uint32 eid => uint256[]) internal _rootTimestamps;
+    mapping(uint32 eid => mapping(uint256 timestamp => bytes32)) internal _liquidityRoots;
+    mapping(uint32 eid => mapping(uint256 timestamp => bytes32)) internal _dataRoots;
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
@@ -113,9 +97,9 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     event OnUpdateDataFailure(
         uint32 indexed eid, uint256 indexed timestamp, bytes32 indexed account, bytes32 dataHash, bytes reason
     );
-    event VerifyRoot(address indexed app, bytes32 indexed root);
     event SettleLiquidity(uint32 indexed eid, address indexed app, bytes32 indexed root, uint256 timestamp);
     event SettleData(uint32 indexed eid, address indexed app, bytes32 indexed root, uint256 timestamp);
+    event UpdaetSettlerWhitelisted(address indexed account, bool whitelisted);
     event OnReceiveStaleRoots(
         uint32 indexed eid, bytes32 indexed liquidityRoot, bytes32 indexed dataRoot, uint256 timestamp
     );
@@ -127,15 +111,22 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
+    error NotSettler();
     error InvalidLengths();
-    error RemoteAppNotSet();
-    error RootNotReceived();
     error LiquidityAlreadySettled();
     error DataAlreadySettled();
-    error InvalidRoot();
     error RemoteAccountAlreadyMapped(uint32 remoteEid, address remoteAccount);
     error LocalAccountAlreadyMapped(uint32 remoteEid, address localAccount);
     error AccountsNotMapped(uint32 remoteEid, address remoteAccount, address localAccount);
+
+    /*//////////////////////////////////////////////////////////////
+                             MODIFIERS
+    //////////////////////////////////////////////////////////////*/
+
+    modifier onlySettler(address account, address app) {
+        if (!_isSettlerWhitelisted[account] || _appStates[app].settler != account) revert NotSettler();
+        _;
+    }
 
     /*//////////////////////////////////////////////////////////////
                              VIEW FUNCTIONS
@@ -144,6 +135,10 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     function eidsLength() public view virtual returns (uint256);
 
     function eidAt(uint256) public view virtual returns (uint32);
+
+    function isSettlerWhitelisted(address account) external view returns (bool) {
+        return _isSettlerWhitelisted[account];
+    }
 
     /**
      * @notice Retrieves the local account mapped to a given remote account for an application from a specific chain.
@@ -169,16 +164,11 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     }
 
     function getLiquidityRootAt(uint32 eid, uint256 timestamp) public view returns (bytes32 root) {
-        return liquidityRoots[eid][timestamp];
+        return _liquidityRoots[eid][timestamp];
     }
 
     function getDataRootAt(uint32 eid, uint256 timestamp) public view returns (bytes32 root) {
-        return dataRoots[eid][timestamp];
-    }
-
-    function _getRemoteAppOrRevert(address app, uint32 eid) public view returns (address remoteApp) {
-        remoteApp = getRemoteApp(app, eid);
-        if (remoteApp == address(0)) revert RemoteAppNotSet();
+        return _dataRoots[eid][timestamp];
     }
 
     /**
@@ -428,11 +418,11 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @return timestamp The timestamp associated with the last liquidity root.
      */
     function getLastSyncedLiquidityRoot(uint32 eid) public view returns (bytes32 root, uint256 timestamp) {
-        uint256 length = rootTimestamps[eid].length;
+        uint256 length = _rootTimestamps[eid].length;
         if (length == 0) return (bytes32(0), 0);
 
-        timestamp = rootTimestamps[eid][length - 1];
-        root = liquidityRoots[eid][timestamp];
+        timestamp = _rootTimestamps[eid][length - 1];
+        root = _liquidityRoots[eid][timestamp];
     }
 
     /**
@@ -448,11 +438,11 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         returns (bytes32 root, uint256 timestamp)
     {
         RemoteState storage state = _remoteStates[app][eid];
-        uint256[] storage timestamps = rootTimestamps[eid];
+        uint256[] storage timestamps = _rootTimestamps[eid];
         uint256 length = timestamps.length;
         for (uint256 i; i < length && i < MAX_LOOP; ++i) {
             uint256 ts = timestamps[length - i - 1];
-            if (state.liquiditySettled[ts]) return (liquidityRoots[eid][ts], ts);
+            if (state.liquiditySettled[ts]) return (_liquidityRoots[eid][ts], ts);
         }
     }
 
@@ -468,11 +458,11 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         view
         returns (bytes32 root, uint256 timestamp)
     {
-        uint256[] storage timestamps = rootTimestamps[eid];
+        uint256[] storage timestamps = _rootTimestamps[eid];
         uint256 length = timestamps.length;
         for (uint256 i; i < length && i < MAX_LOOP; ++i) {
             uint256 ts = timestamps[length - i - 1];
-            if (areRootsFinalized(app, eid, ts)) return (liquidityRoots[eid][ts], ts);
+            if (areRootsFinalized(app, eid, ts)) return (_liquidityRoots[eid][ts], ts);
         }
     }
 
@@ -483,11 +473,11 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @return timestamp The timestamp associated with the last data root.
      */
     function getLastSyncedDataRoot(uint32 eid) public view returns (bytes32 root, uint256 timestamp) {
-        uint256 length = rootTimestamps[eid].length;
+        uint256 length = _rootTimestamps[eid].length;
         if (length == 0) return (bytes32(0), 0);
 
-        timestamp = rootTimestamps[eid][length - 1];
-        root = dataRoots[eid][timestamp];
+        timestamp = _rootTimestamps[eid][length - 1];
+        root = _dataRoots[eid][timestamp];
     }
 
     /**
@@ -499,11 +489,11 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      */
     function getLastSettledDataRoot(address app, uint32 eid) public view returns (bytes32 root, uint256 timestamp) {
         RemoteState storage state = _remoteStates[app][eid];
-        uint256[] storage timestamps = rootTimestamps[eid];
+        uint256[] storage timestamps = _rootTimestamps[eid];
         uint256 length = timestamps.length;
         for (uint256 i; i < length && i < MAX_LOOP; ++i) {
             uint256 ts = timestamps[length - i - 1];
-            if (state.dataSettled[ts]) return (dataRoots[eid][ts], ts);
+            if (state.dataSettled[ts]) return (_dataRoots[eid][ts], ts);
         }
     }
 
@@ -515,20 +505,20 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @return timestamp The timestamp associated with the last data root.
      */
     function getLastFinalizedDataRoot(address app, uint32 eid) public view returns (bytes32 root, uint256 timestamp) {
-        uint256[] storage timestamps = rootTimestamps[eid];
+        uint256[] storage timestamps = _rootTimestamps[eid];
         uint256 length = timestamps.length;
         for (uint256 i; i < length && i < MAX_LOOP; ++i) {
             uint256 ts = timestamps[length - i - 1];
-            if (areRootsFinalized(app, eid, ts)) return (dataRoots[eid][ts], ts);
+            if (areRootsFinalized(app, eid, ts)) return (_dataRoots[eid][ts], ts);
         }
     }
 
     function isLiquidityRootSettled(address app, uint32 eid, uint256 timestamp) public view returns (bool) {
-        return _remoteStates[app][eid].liquiditySettled[timestamp] || liquidityRoots[eid][timestamp] == bytes32(0);
+        return _remoteStates[app][eid].liquiditySettled[timestamp] || _liquidityRoots[eid][timestamp] == bytes32(0);
     }
 
     function isDataRootSettled(address app, uint32 eid, uint256 timestamp) public view returns (bool) {
-        return _remoteStates[app][eid].dataSettled[timestamp] || dataRoots[eid][timestamp] == bytes32(0);
+        return _remoteStates[app][eid].dataSettled[timestamp] || _dataRoots[eid][timestamp] == bytes32(0);
     }
 
     function areRootsFinalized(address app, uint32 eid, uint256 timestamp) public view returns (bool) {
@@ -536,8 +526,8 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         bool liquiditySettled = state.liquiditySettled[timestamp];
         bool dataSettled = state.dataSettled[timestamp];
         if (liquiditySettled && dataSettled) return true;
-        if (liquiditySettled && dataRoots[eid][timestamp] == bytes32(0)) return true;
-        if (dataSettled && liquidityRoots[eid][timestamp] == bytes32(0)) return true;
+        if (liquiditySettled && _dataRoots[eid][timestamp] == bytes32(0)) return true;
+        if (dataSettled && _liquidityRoots[eid][timestamp] == bytes32(0)) return true;
         return false;
     }
 
@@ -561,107 +551,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         emit UpdateRemoteApp(eid, msg.sender, remoteApp);
     }
 
-    /**
-     * @notice Settles liquidity states directly without batching, verifying the proof for the app-tree root.
-     * @param eid The endpoint ID of the remote chain.
-     * @param timestamp The timestamp of the root.
-     * @param app The address of the application on the current chain.
-     * @param mainTreeIndex the index of app in the liquidity tree on the remote chain.
-     * @param mainTreeProof The proof array to verify the app-root within the main tree.
-     * @param accounts The array of accounts to settle.
-     * @param liquidity The array of liquidity values corresponding to the accounts.
-     *
-     * Requirements:
-     * - The `accounts` and `liquidity` arrays must have the same length.
-     */
-    function settleLiquidity(
-        address app,
-        uint32 eid,
-        uint256 timestamp,
-        uint256 mainTreeIndex,
-        bytes32[] memory mainTreeProof,
-        address[] calldata accounts,
-        int256[] calldata liquidity
-    ) external nonReentrant onlyApp(app) {
-        if (accounts.length != liquidity.length) revert InvalidLengths();
-
-        bytes32 root = liquidityRoots[eid][timestamp];
-        _verifyRoot(
-            _getRemoteAppOrRevert(app, eid),
-            ArrayLib.convertToBytes32(accounts),
-            ArrayLib.convertToBytes32(liquidity),
-            mainTreeIndex,
-            mainTreeProof,
-            root
-        );
-        _settleLiquidity(SettleLiquidityParams(app, eid, root, timestamp, accounts, liquidity));
-    }
-
-    /**
-     * @notice Finalizes data states directly without batching, verifying the proof for the app-tree root.
-     * @param eid The endpoint ID of the remote chain.
-     * @param timestamp The timestamp of the root.
-     * @param app The address of the application on the current chain.
-     * @param mainTreeIndex the index of app in the data tree on the remote chain.
-     * @param mainTreeProof The proof array to verify the app-root within the main tree.
-     * @param keys The array of keys to settle.
-     * @param values The array of data values corresponding to the keys.
-     *
-     * Requirements:
-     * - The `keys` and `values` arrays must have the same length.
-     */
-    function settleData(
-        address app,
-        uint32 eid,
-        uint256 timestamp,
-        uint256 mainTreeIndex,
-        bytes32[] memory mainTreeProof,
-        bytes32[] calldata keys,
-        bytes[] calldata values
-    ) external nonReentrant onlyApp(app) {
-        if (keys.length != values.length) revert InvalidLengths();
-
-        bytes32 root = dataRoots[eid][timestamp];
-        _verifyRoot(
-            _getRemoteAppOrRevert(app, eid), keys, ArrayLib.hashElements(values), mainTreeIndex, mainTreeProof, root
-        );
-        _settleData(SettleDataParams(app, eid, root, timestamp, keys, values));
-    }
-
-    /**
-     * @notice Verifies a Merkle tree root for an application and marks it as settled.
-     * @param app The address of the application for which the root is being verified.
-     * @param keys The array of keys representing the nodes in the application's subtree.
-     * @param values The array of values corresponding to the keys in the application's subtree.
-     * @param mainTreeIndex the index of application in the main tree on the remote chain.
-     * @param mainTreeProof The Merkle proof connecting the application's subtree root to the main tree root.
-     * @param mainTreeRoot The expected root of the main Merkle tree.
-     *
-     * @dev This function:
-     * - Constructs the application's subtree root using the given keys and values.
-     * - Validates the Merkle proof to ensure the application's subtree is correctly connected to the main tree.
-     */
-    function _verifyRoot(
-        address app,
-        bytes32[] memory keys,
-        bytes32[] memory values,
-        uint256 mainTreeIndex,
-        bytes32[] memory mainTreeProof,
-        bytes32 mainTreeRoot
-    ) internal {
-        if (mainTreeRoot == bytes32(0)) revert RootNotReceived();
-
-        // Construct the Merkle tree and verify mainTreeRoot
-        bytes32 appRoot = MerkleTreeLib.computeRoot(keys, values);
-        bool valid = MerkleTreeLib.verifyProof(
-            bytes32(uint256(uint160(app))), appRoot, mainTreeIndex, mainTreeProof, mainTreeRoot
-        );
-        if (!valid) revert InvalidRoot();
-
-        emit VerifyRoot(app, mainTreeRoot);
-    }
-
-    function _settleLiquidity(SettleLiquidityParams memory params) internal {
+    function settleLiquidity(SettleLiquidityParams memory params) external onlySettler(msg.sender, params.app) {
         AppState storage localState = _appStates[params.app];
         bool syncMappedAccountsOnly = localState.syncMappedAccountsOnly;
         bool useCallbacks = localState.useCallbacks;
@@ -702,10 +592,10 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
             }
         }
 
-        emit SettleLiquidity(params.eid, params.app, params.root, params.timestamp);
+        emit SettleLiquidity(params.eid, params.app, _liquidityRoots[params.eid][params.timestamp], params.timestamp);
     }
 
-    function _settleData(SettleDataParams memory params) internal {
+    function settleData(SettleDataParams memory params) external onlySettler(msg.sender, params.app) {
         RemoteState storage state = _remoteStates[params.app][params.eid];
         if (state.dataSettled[params.timestamp]) revert DataAlreadySettled();
         state.dataSettled[params.timestamp] = true;
@@ -722,7 +612,13 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
             }
         }
 
-        emit SettleData(params.eid, params.app, params.root, params.timestamp);
+        emit SettleData(params.eid, params.app, _dataRoots[params.eid][params.timestamp], params.timestamp);
+    }
+
+    function _updateSettlerWhitelisted(address account, bool whitelisted) internal {
+        _isSettlerWhitelisted[account] = whitelisted;
+
+        emit UpdaetSettlerWhitelisted(account, whitelisted);
     }
 
     /**
@@ -733,15 +629,15 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @param timestamp The timestamp associated with these roots.
      */
     function _onReceiveRoots(uint32 eid, bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp) internal {
-        uint256 length = rootTimestamps[eid].length;
-        if (length > 0 && timestamp <= rootTimestamps[eid][length - 1]) {
+        uint256 length = _rootTimestamps[eid].length;
+        if (length > 0 && timestamp <= _rootTimestamps[eid][length - 1]) {
             emit OnReceiveStaleRoots(eid, liquidityRoot, dataRoot, timestamp);
             return;
         }
 
-        rootTimestamps[eid].push(timestamp);
-        liquidityRoots[eid][timestamp] = liquidityRoot;
-        dataRoots[eid][timestamp] = dataRoot;
+        _rootTimestamps[eid].push(timestamp);
+        _liquidityRoots[eid][timestamp] = liquidityRoot;
+        _dataRoots[eid][timestamp] = dataRoot;
 
         emit OnReceiveRoots(eid, liquidityRoot, dataRoot, timestamp);
     }

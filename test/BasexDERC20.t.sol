@@ -9,6 +9,7 @@ import {
     EVMCallComputeV1
 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
 import { Test, Vm, console } from "forge-std/Test.sol";
+import { Settler } from "src/Settler.sol";
 import { Synchronizer } from "src/Synchronizer.sol";
 import { xDERC20 } from "src/xDERC20.sol";
 import { BasexDERC20 } from "src/mixins/BasexDERC20.sol";
@@ -31,6 +32,7 @@ contract BasexDERC20Test is BaseSynchronizerTest {
 
     uint32[CHAINS] eids;
     ISynchronizer[CHAINS] synchronizers;
+    address[CHAINS] settlers;
     xDERC20[CHAINS] erc20s;
 
     address owner = makeAddr("owner");
@@ -50,10 +52,12 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         for (uint32 i; i < CHAINS; ++i) {
             eids[i] = i + 1;
             synchronizers[i] = new Synchronizer(DEFAULT_CHANNEL_ID, endpoints[eids[i]], owner);
+            settlers[i] = address(new Settler(address(synchronizers[i])));
             oapps[i] = address(synchronizers[i]);
             erc20s[i] = new xDERC20("xD", "xD", 18, address(synchronizers[i]), owner);
             _erc20s[i] = address(erc20s[i]);
 
+            synchronizers[i].updateSettlerWhitelisted(settlers[i], true);
             vm.label(address(synchronizers[i]), string.concat("Synchronizer", vm.toString(i)));
             vm.label(address(erc20s[i]), string.concat("xDERC20", vm.toString(i)));
         }
@@ -64,7 +68,7 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         for (uint32 i; i < CHAINS; ++i) {
             vm.deal(address(erc20s[i]), 1000e18);
             changePrank(address(erc20s[i]), address(erc20s[i]));
-            synchronizers[i].registerApp(false, false);
+            synchronizers[i].registerApp(false, false, settlers[i]);
 
             ISynchronizer.ChainConfig[] memory configs = new ISynchronizer.ChainConfig[](CHAINS - 1);
             uint32 count;
@@ -264,6 +268,7 @@ contract BasexDERC20Test is BaseSynchronizerTest {
 
     function _syncAndSettleLiquidity() internal {
         ISynchronizer local = synchronizers[0];
+        address localSettler = settlers[0];
         xDERC20 localApp = erc20s[0];
 
         ISynchronizer[] memory remotes = new ISynchronizer[](CHAINS - 1);
@@ -285,7 +290,9 @@ contract BasexDERC20Test is BaseSynchronizerTest {
             for (uint256 j; j < users.length; ++j) {
                 liquidity[j] = remote.getLocalLiquidity(address(remoteApp), users[j]);
             }
-            local.settleLiquidity(address(localApp), eids[i], rootTimestamp, mainIndex, mainProof, users, liquidity);
+            Settler(localSettler).settleLiquidity(
+                address(localApp), eids[i], rootTimestamp, mainIndex, mainProof, users, liquidity
+            );
         }
     }
 

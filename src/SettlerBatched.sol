@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { ArrayLib } from "../libraries/ArrayLib.sol";
-import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
-import { SynchronizerRemote } from "./SynchronizerRemote.sol";
+import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
+import { ISynchronizer } from "./interfaces/ISynchronizer.sol";
+import { ArrayLib } from "./libraries/ArrayLib.sol";
+import { MerkleTreeLib } from "./libraries/MerkleTreeLib.sol";
 
 /**
- * @title SynchronizerRemoteBatched
- * @dev Extends SynchronizerRemote with batch processing for liquidity and data settlements.
- * This contract allows applications to group liquidity and data updates into batches for efficient
+ * @title SettlerBatched
+ * @dev This contract allows applications to group liquidity and data updates into batches for efficient
  * Merkle tree generation and root verification.
  *
  * # Workflow:
@@ -28,7 +28,7 @@ import { SynchronizerRemote } from "./SynchronizerRemote.sol";
  * - BatchedRemoteStates are tracked per application and chain (`eid`), ensuring isolated state management.
  * - Each batch has its own Merkle tree (`liquidityTree`, `dataHashTree`).
  */
-abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
+contract SettlerBatched is ReentrancyGuard {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
     struct BatchedRemoteState {
@@ -57,7 +57,9 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
 
-    mapping(address app => mapping(uint32 eid => BatchedRemoteState)) internal _batchedStates;
+    address immutable synchronizer;
+
+    mapping(address app => mapping(uint32 eid => BatchedRemoteState)) internal _states;
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
@@ -65,31 +67,62 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
 
     event CreateLiquidityBatch(address indexed app, uint32 indexed eid, address submitter, uint256 indexed batchId);
     event CreateDataBatch(address indexed app, uint32 indexed eid, address submitter, uint256 indexed batchId);
+    event VerifyRoot(address indexed app, bytes32 indexed root);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
+    error AppNotRegistered();
+    error SettlerNotSet();
     error Forbidden();
+    error RemoteAppNotSet();
+    error InvalidLengths();
+    error RootNotReceived();
+    error InvalidRoot();
+
+    /*//////////////////////////////////////////////////////////////
+                             MODIFIERS
+    //////////////////////////////////////////////////////////////*/
+
+    modifier onlyApp(address account) {
+        (bool registered,,, address settler) = ISynchronizer(synchronizer).getAppSetting(account);
+        if (!registered) revert AppNotRegistered();
+        if (settler != address(this)) revert SettlerNotSet();
+        _;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                             CONSTRUCTOR
+    //////////////////////////////////////////////////////////////*/
+
+    constructor(address _synchronizer) {
+        synchronizer = _synchronizer;
+    }
 
     /*//////////////////////////////////////////////////////////////
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
     function liquidityBatchRoot(address app, uint32 eid, uint256 batchId) external view returns (bytes32) {
-        return _batchedStates[app][eid].liquidityTree[batchId].root;
+        return _states[app][eid].liquidityTree[batchId].root;
     }
 
     function lastLiquidityBatchId(address app, uint32 eid) external view returns (uint256) {
-        return _batchedStates[app][eid].lastLiquidityBatchId;
+        return _states[app][eid].lastLiquidityBatchId;
     }
 
     function dataBatchRoot(address app, uint32 eid, uint256 batchId) external view returns (bytes32) {
-        return _batchedStates[app][eid].dataHashTree[batchId].root;
+        return _states[app][eid].dataHashTree[batchId].root;
     }
 
     function lastDataBatchId(address app, uint32 eid) external view returns (uint256) {
-        return _batchedStates[app][eid].lastDataBatchId;
+        return _states[app][eid].lastDataBatchId;
+    }
+
+    function _getRemoteAppOrRevert(address app, uint32 eid) internal view returns (address remoteApp) {
+        remoteApp = ISynchronizer(synchronizer).getRemoteApp(app, eid);
+        if (remoteApp == address(0)) revert RemoteAppNotSet();
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -117,7 +150,7 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
     ) external onlyApp(app) {
         if (accounts.length != liquidity.length) revert InvalidLengths();
 
-        BatchedRemoteState storage state = _batchedStates[app][eid];
+        BatchedRemoteState storage state = _states[app][eid];
         uint256 id = state.lastLiquidityBatchId;
         state.liquidity[id] = LiquidityBatch(msg.sender, timestamp, accounts, liquidity);
         state.liquidityTree[id].initialize();
@@ -152,7 +185,7 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
     ) external onlyApp(app) {
         if (accounts.length != liquidity.length) revert InvalidLengths();
 
-        BatchedRemoteState storage state = _batchedStates[app][eid];
+        BatchedRemoteState storage state = _states[app][eid];
         LiquidityBatch storage batch = state.liquidity[batchId];
         if (batch.submitter != msg.sender) revert Forbidden();
 
@@ -182,15 +215,17 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
         uint256 mainTreeIndex,
         bytes32[] memory mainTreeProof
     ) external nonReentrant onlyApp(app) {
-        BatchedRemoteState storage state = _batchedStates[app][eid];
+        BatchedRemoteState storage state = _states[app][eid];
         LiquidityBatch memory batch = state.liquidity[batchId];
         if (batch.submitter != msg.sender) revert Forbidden();
 
-        bytes32 mainRoot = liquidityRoots[eid][batch.timestamp];
+        bytes32 mainRoot = ISynchronizer(synchronizer).getLiquidityRootAt(eid, batch.timestamp);
         _verifyRoot(
             _getRemoteAppOrRevert(app, eid), state.liquidityTree[batchId].root, mainTreeIndex, mainTreeProof, mainRoot
         );
-        _settleLiquidity(SettleLiquidityParams(app, eid, mainRoot, batch.timestamp, batch.accounts, batch.liquidity));
+        ISynchronizer(synchronizer).settleLiquidity(
+            ISynchronizer.SettleLiquidityParams(app, eid, batch.timestamp, batch.accounts, batch.liquidity)
+        );
     }
 
     /**
@@ -214,7 +249,7 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
     ) external onlyApp(app) {
         if (keys.length != values.length) revert InvalidLengths();
 
-        BatchedRemoteState storage state = _batchedStates[app][eid];
+        BatchedRemoteState storage state = _states[app][eid];
         uint256 id = state.lastDataBatchId;
         state.data[id] = DataBatch(msg.sender, timestamp, keys, values);
         state.dataHashTree[id].initialize();
@@ -246,7 +281,7 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
     {
         if (keys.length != values.length) revert InvalidLengths();
 
-        BatchedRemoteState storage state = _batchedStates[app][eid];
+        BatchedRemoteState storage state = _states[app][eid];
         DataBatch storage batch = state.data[batchId];
         if (batch.submitter != msg.sender) revert Forbidden();
 
@@ -276,15 +311,17 @@ abstract contract SynchronizerRemoteBatched is SynchronizerRemote {
         uint256 mainTreeIndex,
         bytes32[] memory mainTreeProof
     ) external nonReentrant onlyApp(app) {
-        BatchedRemoteState storage state = _batchedStates[app][eid];
+        BatchedRemoteState storage state = _states[app][eid];
         DataBatch memory batch = state.data[batchId];
         if (batch.submitter != msg.sender) revert Forbidden();
 
-        bytes32 mainRoot = dataRoots[eid][batch.timestamp];
+        bytes32 mainRoot = ISynchronizer(synchronizer).getDataRootAt(eid, batch.timestamp);
         _verifyRoot(
             _getRemoteAppOrRevert(app, eid), state.dataHashTree[batchId].root, mainTreeIndex, mainTreeProof, mainRoot
         );
-        _settleData(SettleDataParams(app, eid, mainRoot, batch.timestamp, batch.keys, batch.values));
+        ISynchronizer(synchronizer).settleData(
+            ISynchronizer.SettleDataParams(app, eid, batch.timestamp, batch.keys, batch.values)
+        );
     }
 
     function _verifyRoot(

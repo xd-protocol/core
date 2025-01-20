@@ -44,10 +44,12 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
     ISynchronizer local;
     address localApp;
     Storage localStorage;
+    address localSettler;
 
     ISynchronizer remote;
     address remoteApp;
     Storage remoteStorage;
+    address remoteSettler;
 
     mapping(uint32 fromEid => mapping(uint32 toEid => mapping(address fromAccount => address toAccount))) mappedAccounts;
 

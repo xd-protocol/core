@@ -31,42 +31,53 @@ contract SynchronizerLocalTest is BaseSynchronizerTest {
 
     function test_registerApp() public {
         changePrank(localApp, localApp);
-        local.registerApp(true, true);
+        local.registerApp(true, true, address(1));
 
-        (bool registered, bool syncMappedAccountsOnly, bool useCallbacks) = local.getAppSetting(localApp);
+        (bool registered, bool syncMappedAccountsOnly, bool useCallbacks, address settler) =
+            local.getAppSetting(localApp);
         assertTrue(registered);
         assertTrue(syncMappedAccountsOnly);
         assertTrue(useCallbacks);
+        assertEq(settler, address(1));
     }
 
     function test_updateMappedAccountsOnly() public {
         changePrank(localApp, localApp);
-        local.registerApp(false, false);
+        local.registerApp(false, false, address(0));
         local.updateSyncMappedAccountsOnly(true);
 
-        (, bool syncMappedAccountsOnly,) = local.getAppSetting(address(localApp));
+        (, bool syncMappedAccountsOnly,,) = local.getAppSetting(address(localApp));
         assertTrue(syncMappedAccountsOnly);
     }
 
     function test_updateUseCallbacks() public {
         changePrank(localApp, localApp);
-        local.registerApp(false, false);
+        local.registerApp(false, false, address(0));
         local.updateUseCallbacks(true);
 
-        (,, bool useCallbacks) = local.getAppSetting(address(localApp));
+        (,, bool useCallbacks,) = local.getAppSetting(address(localApp));
         assertTrue(useCallbacks);
+    }
+
+    function test_updateSettler() public {
+        changePrank(localApp, localApp);
+        local.registerApp(false, false, address(0));
+        local.updateSettler(address(1));
+
+        (,,, address settler) = local.getAppSetting(address(localApp));
+        assertEq(settler, address(1));
     }
 
     function test_updateLocalLiquidity(bytes32 seed) public {
         changePrank(localApp, localApp);
-        local.registerApp(false, false);
+        local.registerApp(false, false, address(0));
 
         _updateLocalLiquidity(local, localApp, localStorage, users, seed);
     }
 
     function test_updateLocalData(bytes32 seed) public {
         changePrank(localApp, localApp);
-        local.registerApp(false, false);
+        local.registerApp(false, false, address(0));
 
         _updateLocalData(local, localApp, localStorage, seed);
     }

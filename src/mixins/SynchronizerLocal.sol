@@ -95,6 +95,7 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
         bool registered;
         bool syncMappedAccountsOnly;
         bool useCallbacks;
+        address settler;
         SnapshotsLib.Snapshots totalLiquidity;
         mapping(address account => SnapshotsLib.Snapshots) liquidity;
         MerkleTreeLib.Tree liquidityTree;
@@ -116,7 +117,10 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    event RegisterApp(address indexed app);
+    event RegisterApp(address indexed app, bool syncMappedAccountsOnly, bool useCallbacks, address indexed settler);
+    event UpdateSyncMappedAccountsOnly(address indexed app, bool only);
+    event UpdateUseCallbacks(address indexed app, bool use);
+    event UpdateSettler(address indexed app, address indexed settler);
     event UpdateLocalLiquidity(
         address indexed app,
         uint256 mainTreeIndex,
@@ -173,14 +177,15 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
      * @return registered A boolean indicating whether the application is registered.
      * @return syncMappedAccountsOnly A boolean indicating whether to synchronize only mapped accounts.
      * @return useCallbacks A boolean indicating whether to listen to ILiquidityMatirxCallbacks.
+     * @return settler The contract to be used for settling roots.
      */
     function getAppSetting(address app)
         external
         view
-        returns (bool registered, bool syncMappedAccountsOnly, bool useCallbacks)
+        returns (bool registered, bool syncMappedAccountsOnly, bool useCallbacks, address settler)
     {
         AppState storage state = _appStates[app];
-        return (state.registered, state.syncMappedAccountsOnly, state.useCallbacks);
+        return (state.registered, state.syncMappedAccountsOnly, state.useCallbacks, state.settler);
     }
 
     /**
@@ -301,12 +306,13 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
      * @notice Registers a new application, initializing its liquidity and data trees.
      * @param syncMappedAccountsOnly A boolean indicating whether contract accounts should be synchronized.
      * @param useCallbacks A boolean indicating whether to listen to ILiquidityMatirxCallbacks.
+     * @param settler A contract to be used for settling roots (see `SynchronizerRemote` for details)
      *
      * Requirements:
      * - Caller must be a contract.
      * - App must not already be registered.
      */
-    function registerApp(bool syncMappedAccountsOnly, bool useCallbacks) external {
+    function registerApp(bool syncMappedAccountsOnly, bool useCallbacks, address settler) external {
         if (!msg.sender.isContract()) revert NotContract();
 
         AppState storage state = _appStates[msg.sender];
@@ -315,11 +321,12 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
         state.registered = true;
         state.syncMappedAccountsOnly = syncMappedAccountsOnly;
         state.useCallbacks = useCallbacks;
+        state.settler = settler;
 
         state.liquidityTree.initialize();
         state.dataTree.initialize();
 
-        emit RegisterApp(msg.sender);
+        emit RegisterApp(msg.sender, syncMappedAccountsOnly, useCallbacks, settler);
     }
 
     /**
@@ -331,6 +338,8 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
      */
     function updateSyncMappedAccountsOnly(bool syncMappedAccountsOnly) external onlyApp(msg.sender) {
         _appStates[msg.sender].syncMappedAccountsOnly = syncMappedAccountsOnly;
+
+        emit UpdateSyncMappedAccountsOnly(msg.sender, syncMappedAccountsOnly);
     }
 
     /**
@@ -342,6 +351,21 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
      */
     function updateUseCallbacks(bool useCallbacks) external onlyApp(msg.sender) {
         _appStates[msg.sender].useCallbacks = useCallbacks;
+
+        emit UpdateUseCallbacks(msg.sender, useCallbacks);
+    }
+
+    /**
+     * @notice Updates the `settler` address for the application.
+     * @param settler A contract to settle roots for the application.
+     *
+     * Requirements:
+     * - Caller must be a registered application.
+     */
+    function updateSettler(address settler) external onlyApp(msg.sender) {
+        _appStates[msg.sender].settler = settler;
+
+        emit UpdateSettler(msg.sender, settler);
     }
 
     /**

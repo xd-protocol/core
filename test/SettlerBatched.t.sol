@@ -6,6 +6,7 @@ import { Synchronizer } from "src/Synchronizer.sol";
 import { ISynchronizer } from "src/interfaces/ISynchronizer.sol";
 import { ArrayLib } from "src/libraries/ArrayLib.sol";
 import { MerkleTreeLib } from "src/libraries/MerkleTreeLib.sol";
+import { SettlerBatched } from "src/SettlerBatched.sol";
 import { Test, console } from "forge-std/Test.sol";
 import { AppMock } from "./mocks/AppMock.sol";
 import { IAppMock } from "./mocks/IAppMock.sol";
@@ -31,6 +32,8 @@ contract SynchronizerRemoteBatchedTest is BaseSynchronizerTest {
         remote = new Synchronizer(DEFAULT_CHANNEL_ID, endpoints[EID_REMOTE], owner);
         localApp = address(new AppMock(address(local)));
         remoteApp = address(new AppMock(address(remote)));
+        localSettler = address(new SettlerBatched(address(local)));
+        remoteSettler = address(new SettlerBatched(address(remote)));
 
         address[] memory oapps = new address[](2);
         oapps[0] = address(local);
@@ -40,6 +43,9 @@ contract SynchronizerRemoteBatchedTest is BaseSynchronizerTest {
         vm.deal(localApp, 10_000e18);
         vm.deal(remoteApp, 10_000e18);
 
+        local.updateSettlerWhitelisted(localSettler, true);
+        remote.updateSettlerWhitelisted(remoteSettler, true);
+
         ISynchronizer.ChainConfig[] memory configs = new ISynchronizer.ChainConfig[](1);
         configs[0] = ISynchronizer.ChainConfig(EID_REMOTE, 0);
         local.configChains(configs);
@@ -47,11 +53,11 @@ contract SynchronizerRemoteBatchedTest is BaseSynchronizerTest {
         remote.configChains(configs);
 
         changePrank(localApp, localApp);
-        local.registerApp(false, true);
+        local.registerApp(false, true, localSettler);
         local.updateRemoteApp(EID_REMOTE, address(remoteApp));
 
         changePrank(remoteApp, remoteApp);
-        remote.registerApp(false, true);
+        remote.registerApp(false, true, remoteSettler);
         remote.updateRemoteApp(EID_LOCAL, address(localApp));
 
         initialize(localStorage);
@@ -70,7 +76,7 @@ contract SynchronizerRemoteBatchedTest is BaseSynchronizerTest {
     }
 
     function test_createLiquidityBatch_submitLiquidity_settleLiquidityBatched(bytes32 seed) public {
-        assertEq(local.lastLiquidityBatchId(address(localApp), EID_REMOTE), 0);
+        assertEq(SettlerBatched(localSettler).lastLiquidityBatchId(address(localApp), EID_REMOTE), 0);
 
         (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
             _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
@@ -82,12 +88,14 @@ contract SynchronizerRemoteBatchedTest is BaseSynchronizerTest {
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
         (address[] memory accountsBatch, int256[] memory liquidityBatch) =
             _batchLiquidity(accounts, liquidity, offset, count);
-        local.createLiquidityBatch(address(localApp), EID_REMOTE, rootTimestamp, accountsBatch, liquidityBatch);
-        assertEq(local.lastLiquidityBatchId(address(localApp), EID_REMOTE), 1);
+        SettlerBatched(localSettler).createLiquidityBatch(
+            address(localApp), EID_REMOTE, rootTimestamp, accountsBatch, liquidityBatch
+        );
+        assertEq(SettlerBatched(localSettler).lastLiquidityBatchId(address(localApp), EID_REMOTE), 1);
 
         bytes32 root =
             MerkleTreeLib.computeRoot(ArrayLib.convertToBytes32(accAccounts), ArrayLib.convertToBytes32(accLiquidity));
-        assertEq(local.liquidityBatchRoot(address(localApp), EID_REMOTE, 0), root);
+        assertEq(SettlerBatched(localSettler).liquidityBatchRoot(address(localApp), EID_REMOTE, 0), root);
 
         for (offset = count; offset < accounts.length;) {
             seed = keccak256(abi.encodePacked(seed, count));
@@ -97,12 +105,14 @@ contract SynchronizerRemoteBatchedTest is BaseSynchronizerTest {
             }
 
             (accountsBatch, liquidityBatch) = _batchLiquidity(accounts, liquidity, offset, count);
-            local.submitLiquidity(address(localApp), EID_REMOTE, 0, accountsBatch, liquidityBatch);
+            SettlerBatched(localSettler).submitLiquidity(
+                address(localApp), EID_REMOTE, 0, accountsBatch, liquidityBatch
+            );
 
             root = MerkleTreeLib.computeRoot(
                 ArrayLib.convertToBytes32(accAccounts), ArrayLib.convertToBytes32(accLiquidity)
             );
-            assertEq(local.liquidityBatchRoot(address(localApp), EID_REMOTE, 0), root);
+            assertEq(SettlerBatched(localSettler).liquidityBatchRoot(address(localApp), EID_REMOTE, 0), root);
 
             offset += count;
         }
@@ -118,7 +128,7 @@ contract SynchronizerRemoteBatchedTest is BaseSynchronizerTest {
 
         uint256 mainIndex = 0;
         bytes32[] memory mainProof = _getMainProof(address(remoteApp), root, mainIndex);
-        local.settleLiquidityBatched(address(localApp), EID_REMOTE, 0, mainIndex, mainProof);
+        SettlerBatched(localSettler).settleLiquidityBatched(address(localApp), EID_REMOTE, 0, mainIndex, mainProof);
 
         for (uint256 i; i < accounts.length; ++i) {
             assertEq(IAppMock(localApp).remoteLiquidity(EID_REMOTE, accounts[i]), liquidity[i]);
@@ -167,7 +177,7 @@ contract SynchronizerRemoteBatchedTest is BaseSynchronizerTest {
     }
 
     function test_createDataBatch_submitData_settleDataBatched(bytes32 seed) public {
-        assertEq(local.lastDataBatchId(address(localApp), EID_REMOTE), 0);
+        assertEq(SettlerBatched(localSettler).lastDataBatchId(address(localApp), EID_REMOTE), 0);
 
         (bytes32[] memory keys, bytes[] memory values) = _updateLocalData(remote, remoteApp, remoteStorage, seed);
         (, bytes32 dataRoot, uint256 timestamp) = _sync(local);
@@ -177,11 +187,13 @@ contract SynchronizerRemoteBatchedTest is BaseSynchronizerTest {
 
         (, uint256 rootTimestamp) = local.getLastSyncedDataRoot(EID_REMOTE);
         (bytes32[] memory keysBatch, bytes[] memory valuesBatch) = _batchData(keys, values, offset, count);
-        local.createDataBatch(address(localApp), EID_REMOTE, rootTimestamp, keysBatch, valuesBatch);
-        assertEq(local.lastDataBatchId(address(localApp), EID_REMOTE), 1);
+        SettlerBatched(localSettler).createDataBatch(
+            address(localApp), EID_REMOTE, rootTimestamp, keysBatch, valuesBatch
+        );
+        assertEq(SettlerBatched(localSettler).lastDataBatchId(address(localApp), EID_REMOTE), 1);
 
         bytes32 root = MerkleTreeLib.computeRoot(accKeys, _convertToBytes32(accValues));
-        assertEq(local.dataBatchRoot(address(localApp), EID_REMOTE, 0), root);
+        assertEq(SettlerBatched(localSettler).dataBatchRoot(address(localApp), EID_REMOTE, 0), root);
 
         for (offset = count; offset < keys.length;) {
             seed = keccak256(abi.encodePacked(seed, count));
@@ -191,10 +203,10 @@ contract SynchronizerRemoteBatchedTest is BaseSynchronizerTest {
             }
 
             (keysBatch, valuesBatch) = _batchData(keys, values, offset, count);
-            local.submitData(address(localApp), EID_REMOTE, 0, keysBatch, valuesBatch);
+            SettlerBatched(localSettler).submitData(address(localApp), EID_REMOTE, 0, keysBatch, valuesBatch);
 
             root = MerkleTreeLib.computeRoot(accKeys, _convertToBytes32(accValues));
-            assertEq(local.dataBatchRoot(address(localApp), EID_REMOTE, 0), root);
+            assertEq(SettlerBatched(localSettler).dataBatchRoot(address(localApp), EID_REMOTE, 0), root);
 
             offset += count;
         }
@@ -208,7 +220,7 @@ contract SynchronizerRemoteBatchedTest is BaseSynchronizerTest {
 
         uint256 mainIndex = 0;
         bytes32[] memory mainProof = _getMainProof(address(remoteApp), root, mainIndex);
-        local.settleDataBatched(address(localApp), EID_REMOTE, 0, mainIndex, mainProof);
+        SettlerBatched(localSettler).settleDataBatched(address(localApp), EID_REMOTE, 0, mainIndex, mainProof);
 
         for (uint256 i; i < keys.length; ++i) {
             assertEq(IAppMock(localApp).remoteData(EID_REMOTE, keys[i]), values[i]);

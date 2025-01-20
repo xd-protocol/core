@@ -15,6 +15,22 @@ interface ISynchronizer is ILayerZeroReceiver, IOAppCore, IOAppReducer {
         uint16 confirmations;
     }
 
+    struct SettleLiquidityParams {
+        address app;
+        uint32 eid;
+        uint256 timestamp;
+        address[] accounts;
+        int256[] liquidity;
+    }
+
+    struct SettleDataParams {
+        address app;
+        uint32 eid;
+        uint256 timestamp;
+        bytes32[] keys;
+        bytes[] values;
+    }
+
     /*//////////////////////////////////////////////////////////////
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -39,7 +55,7 @@ interface ISynchronizer is ILayerZeroReceiver, IOAppCore, IOAppReducer {
     function getAppSetting(address app)
         external
         view
-        returns (bool registered, bool syncMappedAccountsOnly, bool useCallbacks);
+        returns (bool registered, bool syncMappedAccountsOnly, bool useCallbacks, address settler);
 
     function getLocalTotalLiquidity(address app) external view returns (int256 liquidity);
 
@@ -65,6 +81,8 @@ interface ISynchronizer is ILayerZeroReceiver, IOAppCore, IOAppReducer {
     function getMainLiquidityRoot() external view returns (bytes32);
 
     function getMainDataRoot() external view returns (bytes32);
+
+    function isSettlerWhitelisted(address account) external view returns (bool);
 
     function getMappedAccount(address app, uint32 eid, address remote) external view returns (address local);
 
@@ -151,23 +169,17 @@ interface ISynchronizer is ILayerZeroReceiver, IOAppCore, IOAppReducer {
 
     function areRootsFinalized(address app, uint32 eid, uint256 timestamp) external view returns (bool);
 
-    function liquidityBatchRoot(address app, uint32 eid, uint256 batchId) external view returns (bytes32);
-
-    function lastLiquidityBatchId(address app, uint32 eid) external view returns (uint256);
-
-    function dataBatchRoot(address app, uint32 eid, uint256 batchId) external view returns (bytes32);
-
-    function lastDataBatchId(address app, uint32 eid) external view returns (uint256);
-
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    function registerApp(bool syncMappedAccountsOnly, bool useCallbacks) external;
+    function registerApp(bool syncMappedAccountsOnly, bool useCallbacks, address settler) external;
 
     function updateSyncMappedAccountsOnly(bool syncMappedAccountsOnly) external;
 
     function updateUseCallbacks(bool useCallbacks) external;
+
+    function updateSettler(address settler) external;
 
     function updateLocalLiquidity(address account, int256 liquidity)
         external
@@ -179,70 +191,13 @@ interface ISynchronizer is ILayerZeroReceiver, IOAppCore, IOAppReducer {
 
     function updateRemoteApp(uint32 eid, address remoteApp) external;
 
-    function settleLiquidity(
-        address app,
-        uint32 eid,
-        uint256 timestamp,
-        uint256 mainTreeIndex,
-        bytes32[] memory mainTreeProof,
-        address[] calldata accounts,
-        int256[] calldata liquidity
-    ) external;
+    function settleLiquidity(SettleLiquidityParams memory params) external;
 
-    function settleData(
-        address app,
-        uint32 eid,
-        uint256 timestamp,
-        uint256 mainTreeIndex,
-        bytes32[] memory mainTreeProof,
-        bytes32[] calldata keys,
-        bytes[] calldata values
-    ) external;
-
-    function createLiquidityBatch(
-        address app,
-        uint32 eid,
-        uint256 timestamp,
-        address[] calldata accounts,
-        int256[] calldata liquidity
-    ) external;
-
-    function submitLiquidity(
-        address app,
-        uint32 eid,
-        uint256 batchId,
-        address[] memory accounts,
-        int256[] memory liquidity
-    ) external;
-
-    function settleLiquidityBatched(
-        address app,
-        uint32 eid,
-        uint256 batchId,
-        uint256 mainTreeIndex,
-        bytes32[] memory mainTreeProof
-    ) external;
-
-    function createDataBatch(
-        address app,
-        uint32 eid,
-        uint256 timestamp,
-        bytes32[] calldata keys,
-        bytes[] calldata values
-    ) external;
-
-    function submitData(address app, uint32 eid, uint256 batchId, bytes32[] memory keys, bytes[] memory values)
-        external;
-
-    function settleDataBatched(
-        address app,
-        uint32 eid,
-        uint256 batchId,
-        uint256 mainTreeIndex,
-        bytes32[] memory mainTreeProof
-    ) external;
+    function settleData(SettleDataParams memory params) external;
 
     function configChains(ChainConfig[] memory configs) external;
+
+    function updateSettlerWhitelisted(address account, bool whitelisted) external;
 
     function sync(uint128 gasLimit, uint32 calldataSize) external payable returns (MessagingReceipt memory fee);
 
