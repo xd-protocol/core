@@ -6,12 +6,12 @@ import { AddressLib } from "../libraries/AddressLib.sol";
 import { ArrayLib } from "../libraries/ArrayLib.sol";
 import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
 import { SnapshotsLib } from "../libraries/SnapshotsLib.sol";
-import { LiquidityMatrixLocal } from "./LiquidityMatrixLocal.sol";
-import { ILiquidityMatrixCallbacks } from "../interfaces/ILiquidityMatrixCallbacks.sol";
-import { ILiquidityMatrixAccountMapper } from "../interfaces/ILiquidityMatrixAccountMapper.sol";
+import { SynchronizerLocal } from "./SynchronizerLocal.sol";
+import { ISynchronizerCallbacks } from "../interfaces/ISynchronizerCallbacks.sol";
+import { ISynchronizerAccountMapper } from "../interfaces/ISynchronizerAccountMapper.sol";
 
 /**
- * @title LiquidityMatrixRemote
+ * @title SynchronizerRemote
  * @notice Manages cross-chain state synchronization for liquidity and data by verifying and settling roots.
  *
  * # Lifecycle of a Root
@@ -44,13 +44,13 @@ import { ILiquidityMatrixAccountMapper } from "../interfaces/ILiquidityMatrixAcc
  *
  * 3. **Settlement**:
  *    - `_settleLiquidity` and `_settleData` process settled roots, updating snapshots and triggering application-specific callbacks.
- *    - Calls `ILiquidityMatrixCallbacks` hooks to notify applications of updates.
+ *    - Calls `ISynchronizerCallbacks` hooks to notify applications of updates.
  *
  * 4. **Finalization**:
  *    - Finalized states require both liquidity and data roots to be settled for the same timestamp.
  *    - Enables accurate cross-chain state aggregation.
  */
-abstract contract LiquidityMatrixRemote is LiquidityMatrixLocal {
+abstract contract SynchronizerRemote is SynchronizerLocal {
     using AddressLib for address;
     using SnapshotsLib for SnapshotsLib.Snapshots;
 
@@ -686,7 +686,7 @@ abstract contract LiquidityMatrixRemote is LiquidityMatrixLocal {
             snapshots.setAsInt(accLiquidity, params.timestamp);
 
             if (useCallbacks) {
-                try ILiquidityMatrixCallbacks(params.app).onUpdateLiquidity(
+                try ISynchronizerCallbacks(params.app).onUpdateLiquidity(
                     params.eid, params.timestamp, _account, accLiquidity
                 ) { } catch (bytes memory reason) {
                     emit OnUpdateLiquidityFailure(params.eid, params.timestamp, _account, accLiquidity, reason);
@@ -696,9 +696,8 @@ abstract contract LiquidityMatrixRemote is LiquidityMatrixLocal {
 
         state.totalLiquidity.setAsInt(totalLiquidity, params.timestamp);
         if (useCallbacks) {
-            try ILiquidityMatrixCallbacks(params.app).onUpdateTotalLiquidity(
-                params.eid, params.timestamp, totalLiquidity
-            ) { } catch (bytes memory reason) {
+            try ISynchronizerCallbacks(params.app).onUpdateTotalLiquidity(params.eid, params.timestamp, totalLiquidity)
+            { } catch (bytes memory reason) {
                 emit OnUpdateTotalLiquidityFailure(params.eid, params.timestamp, totalLiquidity, reason);
             }
         }
@@ -717,7 +716,7 @@ abstract contract LiquidityMatrixRemote is LiquidityMatrixLocal {
             bytes32 hash = keccak256(value);
             state.dataHashes[key].set(hash, params.timestamp);
 
-            try ILiquidityMatrixCallbacks(params.app).onUpdateData(params.eid, params.timestamp, key, value) { }
+            try ISynchronizerCallbacks(params.app).onUpdateData(params.eid, params.timestamp, key, value) { }
             catch (bytes memory reason) {
                 emit OnUpdateDataFailure(params.eid, params.timestamp, key, hash, reason);
             }
@@ -759,7 +758,7 @@ abstract contract LiquidityMatrixRemote is LiquidityMatrixLocal {
             // only 1-1 mapping between remote-local is allowed and it can't be changed once set
             if (state.mappedAccounts[remote] != address(0)) revert RemoteAccountAlreadyMapped(eid, remote);
             if (state.localAccountMapped[local]) revert LocalAccountAlreadyMapped(eid, local);
-            if (!ILiquidityMatrixAccountMapper(app).shouldMapAccounts(eid, remote, local)) {
+            if (!ISynchronizerAccountMapper(app).shouldMapAccounts(eid, remote, local)) {
                 revert AccountsNotMapped(eid, remote, local);
             }
             state.mappedAccounts[remote] = local;
@@ -773,7 +772,7 @@ abstract contract LiquidityMatrixRemote is LiquidityMatrixLocal {
             state.liquidity[local].setAsInt(prevLocal + prevRemote);
 
             if (useCallbacks) {
-                ILiquidityMatrixCallbacks(app).onMapAccounts(eid, remote, local);
+                ISynchronizerCallbacks(app).onMapAccounts(eid, remote, local);
             }
 
             emit MapAccount(app, eid, remote, local);

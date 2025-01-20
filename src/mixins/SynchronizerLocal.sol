@@ -5,10 +5,10 @@ import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
 import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
 import { SnapshotsLib } from "../libraries/SnapshotsLib.sol";
-import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
+import { ISynchronizer } from "../interfaces/ISynchronizer.sol";
 
 /**
- * @title LiquidityMatrixLocal
+ * @title SynchronizerLocal
  * @dev A contract managing hierarchical Merkle trees to track and synchronize liquidity and data updates across applications.
  *
  * ## Architecture Overview:
@@ -82,7 +82,7 @@ import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
  *    - Allows querying of the current roots of the main liquidity and data trees.
  *    - Enables synchronization across chains or with off-chain systems.
  */
-abstract contract LiquidityMatrixLocal is ReentrancyGuard, ILiquidityMatrix {
+abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
     using AddressLib for address;
     using MerkleTreeLib for MerkleTreeLib.Tree;
     using SnapshotsLib for SnapshotsLib.Snapshots;

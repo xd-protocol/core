@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
-import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
+import { Synchronizer } from "src/Synchronizer.sol";
+import { ISynchronizer } from "src/interfaces/ISynchronizer.sol";
 import { ArrayLib } from "src/libraries/ArrayLib.sol";
 import { MerkleTreeLib } from "src/libraries/MerkleTreeLib.sol";
 import { Test, console } from "forge-std/Test.sol";
 import { AppMock } from "./mocks/AppMock.sol";
 import { IAppMock } from "./mocks/IAppMock.sol";
-import { BaseLiquidityMatrixTest } from "./BaseLiquidityMatrixTest.sol";
+import { BaseSynchronizerTest } from "./BaseSynchronizerTest.sol";
 
-contract LiquidityMatrixRemoteTest is BaseLiquidityMatrixTest {
+contract SynchronizerRemoteTest is BaseSynchronizerTest {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
     address owner = makeAddr("owner");
@@ -21,8 +21,8 @@ contract LiquidityMatrixRemoteTest is BaseLiquidityMatrixTest {
         setUpEndpoints(2, LibraryType.UltraLightNode);
 
         changePrank(owner, owner);
-        local = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[EID_LOCAL], owner);
-        remote = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[EID_REMOTE], owner);
+        local = new Synchronizer(DEFAULT_CHANNEL_ID, endpoints[EID_LOCAL], owner);
+        remote = new Synchronizer(DEFAULT_CHANNEL_ID, endpoints[EID_REMOTE], owner);
         localApp = address(new AppMock(address(local)));
         remoteApp = address(new AppMock(address(remote)));
         address[] memory oapps = new address[](2);
@@ -33,10 +33,10 @@ contract LiquidityMatrixRemoteTest is BaseLiquidityMatrixTest {
         vm.deal(localApp, 10_000e18);
         vm.deal(remoteApp, 10_000e18);
 
-        ILiquidityMatrix.ChainConfig[] memory configs = new ILiquidityMatrix.ChainConfig[](1);
-        configs[0] = ILiquidityMatrix.ChainConfig(EID_REMOTE, 0);
+        ISynchronizer.ChainConfig[] memory configs = new ISynchronizer.ChainConfig[](1);
+        configs[0] = ISynchronizer.ChainConfig(EID_REMOTE, 0);
         local.configChains(configs);
-        configs[0] = ILiquidityMatrix.ChainConfig(EID_LOCAL, 0);
+        configs[0] = ISynchronizer.ChainConfig(EID_LOCAL, 0);
         remote.configChains(configs);
 
         changePrank(localApp, localApp);

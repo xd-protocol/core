@@ -2,22 +2,22 @@
 pragma solidity ^0.8.28;
 
 import { MessagingFee } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
-import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
-import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
+import { Synchronizer } from "src/Synchronizer.sol";
+import { ISynchronizer } from "src/interfaces/ISynchronizer.sol";
 import { ArrayLib } from "src/libraries/ArrayLib.sol";
 import { MerkleTreeLib } from "src/libraries/MerkleTreeLib.sol";
 import { Test, console } from "forge-std/Test.sol";
 import { AppMock } from "./mocks/AppMock.sol";
 import { IAppMock } from "./mocks/IAppMock.sol";
-import { BaseLiquidityMatrixTest } from "./BaseLiquidityMatrixTest.sol";
+import { BaseSynchronizerTest } from "./BaseSynchronizerTest.sol";
 
-contract LiquidityMatrixTest is BaseLiquidityMatrixTest {
+contract SynchronizerTest is BaseSynchronizerTest {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
     uint8 public constant CHAINS = 16;
 
     uint32[CHAINS] eids;
-    ILiquidityMatrix[CHAINS] liquidityMatrixs;
+    ISynchronizer[CHAINS] synchronizers;
     address[CHAINS] apps;
     Storage[CHAINS] storages;
 
@@ -32,9 +32,9 @@ contract LiquidityMatrixTest is BaseLiquidityMatrixTest {
         address[] memory oapps = new address[](CHAINS);
         for (uint32 i; i < CHAINS; ++i) {
             eids[i] = i + 1;
-            liquidityMatrixs[i] = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[eids[i]], owner);
-            oapps[i] = address(liquidityMatrixs[i]);
-            apps[i] = address(new AppMock(address(liquidityMatrixs[i])));
+            synchronizers[i] = new Synchronizer(DEFAULT_CHANNEL_ID, endpoints[eids[i]], owner);
+            oapps[i] = address(synchronizers[i]);
+            apps[i] = address(new AppMock(address(synchronizers[i])));
         }
 
         wireOApps(address[](oapps));
@@ -42,18 +42,18 @@ contract LiquidityMatrixTest is BaseLiquidityMatrixTest {
         for (uint32 i; i < CHAINS; ++i) {
             vm.deal(apps[i], 1000e18);
             changePrank(apps[i], apps[i]);
-            liquidityMatrixs[i].registerApp(false, false);
+            synchronizers[i].registerApp(false, false);
 
-            ILiquidityMatrix.ChainConfig[] memory configs = new ILiquidityMatrix.ChainConfig[](CHAINS - 1);
+            ISynchronizer.ChainConfig[] memory configs = new ISynchronizer.ChainConfig[](CHAINS - 1);
             uint32 count;
             for (uint32 j; j < CHAINS; ++j) {
                 if (i == j) continue;
-                configs[count++] = ILiquidityMatrix.ChainConfig(eids[j], 0);
-                liquidityMatrixs[i].updateRemoteApp(eids[j], address(apps[j]));
+                configs[count++] = ISynchronizer.ChainConfig(eids[j], 0);
+                synchronizers[i].updateRemoteApp(eids[j], address(apps[j]));
             }
 
             changePrank(owner, owner);
-            liquidityMatrixs[i].configChains(configs);
+            synchronizers[i].configChains(configs);
             initialize(storages[i]);
         }
 
@@ -66,22 +66,22 @@ contract LiquidityMatrixTest is BaseLiquidityMatrixTest {
     }
 
     function test_sync(bytes32 seed) public {
-        ILiquidityMatrix[] memory remotes = new ILiquidityMatrix[](CHAINS - 1);
+        ISynchronizer[] memory remotes = new ISynchronizer[](CHAINS - 1);
         for (uint32 i = 1; i < CHAINS; ++i) {
-            _updateLocalLiquidity(liquidityMatrixs[i], apps[i], storages[i], users, seed);
-            remotes[i - 1] = liquidityMatrixs[i];
+            _updateLocalLiquidity(synchronizers[i], apps[i], storages[i], users, seed);
+            remotes[i - 1] = synchronizers[i];
             seed = keccak256(abi.encodePacked(seed, i));
         }
-        _sync(liquidityMatrixs[0], remotes);
+        _sync(synchronizers[0], remotes);
     }
 
     function test_requestMapRemoteAccounts() public {
-        ILiquidityMatrix[] memory remotes = new ILiquidityMatrix[](CHAINS - 1);
+        ISynchronizer[] memory remotes = new ISynchronizer[](CHAINS - 1);
         address[] memory remoteApps = new address[](CHAINS - 1);
         for (uint32 i = 1; i < CHAINS; ++i) {
-            remotes[i - 1] = liquidityMatrixs[i];
+            remotes[i - 1] = synchronizers[i];
             remoteApps[i - 1] = apps[i];
         }
-        _requestMapRemoteAccounts(liquidityMatrixs[0], apps[0], remotes, remoteApps, users);
+        _requestMapRemoteAccounts(synchronizers[0], apps[0], remotes, remoteApps, users);
     }
 }

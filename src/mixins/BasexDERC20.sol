@@ -20,7 +20,7 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { BytesLib } from "solidity-bytes-utils/contracts/BytesLib.sol";
 import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
 import { BaseERC20 } from "./BaseERC20.sol";
-import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
+import { ISynchronizer } from "../interfaces/ISynchronizer.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
 
 abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
@@ -50,7 +50,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
     uint32 public immutable READ_CHANNEL;
-    address public immutable liquidityMatrix;
+    address public immutable synchronizer;
 
     mapping(uint32 eid => uint64) internal _xdTransferDelays;
 
@@ -92,16 +92,16 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
 
     /**
      * @notice Initializes the xDERC20 contract with the necessary configurations.
-     * @param _liquidityMatrix The address of the LiquidityMatrix contract.
+     * @param _synchronizer The address of the Synchronizer contract.
      * @param _owner The address that will be granted ownership privileges.
      */
-    constructor(string memory _name, string memory _symbol, uint8 _decimals, address _liquidityMatrix, address _owner)
+    constructor(string memory _name, string memory _symbol, uint8 _decimals, address _synchronizer, address _owner)
         BaseERC20(_name, _symbol, _decimals)
-        OAppRead(address(ILiquidityMatrix(_liquidityMatrix).endpoint()), _owner)
+        OAppRead(address(ISynchronizer(_synchronizer).endpoint()), _owner)
         Ownable(_owner)
     {
-        liquidityMatrix = _liquidityMatrix;
-        READ_CHANNEL = ILiquidityMatrix(_liquidityMatrix).READ_CHANNEL();
+        synchronizer = _synchronizer;
+        READ_CHANNEL = ISynchronizer(_synchronizer).READ_CHANNEL();
         _pendingTransfers.push();
 
         _setPeer(READ_CHANNEL, AddressCast.toBytes32(address(this)));
@@ -129,7 +129,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      * @return The total supply of the token as a `uint256`.
      */
     function totalSupply() public view override returns (uint256) {
-        return _toUint(ILiquidityMatrix(liquidityMatrix).getSettledTotalLiquidity(address(this)));
+        return _toUint(ISynchronizer(synchronizer).getSettledTotalLiquidity(address(this)));
     }
 
     /**
@@ -138,7 +138,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      * @return The synced balance of the account as a `uint256`.
      */
     function balanceOf(address account) public view override returns (uint256) {
-        return _toUint(ILiquidityMatrix(liquidityMatrix).getSettledLiquidity(address(this), account));
+        return _toUint(ISynchronizer(synchronizer).getSettledLiquidity(address(this), account));
     }
 
     /**
@@ -155,7 +155,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      * @return The total supply of the token as a `uint256`.
      */
     function localTotalSupply() public view returns (int256) {
-        return ILiquidityMatrix(liquidityMatrix).getLocalTotalLiquidity(address(this));
+        return ISynchronizer(synchronizer).getLocalTotalLiquidity(address(this));
     }
 
     /**
@@ -164,7 +164,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      * @return The local balance of the account on this chain as a `uint256`.
      */
     function localBalanceOf(address account) public view returns (int256) {
-        return ILiquidityMatrix(liquidityMatrix).getLocalLiquidity(address(this), account);
+        return ISynchronizer(synchronizer).getLocalLiquidity(address(this), account);
     }
 
     /**
@@ -229,16 +229,16 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      * @param from The address initiating the cross-chain transfer.
      * @param nonce The unique identifier for the transfer.
      * @return cmd The encoded command data.
-     * @dev Constructs read requests for each configured chain in the LiquidityMatrix.
+     * @dev Constructs read requests for each configured chain in the Synchronizer.
      */
     function getXdTransferCmd(address from, uint256 nonce) public view returns (bytes memory) {
-        ILiquidityMatrix.ChainConfig[] memory _chainConfigs = ILiquidityMatrix(liquidityMatrix).chainConfigs();
+        ISynchronizer.ChainConfig[] memory _chainConfigs = ISynchronizer(synchronizer).chainConfigs();
         uint256 length = _chainConfigs.length;
         EVMCallRequestV1[] memory readRequests = new EVMCallRequestV1[](length);
 
         uint64 timestamp = uint64(block.timestamp);
         for (uint256 i; i < length; i++) {
-            ILiquidityMatrix.ChainConfig memory chainConfig = _chainConfigs[i];
+            ISynchronizer.ChainConfig memory chainConfig = _chainConfigs[i];
             uint32 eid = chainConfig.targetEid;
             address to = AddressCast.toAddress(_getPeerOrRevert(eid));
             readRequests[i] = EVMCallRequestV1({
@@ -425,7 +425,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
             if (_xdTransferring) {
                 _xdTransferring = false;
             } else {
-                if (ILiquidityMatrix(liquidityMatrix).getLocalLiquidity(address(this), from) < int256(amount)) {
+                if (ISynchronizer(synchronizer).getLocalLiquidity(address(this), from) < int256(amount)) {
                     revert InsufficientBalance();
                 }
             }
@@ -436,13 +436,13 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
 
     function _transferWithoutCheck(address from, address to, uint256 amount) internal {
         if (from != address(0)) {
-            ILiquidityMatrix(liquidityMatrix).updateLocalLiquidity(
-                from, ILiquidityMatrix(liquidityMatrix).getLocalLiquidity(address(this), from) - int256(amount)
+            ISynchronizer(synchronizer).updateLocalLiquidity(
+                from, ISynchronizer(synchronizer).getLocalLiquidity(address(this), from) - int256(amount)
             );
         }
         if (to != address(0)) {
-            ILiquidityMatrix(liquidityMatrix).updateLocalLiquidity(
-                to, ILiquidityMatrix(liquidityMatrix).getLocalLiquidity(address(this), to) + int256(amount)
+            ISynchronizer(synchronizer).updateLocalLiquidity(
+                to, ISynchronizer(synchronizer).getLocalLiquidity(address(this), to) + int256(amount)
             );
         }
 

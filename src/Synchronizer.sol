@@ -16,18 +16,18 @@ import {
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { AddressCast } from "@layerzerolabs/lz-evm-protocol-v2/contracts/libs/AddressCast.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
-import { LiquidityMatrixLocal } from "./mixins/LiquidityMatrixLocal.sol";
-import { LiquidityMatrixRemoteBatched } from "./mixins/LiquidityMatrixRemoteBatched.sol";
+import { SynchronizerLocal } from "./mixins/SynchronizerLocal.sol";
+import { SynchronizerRemoteBatched } from "./mixins/SynchronizerRemoteBatched.sol";
 import { SnapshotsLib } from "./libraries/SnapshotsLib.sol";
 
 /**
- * @title LiquidityMatrix
- * @dev Extends LiquidityMatrixRemoteBatched and integrates LayerZero's read and messaging protocols
+ * @title Synchronizer
+ * @dev Extends SynchronizerRemoteBatched and integrates LayerZero's read and messaging protocols
  *      to synchronize liquidity and data roots across multiple chains. This contract provides:
  *      - Chain configuration for read requests.
  *      - Messaging-based remote application and account updates.
  */
-contract LiquidityMatrix is LiquidityMatrixRemoteBatched, OAppRead {
+contract Synchronizer is SynchronizerRemoteBatched, OAppRead {
     using OptionsBuilder for bytes;
     using SnapshotsLib for SnapshotsLib.Snapshots;
 
@@ -162,7 +162,7 @@ contract LiquidityMatrix is LiquidityMatrixRemoteBatched, OAppRead {
                 blockNumOrTimestamp: timestamp,
                 confirmations: chainConfig.confirmations,
                 to: to,
-                callData: abi.encodeWithSelector(LiquidityMatrixLocal.getMainRoots.selector)
+                callData: abi.encodeWithSelector(SynchronizerLocal.getMainRoots.selector)
             });
         }
 

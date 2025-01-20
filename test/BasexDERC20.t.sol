@@ -9,11 +9,11 @@ import {
     EVMCallComputeV1
 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
 import { Test, Vm, console } from "forge-std/Test.sol";
-import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
+import { Synchronizer } from "src/Synchronizer.sol";
 import { xDERC20 } from "src/xDERC20.sol";
 import { BasexDERC20 } from "src/mixins/BasexDERC20.sol";
-import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
-import { BaseLiquidityMatrixTest } from "./BaseLiquidityMatrixTest.sol";
+import { ISynchronizer } from "src/interfaces/ISynchronizer.sol";
+import { BaseSynchronizerTest } from "./BaseSynchronizerTest.sol";
 
 contract Composable {
     event Compose(address indexed token, uint256 amount);
@@ -25,12 +25,12 @@ contract Composable {
     }
 }
 
-contract BasexDERC20Test is BaseLiquidityMatrixTest {
+contract BasexDERC20Test is BaseSynchronizerTest {
     uint8 public constant CHAINS = 8;
     uint16 public constant CMD_XD_TRANSFER = 1;
 
     uint32[CHAINS] eids;
-    ILiquidityMatrix[CHAINS] liquidityMatrixs;
+    ISynchronizer[CHAINS] synchronizers;
     xDERC20[CHAINS] erc20s;
 
     address owner = makeAddr("owner");
@@ -49,12 +49,12 @@ contract BasexDERC20Test is BaseLiquidityMatrixTest {
         address[] memory _erc20s = new address[](CHAINS);
         for (uint32 i; i < CHAINS; ++i) {
             eids[i] = i + 1;
-            liquidityMatrixs[i] = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[eids[i]], owner);
-            oapps[i] = address(liquidityMatrixs[i]);
-            erc20s[i] = new xDERC20("xD", "xD", 18, address(liquidityMatrixs[i]), owner);
+            synchronizers[i] = new Synchronizer(DEFAULT_CHANNEL_ID, endpoints[eids[i]], owner);
+            oapps[i] = address(synchronizers[i]);
+            erc20s[i] = new xDERC20("xD", "xD", 18, address(synchronizers[i]), owner);
             _erc20s[i] = address(erc20s[i]);
 
-            vm.label(address(liquidityMatrixs[i]), string.concat("LiquidityMatrix", vm.toString(i)));
+            vm.label(address(synchronizers[i]), string.concat("Synchronizer", vm.toString(i)));
             vm.label(address(erc20s[i]), string.concat("xDERC20", vm.toString(i)));
         }
 
@@ -64,18 +64,18 @@ contract BasexDERC20Test is BaseLiquidityMatrixTest {
         for (uint32 i; i < CHAINS; ++i) {
             vm.deal(address(erc20s[i]), 1000e18);
             changePrank(address(erc20s[i]), address(erc20s[i]));
-            liquidityMatrixs[i].registerApp(false, false);
+            synchronizers[i].registerApp(false, false);
 
-            ILiquidityMatrix.ChainConfig[] memory configs = new ILiquidityMatrix.ChainConfig[](CHAINS - 1);
+            ISynchronizer.ChainConfig[] memory configs = new ISynchronizer.ChainConfig[](CHAINS - 1);
             uint32 count;
             for (uint32 j; j < CHAINS; ++j) {
                 if (i == j) continue;
-                configs[count++] = ILiquidityMatrix.ChainConfig(eids[j], 0);
-                liquidityMatrixs[i].updateRemoteApp(eids[j], address(erc20s[j]));
+                configs[count++] = ISynchronizer.ChainConfig(eids[j], 0);
+                synchronizers[i].updateRemoteApp(eids[j], address(erc20s[j]));
             }
 
             changePrank(owner, owner);
-            liquidityMatrixs[i].configChains(configs);
+            synchronizers[i].configChains(configs);
             for (uint256 j; j < users.length; ++j) {
                 erc20s[i].mint(users[j], 100e18);
             }
@@ -263,17 +263,17 @@ contract BasexDERC20Test is BaseLiquidityMatrixTest {
     }
 
     function _syncAndSettleLiquidity() internal {
-        ILiquidityMatrix local = liquidityMatrixs[0];
+        ISynchronizer local = synchronizers[0];
         xDERC20 localApp = erc20s[0];
 
-        ILiquidityMatrix[] memory remotes = new ILiquidityMatrix[](CHAINS - 1);
+        ISynchronizer[] memory remotes = new ISynchronizer[](CHAINS - 1);
         for (uint256 i; i < remotes.length; ++i) {
-            remotes[i] = liquidityMatrixs[i + 1];
+            remotes[i] = synchronizers[i + 1];
         }
         _sync(local, remotes);
 
         for (uint256 i = 1; i < CHAINS; ++i) {
-            ILiquidityMatrix remote = liquidityMatrixs[i];
+            ISynchronizer remote = synchronizers[i];
             xDERC20 remoteApp = erc20s[i];
 
             uint256 mainIndex = 0;
