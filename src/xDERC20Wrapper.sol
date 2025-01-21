@@ -32,13 +32,13 @@ contract xDERC20 is BasexDERC20 {
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    function mint(address to, uint256 amount) external {
+    function wrap(address to, uint256 amount) external {
         ERC20(underlying).safeTransferFrom(msg.sender, address(this), amount);
 
         _mint(to, amount);
     }
 
-    function burn(address to, uint256 amount) external {
+    function unwrap(address to, uint256 amount) external {
         _burn(amount);
 
         ERC20(underlying).safeTransfer(to, amount);
