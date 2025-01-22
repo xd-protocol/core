@@ -54,9 +54,9 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
 
     mapping(uint32 eid => uint64) internal _xdTransferDelays;
 
-    bool internal _xdTransferring;
     PendingTransfer[] internal _pendingTransfers;
-    mapping(address acount => uint256) internal _pendingNonce;
+    mapping(address account => uint256) internal _pendingNonce;
+    mapping(address account => int256) internal _availability;
 
     uint16 public constant CMD_XD_TRANSFER = 1;
 
@@ -80,11 +80,11 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
     error InsufficientBalance();
     error InsufficientValue();
     error TransferPending();
-    error ReentrantXdTransfer();
     error Overflow();
     error RefundFailure(uint256 nonce);
-    error InsufficientAvailability(uint256 nonce, uint256 amount, int256 availabillity);
     error CallFailure(uint256 nonce, address to, bytes reason);
+    error InsufficientAvailability(uint256 amount, int256 availabillity);
+    error NotXdTransferring();
 
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
@@ -377,8 +377,6 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      * @notice Finalizes a cross-chain transfer after receiving global availability data.
      * @param nonce The unique identifier for the transfer.
      * @param globalAvailability The total available liquidity across all chains.
-     * @dev This function performs availability checks, executes any optional calldata, and transfers tokens.
-     *      It ensures that transfers are not reentrant and handles refunds in case of failures.
      */
     function _onXdTransfer(uint256 nonce, int256 globalAvailability) internal {
         PendingTransfer storage pending = _pendingTransfers[nonce];
@@ -387,55 +385,40 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
 
         pending.pending = false;
         _pendingNonce[from] = 0;
+        _availability[from] = localBalanceOf(from) + globalAvailability;
 
-        uint256 amount = pending.amount;
-        int256 availability = localBalanceOf(from) + globalAvailability;
-        if (availability < int256(amount)) revert InsufficientAvailability(nonce, amount, availability);
-
-        if (_xdTransferring) revert ReentrantXdTransfer();
-        _xdTransferring = true;
-
-        (address to, bytes memory callData) = (pending.to, pending.callData);
+        (address to, uint256 amount, bytes memory callData) = (pending.to, pending.amount, pending.callData);
+        // composability
         if (to.isContract() && callData.length > 0) {
-            // composability
-            _transferWithoutCheck(from, address(this), amount);
+            _transfer(from, address(this), amount);
             allowance[address(this)][to] = amount;
+            // it's expected that transferFrom() is called in the next call
             (bool ok, bytes memory reason) = to.call{ value: pending.value }(callData);
-            _xdTransferring = false;
             if (!ok) revert CallFailure(nonce, to, reason);
+            allowance[address(this)][to] = 0;
         } else {
-            _transfer(pending.from, pending.to, amount);
+            _transfer(from, to, amount);
         }
+        _availability[from] = 0;
     }
 
     /**
-     * @notice Transfers tokens from one address to another, handling both local and cross-chain transfers.
+     * @notice Transfers tokens from one address to another, handling cross-chain transfers.
      * @param from The address from which tokens are transferred.
      * @param to The recipient address.
      * @param amount The amount of tokens to transfer.
-     * @dev If `_xdTransferring` is true, skips local liquidity checks, relying on global availability.
-     *      Otherwise, ensures the sender has sufficient local balance.
-     *      Updates local liquidity balances accordingly.
+     * @dev If this is called in `_mint()`, it doesn't check anything.
+     *      Otherwise, `amount` must be greater than or equal to `_availability[from]` or it reverts.
      */
     function _transfer(address from, address to, uint256 amount) internal virtual override {
         if (amount > uint256(type(int256).max)) revert Overflow();
         if (from == to) return;
 
         if (from != address(0)) {
-            if (_xdTransferring) {
-                _xdTransferring = false;
-            } else {
-                if (ISynchronizer(synchronizer).getLocalLiquidity(address(this), from) < int256(amount)) {
-                    revert InsufficientBalance();
-                }
-            }
-        }
+            int256 availability = _availability[from];
+            if (availability < int256(amount)) revert InsufficientAvailability(amount, availability);
+            _availability[from] = availability - int256(amount);
 
-        _transferWithoutCheck(from, to, amount);
-    }
-
-    function _transferWithoutCheck(address from, address to, uint256 amount) internal {
-        if (from != address(0)) {
             ISynchronizer(synchronizer).updateLocalLiquidity(
                 from, ISynchronizer(synchronizer).getLocalLiquidity(address(this), from) - int256(amount)
             );
