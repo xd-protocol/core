@@ -9,7 +9,7 @@ import {
     EVMCallComputeV1
 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
 import { Test, Vm, console } from "forge-std/Test.sol";
-import { Settler } from "src/Settler.sol";
+import { Settler } from "src/settlers/Settler.sol";
 import { Synchronizer } from "src/Synchronizer.sol";
 import { xDERC20 } from "src/xDERC20.sol";
 import { BasexDERC20 } from "src/mixins/BasexDERC20.sol";

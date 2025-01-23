@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { BaseSettler } from "./mixins/BaseSettler.sol";
-import { ISynchronizer } from "./interfaces/ISynchronizer.sol";
+import { BaseSettler } from "../mixins/BaseSettler.sol";
+import { ISynchronizer } from "../interfaces/ISynchronizer.sol";
 
 contract SettlerTrusted is BaseSettler {
     /*//////////////////////////////////////////////////////////////

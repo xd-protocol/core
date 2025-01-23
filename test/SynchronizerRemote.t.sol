@@ -5,7 +5,7 @@ import { Synchronizer } from "src/Synchronizer.sol";
 import { ISynchronizer } from "src/interfaces/ISynchronizer.sol";
 import { ArrayLib } from "src/libraries/ArrayLib.sol";
 import { MerkleTreeLib } from "src/libraries/MerkleTreeLib.sol";
-import { Settler } from "src/Settler.sol";
+import { Settler } from "src/settlers/Settler.sol";
 import { Test, console } from "forge-std/Test.sol";
 import { AppMock } from "./mocks/AppMock.sol";
 import { IAppMock } from "./mocks/IAppMock.sol";
