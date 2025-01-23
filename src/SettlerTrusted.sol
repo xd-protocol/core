@@ -3,10 +3,35 @@ pragma solidity ^0.8.28;
 
 import { BaseSettler } from "./mixins/BaseSettler.sol";
 import { ISynchronizer } from "./interfaces/ISynchronizer.sol";
-import { MerkleTreeLib } from "./libraries/MerkleTreeLib.sol";
-import { ArrayLib } from "./libraries/ArrayLib.sol";
 
-contract Settler is BaseSettler {
+contract SettlerTrusted is BaseSettler {
+    /*//////////////////////////////////////////////////////////////
+                                STORAGE
+    //////////////////////////////////////////////////////////////*/
+
+    mapping(address account => bool) public isTrusted;
+
+    /*//////////////////////////////////////////////////////////////
+                                 EVENTS
+    //////////////////////////////////////////////////////////////*/
+
+    event UpdateTrusted(address indexed account, bool isTrusted);
+
+    /*//////////////////////////////////////////////////////////////
+                                 ERRORS
+    //////////////////////////////////////////////////////////////*/
+
+    error NotTrusted();
+
+    /*//////////////////////////////////////////////////////////////
+                             MODIFIERS
+    //////////////////////////////////////////////////////////////*/
+
+    modifier onlyTrusted(address account) {
+        if (!isTrusted[account]) revert NotTrusted();
+        _;
+    }
+
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
@@ -17,15 +42,22 @@ contract Settler is BaseSettler {
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
+    function updateTrusted(address account, bool _isTrusted) external {
+        isTrusted[account] = _isTrusted;
+
+        emit UpdateTrusted(account, _isTrusted);
+    }
+
     /**
      * @notice Settles liquidity states directly without batching, verifying the proof for the app-tree root.
+     * @param app The address of the application on the current chain.
      * @param eid The endpoint ID of the remote chain.
      * @param timestamp The timestamp of the root.
-     * @param app The address of the application on the current chain.
-     * @param mainTreeIndex the index of app in the liquidity tree on the remote chain.
+     * @param mainTreeIndex The index of app in the liquidity tree on the remote chain.
      * @param mainTreeProof The proof array to verify the app-root within the main tree.
      * @param accounts The array of accounts to settle.
      * @param liquidity The array of liquidity values corresponding to the accounts.
+     * @param appRoot Pre-calculated root for this application derived from `accounts` and `liquidity`.
      *
      * Requirements:
      * - The `accounts` and `liquidity` arrays must have the same length.
@@ -37,13 +69,11 @@ contract Settler is BaseSettler {
         uint256 mainTreeIndex,
         bytes32[] memory mainTreeProof,
         address[] calldata accounts,
-        int256[] calldata liquidity
-    ) external nonReentrant onlyApp(app) {
+        int256[] calldata liquidity,
+        bytes32 appRoot
+    ) external nonReentrant onlyApp(app) onlyTrusted(msg.sender) {
         if (accounts.length != liquidity.length) revert InvalidLengths();
 
-        bytes32[] memory keys = ArrayLib.convertToBytes32(accounts);
-        bytes32[] memory values = ArrayLib.convertToBytes32(liquidity);
-        bytes32 appRoot = MerkleTreeLib.computeRoot(keys, values);
         bytes32 mainTreeRoot = ISynchronizer(synchronizer).getLiquidityRootAt(eid, timestamp);
         _verifyMainTreeRoot(_getRemoteAppOrRevert(app, eid), appRoot, mainTreeIndex, mainTreeProof, mainTreeRoot);
 
@@ -61,6 +91,7 @@ contract Settler is BaseSettler {
      * @param mainTreeProof The proof array to verify the app-root within the main tree.
      * @param keys The array of keys to settle.
      * @param values The array of data values corresponding to the keys.
+     * @param appRoot Pre-calculated root for this application derived from `keys` and `values`.
      *
      * Requirements:
      * - The `keys` and `values` arrays must have the same length.
@@ -72,11 +103,11 @@ contract Settler is BaseSettler {
         uint256 mainTreeIndex,
         bytes32[] memory mainTreeProof,
         bytes32[] calldata keys,
-        bytes[] calldata values
-    ) external nonReentrant onlyApp(app) {
+        bytes[] calldata values,
+        bytes32 appRoot
+    ) external nonReentrant onlyApp(app) onlyTrusted(msg.sender) {
         if (keys.length != values.length) revert InvalidLengths();
 
-        bytes32 appRoot = MerkleTreeLib.computeRoot(keys, ArrayLib.hashElements(values));
         bytes32 mainTreeRoot = ISynchronizer(synchronizer).getDataRootAt(eid, timestamp);
         _verifyMainTreeRoot(_getRemoteAppOrRevert(app, eid), appRoot, mainTreeIndex, mainTreeProof, mainTreeRoot);
 

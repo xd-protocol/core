@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
+import { BaseSettler } from "./mixins/BaseSettler.sol";
 import { ISynchronizer } from "./interfaces/ISynchronizer.sol";
 import { ArrayLib } from "./libraries/ArrayLib.sol";
 import { MerkleTreeLib } from "./libraries/MerkleTreeLib.sol";
@@ -28,7 +28,7 @@ import { MerkleTreeLib } from "./libraries/MerkleTreeLib.sol";
  * - BatchedRemoteStates are tracked per application and chain (`eid`), ensuring isolated state management.
  * - Each batch has its own Merkle tree (`liquidityTree`, `dataHashTree`).
  */
-contract SettlerBatched is ReentrancyGuard {
+contract SettlerBatched is BaseSettler {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
     struct BatchedRemoteState {
@@ -57,8 +57,6 @@ contract SettlerBatched is ReentrancyGuard {
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
 
-    address immutable synchronizer;
-
     mapping(address app => mapping(uint32 eid => BatchedRemoteState)) internal _states;
 
     /*//////////////////////////////////////////////////////////////
@@ -73,32 +71,14 @@ contract SettlerBatched is ReentrancyGuard {
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
-    error AppNotRegistered();
-    error SettlerNotSet();
     error Forbidden();
-    error RemoteAppNotSet();
-    error InvalidLengths();
     error RootNotReceived();
-    error InvalidRoot();
-
-    /*//////////////////////////////////////////////////////////////
-                             MODIFIERS
-    //////////////////////////////////////////////////////////////*/
-
-    modifier onlyApp(address account) {
-        (bool registered,,, address settler) = ISynchronizer(synchronizer).getAppSetting(account);
-        if (!registered) revert AppNotRegistered();
-        if (settler != address(this)) revert SettlerNotSet();
-        _;
-    }
 
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address _synchronizer) {
-        synchronizer = _synchronizer;
-    }
+    constructor(address _synchronizer) BaseSettler(_synchronizer) { }
 
     /*//////////////////////////////////////////////////////////////
                              VIEW FUNCTIONS
@@ -118,11 +98,6 @@ contract SettlerBatched is ReentrancyGuard {
 
     function lastDataBatchId(address app, uint32 eid) external view returns (uint256) {
         return _states[app][eid].lastDataBatchId;
-    }
-
-    function _getRemoteAppOrRevert(address app, uint32 eid) internal view returns (address remoteApp) {
-        remoteApp = ISynchronizer(synchronizer).getRemoteApp(app, eid);
-        if (remoteApp == address(0)) revert RemoteAppNotSet();
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -219,9 +194,13 @@ contract SettlerBatched is ReentrancyGuard {
         LiquidityBatch memory batch = state.liquidity[batchId];
         if (batch.submitter != msg.sender) revert Forbidden();
 
-        bytes32 mainRoot = ISynchronizer(synchronizer).getLiquidityRootAt(eid, batch.timestamp);
-        _verifyRoot(
-            _getRemoteAppOrRevert(app, eid), state.liquidityTree[batchId].root, mainTreeIndex, mainTreeProof, mainRoot
+        bytes32 mainTreeRoot = ISynchronizer(synchronizer).getLiquidityRootAt(eid, batch.timestamp);
+        _verifyMainTreeRoot(
+            _getRemoteAppOrRevert(app, eid),
+            state.liquidityTree[batchId].root,
+            mainTreeIndex,
+            mainTreeProof,
+            mainTreeRoot
         );
         ISynchronizer(synchronizer).settleLiquidity(
             ISynchronizer.SettleLiquidityParams(app, eid, batch.timestamp, batch.accounts, batch.liquidity)
@@ -315,30 +294,16 @@ contract SettlerBatched is ReentrancyGuard {
         DataBatch memory batch = state.data[batchId];
         if (batch.submitter != msg.sender) revert Forbidden();
 
-        bytes32 mainRoot = ISynchronizer(synchronizer).getDataRootAt(eid, batch.timestamp);
-        _verifyRoot(
-            _getRemoteAppOrRevert(app, eid), state.dataHashTree[batchId].root, mainTreeIndex, mainTreeProof, mainRoot
+        bytes32 mainTreeRoot = ISynchronizer(synchronizer).getDataRootAt(eid, batch.timestamp);
+        _verifyMainTreeRoot(
+            _getRemoteAppOrRevert(app, eid),
+            state.dataHashTree[batchId].root,
+            mainTreeIndex,
+            mainTreeProof,
+            mainTreeRoot
         );
         ISynchronizer(synchronizer).settleData(
             ISynchronizer.SettleDataParams(app, eid, batch.timestamp, batch.keys, batch.values)
         );
-    }
-
-    function _verifyRoot(
-        address app,
-        bytes32 appRoot,
-        uint256 mainTreeIndex,
-        bytes32[] memory mainTreeProof,
-        bytes32 mainTreeRoot
-    ) internal {
-        if (mainTreeRoot == bytes32(0)) revert RootNotReceived();
-
-        // Construct the Merkle tree and verify mainTreeRoot
-        bool valid = MerkleTreeLib.verifyProof(
-            bytes32(uint256(uint160(app))), appRoot, mainTreeIndex, mainTreeProof, mainTreeRoot
-        );
-        if (!valid) revert InvalidRoot();
-
-        emit VerifyRoot(app, mainTreeRoot);
     }
 }
