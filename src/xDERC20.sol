@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
+import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { BasexDERC20 } from "./mixins/BasexDERC20.sol";
 
 contract xDERC20 is BasexDERC20 {
@@ -16,11 +17,23 @@ contract xDERC20 is BasexDERC20 {
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
+    /**
+     * @notice Mints tokens.
+     * @param to The recipient address of the minted tokens.
+     * @param amount The amount of tokens to mint.
+     * @dev This function should be called by derived contracts with appropriate access control.
+     */
     function mint(address to, uint256 amount) external onlyOwner {
-        _mint(to, amount);
+        _transfer(address(0), to, amount);
     }
 
-    function burn(uint256 amount) external {
-        _burn(amount);
+    /**
+     * @notice Burns tokens by transferring them to the zero address.
+     * @param amount The amount of tokens to burn.
+     * @param gasLimit The gas limit to allocate for actual transfer after lzRead.
+     * @dev This function should be called by derived contracts with appropriate access control.
+     */
+    function burn(uint256 amount, uint128 gasLimit) external payable returns (MessagingReceipt memory receipt) {
+        return transfer(address(0), amount, gasLimit);
     }
 }

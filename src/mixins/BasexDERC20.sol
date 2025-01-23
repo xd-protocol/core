@@ -52,19 +52,22 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
     uint32 public immutable READ_CHANNEL;
     address public immutable synchronizer;
 
-    mapping(uint32 eid => uint64) internal _xdTransferDelays;
+    uint32 public transferCalldataSize = 32;
 
-    bool internal _xdTransferring;
+    mapping(uint32 eid => uint64) internal _transferDelays;
+
+    bool internal _composing;
     PendingTransfer[] internal _pendingTransfers;
     mapping(address acount => uint256) internal _pendingNonce;
 
-    uint16 public constant CMD_XD_TRANSFER = 1;
+    uint16 public constant CMD_TRANSFER = 1;
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
-    event UpdateXdTransferDelay(uint32 indexed eid, uint64 delay);
-    event XdTransfer(address indexed from, address indexed to, uint256 amount, uint256 indexed nonce);
+    event UpdateTransferCalldataSize(uint128 size);
+    event UpdateTransferDelay(uint32 indexed eid, uint64 delay);
+    event Transfer(address indexed from, address indexed to, uint256 amount, uint256 indexed nonce);
     event CancelPendingTransfer(uint256 indexed nonce);
 
     /*//////////////////////////////////////////////////////////////
@@ -74,17 +77,18 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
     error InvalidRequests();
     error InvalidCmd();
     error InvalidLengths();
+    error Unsupported();
     error TransferNotPending(uint256 nonce);
     error InvalidAmount();
     error InvalidAddress();
     error InsufficientBalance();
     error InsufficientValue();
     error TransferPending();
-    error ReentrantXdTransfer();
     error Overflow();
     error RefundFailure(uint256 nonce);
     error InsufficientAvailability(uint256 nonce, uint256 amount, int256 availabillity);
     error CallFailure(uint256 nonce, address to, bytes reason);
+    error NotComposing();
 
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
@@ -111,8 +115,8 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function xdTransferDelay(uint32 eid) external view returns (uint256) {
-        return _xdTransferDelays[eid];
+    function transferDelay(uint32 eid) external view returns (uint256) {
+        return _transferDelays[eid];
     }
 
     function pendingNonce(address account) external view returns (uint256) {
@@ -170,19 +174,17 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
     /**
      * @notice Quotes the messaging fee for sending a read request with specific gas and calldata size.
      * @param from The address initiating the cross-chain transfer.
-     * @param gasLimit The amount of gas to allocate for the executor.
-     * @param calldataSize The size of the calldata in bytes.
+     * @param gasLimit The gas limit to allocate for actual transfer after lzRead.
      * @return fee The estimated messaging fee for the request.
      */
-    function quoteXdTransfer(address from, uint128 gasLimit, uint32 calldataSize)
-        public
-        view
-        returns (MessagingFee memory fee)
-    {
+    function quoteTransfer(address from, uint128 gasLimit) public view returns (MessagingFee memory fee) {
+        ISynchronizer.ChainConfig[] memory _chainConfigs = ISynchronizer(synchronizer).chainConfigs();
         return _quote(
             READ_CHANNEL,
-            getXdTransferCmd(from, _pendingTransfers.length),
-            OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0),
+            getTransferCmd(from, _pendingTransfers.length),
+            OptionsBuilder.newOptions().addExecutorLzReadOption(
+                gasLimit, transferCalldataSize * uint32(_chainConfigs.length), 0
+            ),
             false
         );
     }
@@ -204,11 +206,10 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      * @param _cmd The encoded command specifying the request details.
      * @param _responses An array of responses corresponding to each read request.
      * @return The aggregated result.
-     * @dev Specifically handles CMD_XD_TRANSFER by summing up available balances across chains.
      */
     function lzReduce(bytes calldata _cmd, bytes[] calldata _responses) external pure returns (bytes memory) {
         (uint16 appCmdLabel, EVMCallRequestV1[] memory requests,) = ReadCodecV1.decode(_cmd);
-        if (appCmdLabel == CMD_XD_TRANSFER) {
+        if (appCmdLabel == CMD_TRANSFER) {
             if (requests.length == 0) revert InvalidRequests();
             // decode nonce from callData for availableLocalBalanceOf(address account, uint256 nonce)
             uint256 nonce = uint256(bytes32(requests[0].callData.slice(36, 32)));
@@ -218,7 +219,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
                 int256 balance = abi.decode(_responses[i], (int256));
                 availability += balance;
             }
-            return abi.encode(CMD_XD_TRANSFER, nonce, availability);
+            return abi.encode(appCmdLabel, nonce, availability);
         } else {
             revert InvalidCmd();
         }
@@ -231,7 +232,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      * @return cmd The encoded command data.
      * @dev Constructs read requests for each configured chain in the Synchronizer.
      */
-    function getXdTransferCmd(address from, uint256 nonce) public view returns (bytes memory) {
+    function getTransferCmd(address from, uint256 nonce) public view returns (bytes memory) {
         ISynchronizer.ChainConfig[] memory _chainConfigs = ISynchronizer(synchronizer).chainConfigs();
         uint256 length = _chainConfigs.length;
         EVMCallRequestV1[] memory readRequests = new EVMCallRequestV1[](length);
@@ -245,14 +246,14 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
                 appRequestLabel: uint16(i + 1),
                 targetEid: eid,
                 isBlockNum: false,
-                blockNumOrTimestamp: timestamp + _xdTransferDelays[eid],
+                blockNumOrTimestamp: timestamp + _transferDelays[eid],
                 confirmations: chainConfig.confirmations,
                 to: to,
                 callData: abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from, nonce)
             });
         }
 
-        return ReadCodecV1.encode(CMD_XD_TRANSFER, readRequests, _computeSettings());
+        return ReadCodecV1.encode(CMD_TRANSFER, readRequests, _computeSettings());
     }
 
     function _computeSettings() internal view returns (EVMCallComputeV1 memory) {
@@ -270,6 +271,12 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
+    function updateTransferCalldataSize(uint32 size) external onlyOwner {
+        transferCalldataSize = size;
+
+        emit UpdateTransferCalldataSize(size);
+    }
+
     /**
      * @notice Updates the cross-chain transfer delays for specified endpoint IDs.
      * @dev Only callable by the contract owner.
@@ -277,42 +284,82 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      * @param delays An array of delay values corresponding to each endpoint ID.
      * @dev Both arrays must be of the same length.
      */
-    function updateXdTransferDelays(uint32[] memory eids, uint64[] memory delays) external onlyOwner {
+    function updateTransferDelays(uint32[] memory eids, uint64[] memory delays) external onlyOwner {
         if (eids.length != delays.length) revert InvalidLengths();
 
         for (uint256 i; i < eids.length; ++i) {
             uint32 eid = eids[i];
             uint64 delay = delays[i];
 
-            _xdTransferDelays[eid] = delay;
+            _transferDelays[eid] = delay;
 
-            emit UpdateXdTransferDelay(eid, delay);
+            emit UpdateTransferDelay(eid, delay);
         }
     }
 
     /**
-     * @notice Initiates a cross-chain cross-chain transfer operation.
-     * @dev Sends a read request with specified gas and calldata size.
+     * @dev Plain transfer isn't supported. Use payable transfer() instead.
+     */
+    function transfer(address, uint256) public pure override returns (bool) {
+        revert Unsupported();
+    }
+
+    /**
+     * @notice Initiates a transfer operation.
+     * @dev It performs a global availability check using lzRead to ensure `amount <= availability`.
      *      The user must provide sufficient fees via `msg.value`.
-     *      It performs a global availability check using LayerZero's read protocol to ensure `amount <= availability`.
+     * @param to The recipient address on the target chain.
+     * @param amount The amount of tokens to transfer.
+     * @param gasLimit The gas limit to allocate for actual transfer after lzRead.
+     * @return receipt The messaging receipt from LayerZero, confirming the request details.
+     *         Includes the `guid` and `block` parameters for tracking.
+     * @dev Emits a `Transfer` event upon successful initiation.
+     */
+    function transfer(address to, uint256 amount, uint128 gasLimit)
+        public
+        payable
+        returns (MessagingReceipt memory receipt)
+    {
+        return transfer(to, amount, "", 0, gasLimit);
+    }
+
+    /**
+     * @notice Initiates a transfer operation.
+     * @dev It performs a global availability check using lzRead to ensure `amount <= availability`.
+     *      The user must provide sufficient fees via `msg.value`.
+     * @param to The recipient address on the target chain.
+     * @param amount The amount of tokens to transfer.
+     * @param callData Optional calldata for executing a function on the recipient contract.
+     * @return receipt The messaging receipt from LayerZero, confirming the request details.
+     *         Includes the `guid` and `block` parameters for tracking.
+     * @dev Emits a `Transfer` event upon successful initiation.
+     */
+    function transfer(address to, uint256 amount, bytes memory callData, uint128 gasLimit)
+        public
+        payable
+        returns (MessagingReceipt memory receipt)
+    {
+        return transfer(to, amount, callData, 0, gasLimit);
+    }
+
+    /**
+     * @notice Initiates a transfer operation.
+     * @dev It performs a global availability check using lzRead to ensure `amount <= availability`.
+     *      The user must provide sufficient fees via `msg.value`.
      * @param to The recipient address on the target chain.
      * @param amount The amount of tokens to transfer.
      * @param callData Optional calldata for executing a function on the recipient contract.
      * @param value Native cryptocurrency to be sent when calling the recipient with `callData`.
-     * @param gasLimit The gas limit to allocate for the executor.
-     * @param calldataSize The size of the calldata for the request, in bytes.
-     * @return fee The messaging receipt from LayerZero, confirming the request details.
+     * @param gasLimit The gas limit to allocate for actual transfer after lzRead.
+     * @return receipt The messaging receipt from LayerZero, confirming the request details.
      *         Includes the `guid` and `block` parameters for tracking.
-     * @dev Emits a `XDTransfer` event upon successful initiation.
+     * @dev Emits a `Transfer` event upon successful initiation.
      */
-    function xdTransfer(
-        address to,
-        uint256 amount,
-        bytes memory callData,
-        uint256 value,
-        uint128 gasLimit,
-        uint32 calldataSize
-    ) external payable returns (MessagingReceipt memory fee) {
+    function transfer(address to, uint256 amount, bytes memory callData, uint256 value, uint128 gasLimit)
+        public
+        payable
+        returns (MessagingReceipt memory receipt)
+    {
         if (to == address(0)) revert InvalidAddress();
         if (amount == 0) revert InvalidAmount();
         if (amount > uint256(type(int256).max)) revert Overflow();
@@ -326,14 +373,17 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
         _pendingTransfers.push(PendingTransfer(true, msg.sender, to, amount, callData, value));
         _pendingNonce[msg.sender] = nonce;
 
-        bytes memory cmd = getXdTransferCmd(msg.sender, nonce);
-        bytes memory options = OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0);
+        bytes memory cmd = getTransferCmd(msg.sender, nonce);
+        ISynchronizer.ChainConfig[] memory _chainConfigs = ISynchronizer(synchronizer).chainConfigs();
+        bytes memory options = OptionsBuilder.newOptions().addExecutorLzReadOption(
+            gasLimit, transferCalldataSize * uint32(_chainConfigs.length), 0
+        );
         // directly use endpoint.send() to bypass _payNative() check in _lzSend()
-        fee = endpoint.send{ value: msg.value - value }(
+        receipt = endpoint.send{ value: msg.value - value }(
             MessagingParams(READ_CHANNEL, _getPeerOrRevert(READ_CHANNEL), cmd, options, false), payable(msg.sender)
         );
 
-        emit XdTransfer(msg.sender, to, amount, nonce);
+        emit Transfer(msg.sender, to, amount, nonce);
     }
 
     /**
@@ -355,6 +405,26 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
         emit CancelPendingTransfer(nonce);
     }
 
+    /**
+     * @notice Transfers a specified amount of tokens from one address to another, using the caller's allowance.
+     * @dev The caller must be approved to transfer the specified amount on behalf of `from`.
+     *      Also, this can only be called in a compose call.
+     * @param from The address from which tokens will be transferred.
+     * @param to The recipient address.
+     * @param amount The amount of tokens to transfer.
+     * @return true if the transfer is successful.
+     */
+    function transferFrom(address from, address to, uint256 amount) public virtual override returns (bool) {
+        if (!_composing) revert NotComposing();
+
+        uint256 allowed = allowance[from][msg.sender];
+        if (allowed != type(uint256).max) allowance[from][msg.sender] = allowed - amount;
+
+        _transfer(from, to, amount);
+
+        return true;
+    }
+
     function _lzReceive(
         Origin calldata _origin,
         bytes32, /* _guid */
@@ -364,9 +434,9 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
     ) internal override nonReentrant {
         if (_origin.srcEid == READ_CHANNEL) {
             uint16 appCmdLabel = abi.decode(_message, (uint16));
-            if (appCmdLabel == CMD_XD_TRANSFER) {
+            if (appCmdLabel == CMD_TRANSFER) {
                 (, uint256 nonce, int256 globalAvailability) = abi.decode(_message, (uint16, uint256, int256));
-                _onXdTransfer(nonce, globalAvailability);
+                _onTransfer(nonce, globalAvailability);
             } else {
                 revert InvalidCmd();
             }
@@ -374,13 +444,13 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
     }
 
     /**
-     * @notice Finalizes a cross-chain transfer after receiving global availability data.
+     * @notice Executes a transfer after receiving global availability data.
      * @param nonce The unique identifier for the transfer.
      * @param globalAvailability The total available liquidity across all chains.
      * @dev This function performs availability checks, executes any optional calldata, and transfers tokens.
      *      It ensures that transfers are not reentrant and handles refunds in case of failures.
      */
-    function _onXdTransfer(uint256 nonce, int256 globalAvailability) internal {
+    function _onTransfer(uint256 nonce, int256 globalAvailability) internal virtual {
         PendingTransfer storage pending = _pendingTransfers[nonce];
         address from = pending.from;
         if (!pending.pending) revert TransferNotPending(nonce);
@@ -392,58 +462,51 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
         int256 availability = localBalanceOf(from) + globalAvailability;
         if (availability < int256(amount)) revert InsufficientAvailability(nonce, amount, availability);
 
-        if (_xdTransferring) revert ReentrantXdTransfer();
-        _xdTransferring = true;
-
         (address to, bytes memory callData) = (pending.to, pending.callData);
-        if (to.isContract() && callData.length > 0) {
-            // composability
-            _transferWithoutCheck(from, address(this), amount);
-            allowance[address(this)][to] = amount;
-            (bool ok, bytes memory reason) = to.call{ value: pending.value }(callData);
-            _xdTransferring = false;
-            if (!ok) revert CallFailure(nonce, to, reason);
+        if (to != address(0) && to.isContract() && callData.length > 0) {
+            _compose(nonce, from, to, amount, pending.value, callData);
         } else {
             _transfer(pending.from, pending.to, amount);
         }
     }
 
-    /**
-     * @notice Transfers tokens from one address to another, handling both local and cross-chain transfers.
-     * @param from The address from which tokens are transferred.
-     * @param to The recipient address.
-     * @param amount The amount of tokens to transfer.
-     * @dev If `_xdTransferring` is true, skips local liquidity checks, relying on global availability.
-     *      Otherwise, ensures the sender has sufficient local balance.
-     *      Updates local liquidity balances accordingly.
-     */
-    function _transfer(address from, address to, uint256 amount) internal virtual override {
-        if (amount > uint256(type(int256).max)) revert Overflow();
-        if (from == to) return;
+    function _compose(uint256 nonce, address from, address to, uint256 amount, uint256 value, bytes memory callData)
+        internal
+    {
+        int256 oldBalance = localBalanceOf(address(this));
+        _transfer(from, address(this), amount);
 
-        if (from != address(0)) {
-            if (_xdTransferring) {
-                _xdTransferring = false;
-            } else {
-                if (ISynchronizer(synchronizer).getLocalLiquidity(address(this), from) < int256(amount)) {
-                    revert InsufficientBalance();
-                }
-            }
+        allowance[address(this)][to] = amount;
+        _composing = true;
+
+        // transferFrom() can be called multiple times inside the next call
+        (bool ok, bytes memory reason) = to.call{ value: value }(callData);
+        if (!ok) revert CallFailure(nonce, to, reason);
+
+        allowance[address(this)][to] = 0;
+        _composing = false;
+
+        int256 newBalance = localBalanceOf(address(this));
+        // refund the change if any
+        if (oldBalance < newBalance) {
+            _transfer(address(this), from, uint256(newBalance - oldBalance));
         }
-
-        _transferWithoutCheck(from, to, amount);
     }
 
-    function _transferWithoutCheck(address from, address to, uint256 amount) internal {
-        if (from != address(0)) {
-            ISynchronizer(synchronizer).updateLocalLiquidity(
-                from, ISynchronizer(synchronizer).getLocalLiquidity(address(this), from) - int256(amount)
-            );
-        }
-        if (to != address(0)) {
-            ISynchronizer(synchronizer).updateLocalLiquidity(
-                to, ISynchronizer(synchronizer).getLocalLiquidity(address(this), to) + int256(amount)
-            );
+    function _transfer(address from, address to, uint256 amount) internal virtual {
+        if (from != to) {
+            if (amount > uint256(type(int256).max)) revert Overflow();
+
+            if (from != address(0)) {
+                ISynchronizer(synchronizer).updateLocalLiquidity(
+                    from, ISynchronizer(synchronizer).getLocalLiquidity(address(this), from) - int256(amount)
+                );
+            }
+            if (to != address(0)) {
+                ISynchronizer(synchronizer).updateLocalLiquidity(
+                    to, ISynchronizer(synchronizer).getLocalLiquidity(address(this), to) + int256(amount)
+                );
+            }
         }
 
         emit Transfer(from, to, amount);

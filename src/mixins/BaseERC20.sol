@@ -102,11 +102,7 @@ abstract contract BaseERC20 {
      * @param amount The amount of tokens to transfer.
      * @return true if the transfer is successful.
      */
-    function transfer(address to, uint256 amount) public virtual returns (bool) {
-        _transfer(msg.sender, to, amount);
-
-        return true;
-    }
+    function transfer(address to, uint256 amount) public virtual returns (bool);
 
     /**
      * @notice Transfers a specified amount of tokens from one address to another, using the caller's allowance.
@@ -117,43 +113,7 @@ abstract contract BaseERC20 {
      * @param amount The amount of tokens to transfer.
      * @return true if the transfer is successful.
      */
-    function transferFrom(address from, address to, uint256 amount) public virtual returns (bool) {
-        uint256 allowed = allowance[from][msg.sender];
-        if (allowed != type(uint256).max) allowance[from][msg.sender] = allowed - amount;
-
-        _transfer(from, to, amount);
-
-        return true;
-    }
-
-    /**
-     * @notice Mints tokens.
-     * @param to The recipient address of the minted tokens.
-     * @param amount The amount of tokens to mint.
-     * @dev This function should be called by derived contracts with appropriate access control.
-     */
-    function _mint(address to, uint256 amount) internal virtual {
-        _transfer(address(0), to, amount);
-    }
-
-    /**
-     * @notice Burns tokens by transferring them to the zero address.
-     * @param amount The amount of tokens to burn.
-     * @dev This function should be called by derived contracts with appropriate access control.
-     */
-    function _burn(uint256 amount) internal virtual {
-        _transfer(msg.sender, address(0), amount);
-    }
-
-    /**
-     * @notice Transfers tokens from one address to another.
-     * @dev This is an abstract function and must be implemented by derived contracts.
-     *      It should handle the actual balance updates.
-     * @param from The address from which tokens will be transferred.
-     * @param to The recipient address.
-     * @param amount The amount of tokens to transfer.
-     */
-    function _transfer(address from, address to, uint256 amount) internal virtual;
+    function transferFrom(address from, address to, uint256 amount) public virtual returns (bool);
 
     /*//////////////////////////////////////////////////////////////
                              EIP-2612 LOGIC

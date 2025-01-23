@@ -29,6 +29,7 @@ contract Composable {
 contract BasexDERC20Test is BaseSynchronizerTest {
     uint8 public constant CHAINS = 8;
     uint16 public constant CMD_XD_TRANSFER = 1;
+    uint128 public constant GAS_LIMIT = 500_000;
 
     uint32[CHAINS] eids;
     ISynchronizer[CHAINS] synchronizers;
@@ -90,7 +91,7 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         }
     }
 
-    function test_updateXdTransferDelays() public {
+    function test_updateTransferDelays() public {
         changePrank(owner, owner);
         uint32[] memory _eids = new uint32[](CHAINS - 1);
         uint64[] memory delays = new uint64[](CHAINS - 1);
@@ -98,14 +99,14 @@ contract BasexDERC20Test is BaseSynchronizerTest {
             _eids[i - 1] = eids[i];
             delays[i - 1] = i;
         }
-        erc20s[0].updateXdTransferDelays(_eids, delays);
+        erc20s[0].updateTransferDelays(_eids, delays);
 
         for (uint64 i = 1; i < CHAINS; ++i) {
-            assertEq(erc20s[0].xdTransferDelay(eids[i]), i);
+            assertEq(erc20s[0].transferDelay(eids[i]), i);
         }
     }
 
-    function test_xdTransfer() public {
+    function test_transfer() public {
         xDERC20 local = erc20s[0];
         assertEq(local.localTotalSupply(), 300e18);
         assertEq(local.localBalanceOf(alice), 100e18);
@@ -119,10 +120,8 @@ contract BasexDERC20Test is BaseSynchronizerTest {
 
         changePrank(alice, alice);
         uint256 amount = 101e18;
-        uint128 gasLimit = 1_000_000;
-        uint32 calldataSize = uint32(32) * CHAINS;
-        MessagingFee memory fee = local.quoteXdTransfer(bob, gasLimit, calldataSize);
-        local.xdTransfer{ value: fee.nativeFee }(bob, amount, "", 0, gasLimit, calldataSize);
+        MessagingFee memory fee = local.quoteTransfer(bob, GAS_LIMIT);
+        local.transfer{ value: fee.nativeFee }(bob, amount, GAS_LIMIT);
 
         uint256 nonce = 1;
         xDERC20.PendingTransfer memory pending = local.pendingTransfer(alice);
@@ -135,7 +134,7 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         assertEq(local.pendingNonce(alice), nonce);
         assertEq(local.availableLocalBalanceOf(alice, 0), -1e18);
 
-        _executeXdTransfer(alice, nonce, "");
+        _executeTransfer(local, alice, nonce, "");
 
         assertEq(local.localTotalSupply(), 300e18);
         assertEq(local.localBalanceOf(alice), -1e18);
@@ -146,7 +145,7 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         assertEq(local.balanceOf(bob), CHAINS * 100e18 + 101e18);
     }
 
-    function test_xdTransfer_composable() public {
+    function test_transfer_composable() public {
         xDERC20 local = erc20s[0];
 
         changePrank(alice, alice);
@@ -154,57 +153,51 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         bytes memory callData = abi.encodeWithSelector(Composable.compose.selector, local, amount);
         uint256 native = 1e18;
         uint128 gasLimit = 1_000_000;
-        uint32 calldataSize = uint32(32) * CHAINS;
-        MessagingFee memory fee = local.quoteXdTransfer(bob, gasLimit, calldataSize);
-        local.xdTransfer{ value: fee.nativeFee + native }(
-            address(composable), amount, callData, native, gasLimit, calldataSize
-        );
+        MessagingFee memory fee = local.quoteTransfer(bob, gasLimit);
+        local.transfer{ value: fee.nativeFee + native }(address(composable), amount, callData, native, gasLimit);
 
         vm.expectEmit();
         emit Composable.Compose(address(local), amount);
-        _executeXdTransfer(alice, 1, "");
+        _executeTransfer(local, alice, 1, "");
 
         assertEq(local.balanceOf(address(composable)), amount);
         assertEq(address(composable).balance, native);
     }
 
-    function test_xdTransfer_revertInsufficientBalance() public {
+    function test_transfer_revertInsufficientBalance() public {
         xDERC20 local = erc20s[0];
 
         assertEq(local.balanceOf(alice), 100e18);
 
         changePrank(alice, alice);
         uint256 amount = 101e18;
-        uint128 gasLimit = 1_000_000;
-        uint32 calldataSize = uint32(32) * CHAINS;
-        MessagingFee memory fee = local.quoteXdTransfer(bob, gasLimit, calldataSize);
+        MessagingFee memory fee = local.quoteTransfer(bob, GAS_LIMIT);
         vm.expectRevert(BasexDERC20.InsufficientBalance.selector);
-        local.xdTransfer{ value: fee.nativeFee }(bob, amount, "", 0, gasLimit, calldataSize);
+        local.transfer{ value: fee.nativeFee }(bob, amount, GAS_LIMIT);
 
         _syncAndSettleLiquidity();
         assertEq(local.balanceOf(alice), 100e18 * CHAINS);
 
-        local.xdTransfer{ value: fee.nativeFee }(bob, amount, "", 0, gasLimit, calldataSize);
+        local.transfer{ value: fee.nativeFee }(bob, amount, GAS_LIMIT);
     }
 
-    function test_xdTransfer_revertTransferPending() public {
+    function test_transfer_revertTransferPending() public {
         xDERC20 local = erc20s[0];
 
         assertEq(local.balanceOf(alice), 100e18);
 
         changePrank(alice, alice);
         uint256 amount = 1e18;
-        uint128 gasLimit = 1_000_000;
-        uint32 calldataSize = uint32(32) * CHAINS;
-        MessagingFee memory fee = local.quoteXdTransfer(bob, gasLimit, calldataSize);
-        local.xdTransfer{ value: fee.nativeFee }(bob, amount, "", 0, gasLimit, calldataSize);
+        MessagingFee memory fee = local.quoteTransfer(bob, GAS_LIMIT);
+        local.transfer{ value: fee.nativeFee }(bob, amount, GAS_LIMIT);
 
         vm.expectRevert(BasexDERC20.TransferPending.selector);
-        local.xdTransfer{ value: fee.nativeFee }(bob, amount, "", 0, gasLimit, calldataSize);
+        local.transfer{ value: fee.nativeFee }(bob, amount, GAS_LIMIT);
     }
 
-    function test_xdTransfer_revertInsufficientAvailability() public {
+    function test_transfer_revertInsufficientAvailability() public {
         xDERC20 local = erc20s[0];
+        xDERC20 remote = erc20s[1];
 
         changePrank(alice, alice);
         _syncAndSettleLiquidity();
@@ -212,20 +205,27 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         assertEq(local.balanceOf(alice), CHAINS * 100e18);
 
         uint256 amount = CHAINS * 100e18;
-        uint128 gasLimit = 1_000_000;
-        uint32 calldataSize = uint32(32) * CHAINS;
-        MessagingFee memory fee = local.quoteXdTransfer(bob, gasLimit, calldataSize);
-        local.xdTransfer{ value: fee.nativeFee }(bob, amount, "", 0, gasLimit, calldataSize);
+        MessagingFee memory fee = local.quoteTransfer(bob, GAS_LIMIT);
+        local.transfer{ value: fee.nativeFee }(bob, amount, GAS_LIMIT);
 
-        local.transfer(bob, 100e18);
-        assertEq(local.localBalanceOf(alice), 0);
-        assertEq(local.availableLocalBalanceOf(alice, 0), -int256(int8(CHAINS)) * 100e18);
+        _executeTransfer(local, alice, 1, "");
+        assertEq(local.localBalanceOf(alice), -(int256(int8(CHAINS) - 1)) * 100e18);
+        assertEq(local.balanceOf(alice), 0);
+
+        // on the remote chain, sync didn't happen yet
+        assertEq(remote.localBalanceOf(alice), 100e18);
+        assertEq(remote.balanceOf(alice), 100e18);
+
+        amount = 100e18;
+        fee = remote.quoteTransfer(bob, GAS_LIMIT);
+        remote.transfer{ value: fee.nativeFee }(bob, amount, GAS_LIMIT);
+        assertEq(remote.availableLocalBalanceOf(alice, 0), 0);
 
         uint256 nonce = 1;
-        int256 availability = int256(uint256(CHAINS * 100e18 - 100e18));
+        int256 availability = 0;
         bytes memory error =
             abi.encodeWithSelector(BasexDERC20.InsufficientAvailability.selector, nonce, amount, availability);
-        _executeXdTransfer(alice, nonce, error);
+        _executeTransfer(remote, alice, nonce, error);
     }
 
     function test_cancelPendingTransfer() public {
@@ -235,10 +235,8 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         _syncAndSettleLiquidity();
 
         uint256 amount = 101e18;
-        uint128 gasLimit = 1_000_000;
-        uint32 calldataSize = uint32(32) * CHAINS;
-        MessagingFee memory fee = local.quoteXdTransfer(bob, gasLimit, calldataSize);
-        local.xdTransfer{ value: fee.nativeFee }(bob, amount, "", 0, gasLimit, calldataSize);
+        MessagingFee memory fee = local.quoteTransfer(bob, GAS_LIMIT);
+        local.transfer{ value: fee.nativeFee }(bob, amount, GAS_LIMIT);
 
         uint256 nonce = 1;
         assertEq(local.pendingNonce(alice), nonce);
@@ -257,10 +255,8 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         local.cancelPendingTransfer();
 
         uint256 amount = 1e18;
-        uint128 gasLimit = 1_000_000;
-        uint32 calldataSize = uint32(32) * CHAINS;
-        MessagingFee memory fee = local.quoteXdTransfer(bob, gasLimit, calldataSize);
-        local.xdTransfer{ value: fee.nativeFee }(bob, amount, "", 0, gasLimit, calldataSize);
+        MessagingFee memory fee = local.quoteTransfer(bob, GAS_LIMIT);
+        local.transfer{ value: fee.nativeFee }(bob, amount, GAS_LIMIT);
 
         local.cancelPendingTransfer();
         assertEq(local.pendingNonce(alice), 0);
@@ -296,16 +292,21 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         }
     }
 
-    function _executeXdTransfer(address from, uint256 nonce, bytes memory error) internal {
-        xDERC20 local = erc20s[0];
+    function _executeTransfer(xDERC20 erc20, address from, uint256 nonce, bytes memory error) internal {
         bytes[] memory responses = new bytes[](CHAINS - 1);
-        for (uint256 i; i < CHAINS - 1; ++i) {
-            responses[i] = abi.encode(erc20s[i + 1].availableLocalBalanceOf(from, nonce));
+        uint32 eid;
+        uint256 count;
+        for (uint256 i; i < CHAINS; ++i) {
+            if (erc20s[i] == erc20) {
+                eid = eids[i];
+                continue;
+            }
+            responses[count++] = abi.encode(erc20s[i].availableLocalBalanceOf(from, nonce));
         }
-        bytes memory payload = local.lzReduce(local.getXdTransferCmd(from, nonce), responses);
+        bytes memory payload = erc20.lzReduce(erc20.getTransferCmd(from, nonce), responses);
         if (error.length > 0) {
             vm.expectRevert(error);
         }
-        this.verifyPackets(eids[0], bytes32(uint256(uint160(address(local)))), 0, address(0), payload);
+        this.verifyPackets(eid, bytes32(uint256(uint160(address(erc20)))), 0, address(0), payload);
     }
 }
