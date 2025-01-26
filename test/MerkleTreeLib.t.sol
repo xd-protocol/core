@@ -8,10 +8,7 @@ contract MerkleTreeLibTest is Test {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
     MerkleTreeLib.Tree tree;
-
-    function setUp() public {
-        tree.initialize();
-    }
+    MerkleTreeLib.Tree tree2;
 
     function test_initialize() public view {
         assertEq(tree.root, bytes32(0));
@@ -25,6 +22,17 @@ contract MerkleTreeLibTest is Test {
             random = keccak256(abi.encodePacked(random, i));
         }
         assertEq(tree.size, 1000);
+    }
+
+    function test_updateAt(uint256 seed) public {
+        bytes32 random = keccak256(abi.encodePacked(seed));
+        for (uint256 i; i < 1000; ++i) {
+            bytes32 data = keccak256(abi.encodePacked(random));
+            tree.update(random, data);
+            tree2.updateAt(random, data, i);
+            random = data;
+        }
+        assertEq(tree.root, tree2.root);
     }
 
     function test_computeRoot(uint256 seed) public {

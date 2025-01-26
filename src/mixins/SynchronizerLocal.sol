@@ -159,15 +159,6 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
     }
 
     /*//////////////////////////////////////////////////////////////
-                             CONSTRUCTOR
-    //////////////////////////////////////////////////////////////*/
-
-    constructor() {
-        _mainLiquidityTree.initialize();
-        _mainDataTree.initialize();
-    }
-
-    /*//////////////////////////////////////////////////////////////
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
@@ -322,9 +313,6 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
         state.syncMappedAccountsOnly = syncMappedAccountsOnly;
         state.useCallbacks = useCallbacks;
         state.settler = settler;
-
-        state.liquidityTree.initialize();
-        state.dataTree.initialize();
 
         emit RegisterApp(msg.sender, syncMappedAccountsOnly, useCallbacks, settler);
     }

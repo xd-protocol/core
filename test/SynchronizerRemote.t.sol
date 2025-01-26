@@ -84,7 +84,7 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
 
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
         Settler(localSettler).settleLiquidity(
-            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, accounts, liquidity
+            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, new uint256[](0), accounts, liquidity
         );
 
         for (uint256 i; i < accounts.length; ++i) {
@@ -120,7 +120,7 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
 
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
         Settler(localSettler).settleLiquidity(
-            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, accounts, liquidity
+            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, new uint256[](0), accounts, liquidity
         );
 
         for (uint256 i; i < accounts.length; ++i) {
@@ -145,7 +145,7 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
 
         Settler(localSettler).settleData(
-            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, keys, values
+            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, new uint256[](0), keys, values
         );
         assertEq(local.isDataRootSettled(address(localApp), EID_REMOTE, timestamp), true);
 
@@ -166,7 +166,7 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
         Settler(localSettler).settleLiquidity(
-            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, accounts, liquidity
+            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, new uint256[](0), accounts, liquidity
         );
 
         for (uint256 i; i < accounts.length; ++i) {
@@ -190,7 +190,7 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
         Settler(localSettler).settleLiquidity(
-            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, accounts, liquidity
+            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, new uint256[](0), accounts, liquidity
         );
 
         for (uint256 i; i < accounts.length; ++i) {
@@ -215,7 +215,7 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
         Settler(localSettler).settleLiquidity(
-            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, accounts, liquidity
+            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, new uint256[](0), accounts, liquidity
         );
 
         for (uint256 i; i < accounts.length; ++i) {
@@ -241,7 +241,7 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
 
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
         Settler(localSettler).settleLiquidity(
-            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, accounts, liquidity
+            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, new uint256[](0), accounts, liquidity
         );
 
         for (uint256 i; i < accounts.length; ++i) {
@@ -263,7 +263,7 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
 
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
         Settler(localSettler).settleData(
-            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, keys, values
+            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, new uint256[](0), keys, values
         );
 
         for (uint256 i; i < keys.length; ++i) {

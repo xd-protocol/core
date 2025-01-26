@@ -171,34 +171,41 @@ library MerkleTreeLib {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Initializes the Merkle tree with an empty structure.
-     * @param self The Merkle tree structure.
-     */
-    function initialize(Tree storage self) internal {
-        self.root = EMPTY_NODE; // Empty root
-    }
-
-    /**
-     * @notice Updates a node in the tree incrementally. If the key is new, it is added compactly with a unique index.
+     * @notice Updates a node in the tree. If the key is new, it is added compactly with a unique index.
      * @param self The Merkle tree structure.
      * @param key The key for the node.
      * @param value The value to set at the node.
+     * @return index The index of the node that key represents.
      */
     function update(Tree storage self, bytes32 key, bytes32 value) internal returns (uint256 index) {
-        bytes32 node = keccak256(abi.encodePacked(key, value));
+        uint256 _index = self.keyToIndex[key];
+        if (_index == 0) {
+            // Add 1 to _index to represent 0 for null
+            _index = self.size + 1;
+            self.keyToIndex[key] = _index;
+        }
 
-        index = self.keyToIndex[key];
-        if (index == 0) {
-            // Add 1 to index to represent 0 for null
-            index = self.size + 1;
-            self.keyToIndex[key] = index;
+        updateAt(self, key, value, _index - 1);
+
+        return _index - 1;
+    }
+
+    /**
+     * @notice Updates a node at a specific index in the tree.
+     * @param self The Merkle tree structure.
+     * @param key The key for the node.
+     * @param value The value to set at the node.
+     * @param index The index of the node to update.
+     */
+    function updateAt(Tree storage self, bytes32 key, bytes32 value, uint256 index) internal {
+        if (self.nodes[0][index] == bytes32(0)) {
             self.size++;
         }
-        self.nodes[0][index - 1] = node;
 
-        _updateRoot(self, index - 1);
+        bytes32 node = keccak256(abi.encodePacked(key, value));
+        self.nodes[0][index] = node;
 
-        return index - 1;
+        _updateRoot(self, index);
     }
 
     /**

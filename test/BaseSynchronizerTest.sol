@@ -54,13 +54,13 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
     mapping(uint32 fromEid => mapping(uint32 toEid => mapping(address fromAccount => address toAccount))) mappedAccounts;
 
     function initialize(Storage storage s) internal {
-        s.appLiquidityTree.initialize();
+        s.appLiquidityTree.root = bytes32(0);
         s.appLiquidityTree.size = 0;
-        s.appDataTree.initialize();
+        s.appDataTree.root = bytes32(0);
         s.appDataTree.size = 0;
-        s.mainLiquidityTree.initialize();
+        s.mainLiquidityTree.root = bytes32(0);
         s.mainLiquidityTree.size = 0;
-        s.mainDataTree.initialize();
+        s.mainDataTree.root = bytes32(0);
         s.mainDataTree.size = 0;
     }
 
@@ -77,7 +77,7 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
         for (uint256 i; i < 256; ++i) {
             uint256 timestamp = vm.getBlockTimestamp();
             address user = users[uint256(seed) % users.length];
-            int256 l = int256(uint256(seed)) / 1000;
+            int256 l = (int256(uint256(seed)) / 1000);
             totalLiquidity -= s.liquidity[user];
             totalLiquidity += l;
             s.liquidity[user] = l;
@@ -188,6 +188,7 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
         uint32 calldataSize = 128 * uint32(_remotes.length);
         MessagingFee memory fee = _local.quoteSync(gasLimit, calldataSize);
         _local.sync{ value: fee.nativeFee }(gasLimit, calldataSize);
+        skip(1);
 
         bytes[] memory responses = new bytes[](_remotes.length);
         for (uint256 i; i < _remotes.length; ++i) {

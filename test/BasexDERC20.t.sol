@@ -287,7 +287,7 @@ contract BasexDERC20Test is BaseSynchronizerTest {
                 liquidity[j] = remote.getLocalLiquidity(address(remoteApp), users[j]);
             }
             Settler(localSettler).settleLiquidity(
-                address(localApp), eids[i], rootTimestamp, mainIndex, mainProof, users, liquidity
+                address(localApp), eids[i], rootTimestamp, mainIndex, mainProof, new uint256[](0), users, liquidity
             );
         }
     }
