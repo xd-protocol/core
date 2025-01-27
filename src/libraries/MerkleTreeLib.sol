@@ -183,22 +183,6 @@ library MerkleTreeLib {
             // Add 1 to _index to represent 0 for null
             _index = self.size + 1;
             self.keyToIndex[key] = _index;
-        }
-
-        updateAt(self, key, value, _index - 1);
-
-        return _index - 1;
-    }
-
-    /**
-     * @notice Updates a node at a specific index in the tree.
-     * @param self The Merkle tree structure.
-     * @param key The key for the node.
-     * @param value The value to set at the node.
-     * @param index The index of the node to update.
-     */
-    function updateAt(Tree storage self, bytes32 key, bytes32 value, uint256 index) internal {
-        if (self.nodes[0][index] == bytes32(0)) {
             self.size++;
         }
 
@@ -206,6 +190,8 @@ library MerkleTreeLib {
         self.nodes[0][index] = node;
 
         _updateRoot(self, index);
+
+        return _index - 1;
     }
 
     /**

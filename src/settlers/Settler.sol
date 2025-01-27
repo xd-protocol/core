@@ -20,6 +20,9 @@ contract Settler is BaseSettler {
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
 
+    uint32 internal constant TRAILING_MASK = uint32(0x80000000);
+    uint32 internal constant INDEX_MASK = uint32(0x7fffffff);
+
     mapping(address app => mapping(uint32 eid => State)) internal _states;
 
     /*//////////////////////////////////////////////////////////////
@@ -27,6 +30,18 @@ contract Settler is BaseSettler {
     //////////////////////////////////////////////////////////////*/
 
     constructor(address _synchronizer) BaseSettler(_synchronizer) { }
+
+    /*//////////////////////////////////////////////////////////////
+                             VIEW FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    function getRemoteAccountAt(address app, uint32 eid, uint256 index) external view returns (address) {
+        return _states[app][eid].accounts[index];
+    }
+
+    function getRemoteKeyAt(address app, uint32 eid, uint256 index) external view returns (bytes32) {
+        return _states[app][eid].keys[index];
+    }
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
@@ -39,8 +54,7 @@ contract Settler is BaseSettler {
      * @param timestamp The timestamp of the root.
      * @param mainTreeIndex the index of app in the liquidity tree on the remote chain.
      * @param mainTreeProof The proof array to verify the app-root within the main tree.
-     * @param accountIndices The array of accountIndices of accounts in the app tree that were already settled before.
-     * @param newAccounts The array of new accounts that weren't settled.
+     * @param accountsData Encoded array of either account index or (index + address).
      * @param liquidity The array of liquidity values corresponding to the accounts.
      */
     function settleLiquidity(
@@ -49,29 +63,26 @@ contract Settler is BaseSettler {
         uint256 timestamp,
         uint256 mainTreeIndex,
         bytes32[] calldata mainTreeProof,
-        uint256[] calldata accountIndices,
-        address[] calldata newAccounts,
+        bytes calldata accountsData,
         int256[] calldata liquidity
     ) external nonReentrant onlyApp(app) {
-        uint256 accountLength = accountIndices.length + newAccounts.length;
-        if (accountLength != liquidity.length) revert InvalidLengths();
-
         State storage state = _states[app][eid];
 
-        address[] memory accounts = new address[](accountLength);
-        for (uint256 i; i < accountIndices.length; ++i) {
-            uint256 index = accountIndices[i];
-            accounts[i] = state.accounts[index];
-            state.liquidityTree.updateAt(bytes32(uint256(uint160(accounts[i]))), bytes32(uint256(liquidity[i])), index);
-        }
-        uint256 treeSize = state.liquidityTree.size;
-        for (uint256 i; i < newAccounts.length; ++i) {
-            uint256 index = treeSize + i;
-            accounts[accountIndices.length + i] = newAccounts[i];
-            state.accounts[index] = newAccounts[i];
-            state.liquidityTree.updateAt(
-                bytes32(uint256(uint160(newAccounts[i]))), bytes32(uint256(liquidity[i])), index
-            );
+        address[] memory accounts = new address[](liquidity.length);
+        uint256 offset;
+        for (uint256 i; i < liquidity.length; ++i) {
+            // first bit indicates whether an account follows after index and the rest 31 bits represent index
+            uint32 _index = uint32(bytes4(accountsData[offset:offset + 4]));
+            offset += 4;
+            uint32 index = _index & INDEX_MASK;
+            if (_index & TRAILING_MASK > 0) {
+                accounts[i] = address(bytes20(accountsData[offset:offset + 20]));
+                offset += 20;
+                state.accounts[index] = accounts[i];
+            } else {
+                accounts[i] = state.accounts[index];
+            }
+            state.liquidityTree.update(bytes32(uint256(uint160(accounts[i]))), bytes32(uint256(liquidity[i])));
         }
 
         _verifyMainTreeRoot(
@@ -94,8 +105,7 @@ contract Settler is BaseSettler {
      * @param timestamp The timestamp of the root.
      * @param mainTreeIndex the index of app in the data tree on the remote chain.
      * @param mainTreeProof The proof array to verify the app-root within the main tree.
-     * @param keyIndices The array of indices of the values in the app tree that were settled before.
-     * @param newKeys The array of new keys that weren't settled before.
+     * @param keysData Encoded array of either key index or (index + key).
      * @param values The array of data values corresponding to the keys.
      */
     function settleData(
@@ -104,27 +114,26 @@ contract Settler is BaseSettler {
         uint256 timestamp,
         uint256 mainTreeIndex,
         bytes32[] calldata mainTreeProof,
-        uint256[] calldata keyIndices,
-        bytes32[] calldata newKeys,
+        bytes calldata keysData,
         bytes[] calldata values
     ) external nonReentrant onlyApp(app) {
-        uint256 keyLength = keyIndices.length + newKeys.length;
-        if (keyLength != values.length) revert InvalidLengths();
-
         State storage state = _states[app][eid];
 
-        bytes32[] memory keys = new bytes32[](keyLength);
-        for (uint256 i; i < keyIndices.length; ++i) {
-            uint256 index = keyIndices[i];
-            keys[i] = state.keys[index];
-            state.dataTree.updateAt(keys[i], keccak256(values[i]), index);
-        }
-        uint256 treeSize = state.dataTree.size;
-        for (uint256 i; i < newKeys.length; ++i) {
-            uint256 index = treeSize + i;
-            keys[keyIndices.length + i] = newKeys[i];
-            state.keys[index] = newKeys[i];
-            state.dataTree.updateAt(newKeys[i], keccak256(values[i]), index);
+        bytes32[] memory keys = new bytes32[](values.length);
+        uint256 offset;
+        for (uint256 i; i < values.length; ++i) {
+            // first bit indicates whether a key follows after index and the rest 31 bits represent index
+            uint32 _index = uint32(bytes4(keysData[offset:offset + 4]));
+            offset += 4;
+            uint32 index = _index & INDEX_MASK;
+            if (_index & TRAILING_MASK > 0) {
+                keys[i] = bytes32(keysData[offset:offset + 32]);
+                offset += 32;
+                state.keys[index] = keys[i];
+            } else {
+                keys[i] = state.keys[index];
+            }
+            state.dataTree.update(keys[i], keccak256(values[i]));
         }
 
         bytes32 mainTreeRoot = ISynchronizer(synchronizer).getDataRootAt(eid, timestamp);

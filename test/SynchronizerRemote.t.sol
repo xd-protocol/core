@@ -75,16 +75,14 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         assertEq(local.getSettledTotalLiquidity(address(localApp)), 0);
         assertEq(local.getFinalizedTotalLiquidity(address(localApp)), 0);
 
-        (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
+        (, address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
             _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
         (bytes32 liquidityRoot,, uint256 timestamp) = _sync(local);
 
-        uint256 mainIndex = 0;
-        bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
-
+        changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
-        Settler(localSettler).settleLiquidity(
-            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, new uint256[](0), accounts, liquidity
+        local.settleLiquidity(
+            ISynchronizer.SettleLiquidityParams(address(localApp), EID_REMOTE, rootTimestamp, accounts, liquidity)
         );
 
         for (uint256 i; i < accounts.length; ++i) {
@@ -110,17 +108,15 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         assertEq(local.getSettledTotalLiquidity(address(localApp)), 0);
         assertEq(local.getFinalizedTotalLiquidity(address(localApp)), 0);
 
-        (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
+        (, address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
             _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
-        (bytes32[] memory keys, bytes[] memory values) = _updateLocalData(remote, remoteApp, remoteStorage, seed);
+        (, bytes32[] memory keys, bytes[] memory values) = _updateLocalData(remote, remoteApp, remoteStorage, seed);
         (bytes32 liquidityRoot,, uint256 timestamp) = _sync(local);
 
-        uint256 mainIndex = 0;
-        bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
-
+        changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
-        Settler(localSettler).settleLiquidity(
-            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, new uint256[](0), accounts, liquidity
+        local.settleLiquidity(
+            ISynchronizer.SettleLiquidityParams(address(localApp), EID_REMOTE, rootTimestamp, accounts, liquidity)
         );
 
         for (uint256 i; i < accounts.length; ++i) {
@@ -141,12 +137,8 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         assertEq(local.getFinalizedTotalLiquidity(address(localApp)), 0);
         assertEq(local.areRootsFinalized(address(localApp), EID_REMOTE, timestamp), false);
 
-        mainIndex = 0;
-        mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
-
-        Settler(localSettler).settleData(
-            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, new uint256[](0), keys, values
-        );
+        changePrank(localSettler, localSettler);
+        local.settleData(ISynchronizer.SettleDataParams(address(localApp), EID_REMOTE, rootTimestamp, keys, values));
         assertEq(local.isDataRootSettled(address(localApp), EID_REMOTE, timestamp), true);
 
         (_liquidityRoot, _timestamp) = local.getLastFinalizedLiquidityRoot(address(localApp), EID_REMOTE);
@@ -158,15 +150,14 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
 
     function test_settleLiquidity_withSyncMappedAccountsOnlyOff(bytes32 seed) public {
         initialize(remoteStorage);
-        (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
+        (, address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
             _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
         _sync(local);
 
-        uint256 mainIndex = 0;
-        bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
+        changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
-        Settler(localSettler).settleLiquidity(
-            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, new uint256[](0), accounts, liquidity
+        local.settleLiquidity(
+            ISynchronizer.SettleLiquidityParams(address(localApp), EID_REMOTE, rootTimestamp, accounts, liquidity)
         );
 
         for (uint256 i; i < accounts.length; ++i) {
@@ -182,15 +173,14 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         changePrank(localApp, localApp);
         local.updateSyncMappedAccountsOnly(true);
 
-        (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
+        (, address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
             _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
         _sync(local);
 
-        uint256 mainIndex = 0;
-        bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
+        changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
-        Settler(localSettler).settleLiquidity(
-            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, new uint256[](0), accounts, liquidity
+        local.settleLiquidity(
+            ISynchronizer.SettleLiquidityParams(address(localApp), EID_REMOTE, rootTimestamp, accounts, liquidity)
         );
 
         for (uint256 i; i < accounts.length; ++i) {
@@ -207,15 +197,14 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         local.updateUseCallbacks(false);
 
         initialize(remoteStorage);
-        (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
+        (, address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
             _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
         _sync(local);
 
-        uint256 mainIndex = 0;
-        bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
+        changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
-        Settler(localSettler).settleLiquidity(
-            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, new uint256[](0), accounts, liquidity
+        local.settleLiquidity(
+            ISynchronizer.SettleLiquidityParams(address(localApp), EID_REMOTE, rootTimestamp, accounts, liquidity)
         );
 
         for (uint256 i; i < accounts.length; ++i) {
@@ -232,16 +221,14 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
             assertNotEq(mappedAccounts[EID_REMOTE][EID_LOCAL][users[i]], address(0));
         }
 
-        (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
+        (, address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
             _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
         _sync(local);
 
-        uint256 mainIndex = 0;
-        bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
-
+        changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
-        Settler(localSettler).settleLiquidity(
-            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, new uint256[](0), accounts, liquidity
+        local.settleLiquidity(
+            ISynchronizer.SettleLiquidityParams(address(localApp), EID_REMOTE, rootTimestamp, accounts, liquidity)
         );
 
         for (uint256 i; i < accounts.length; ++i) {
@@ -255,16 +242,12 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
     }
 
     function test_settleData(bytes32 seed) public {
-        (bytes32[] memory keys, bytes[] memory values) = _updateLocalData(remote, remoteApp, remoteStorage, seed);
+        (, bytes32[] memory keys, bytes[] memory values) = _updateLocalData(remote, remoteApp, remoteStorage, seed);
         _sync(local);
 
-        uint256 mainIndex = 0;
-        bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
-
+        changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
-        Settler(localSettler).settleData(
-            address(localApp), EID_REMOTE, rootTimestamp, mainIndex, mainProof, new uint256[](0), keys, values
-        );
+        local.settleData(ISynchronizer.SettleDataParams(address(localApp), EID_REMOTE, rootTimestamp, keys, values));
 
         for (uint256 i; i < keys.length; ++i) {
             assertEq(IAppMock(localApp).remoteData(EID_REMOTE, keys[i]), values[i]);

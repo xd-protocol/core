@@ -15,10 +15,11 @@ import { BaseSynchronizerTest } from "./BaseSynchronizerTest.sol";
 contract SettlerTest is BaseSynchronizerTest {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
-    address[] accAccounts;
-    int256[] accLiquidity;
-    bytes32[] accKeys;
-    bytes[] accValues;
+    uint32 constant TRAILING_MASK = uint32(0x80000000);
+    uint32 constant INDEX_MASK = uint32(0x7fffffff);
+
+    mapping(address => bool) accountUpdated;
+    mapping(bytes32 => bool) keyUpdated;
 
     address owner = makeAddr("owner");
     address[] users;
@@ -66,133 +67,73 @@ contract SettlerTest is BaseSynchronizerTest {
         for (uint256 i; i < 256; ++i) {
             users.push(makeAddr(string(abi.encodePacked("account", LibString.toString(i)))));
         }
-        delete accAccounts;
-        delete accLiquidity;
-        delete accKeys;
-        delete accValues;
 
         vm.deal(users[0], 10_000e18);
         changePrank(users[0], users[0]);
     }
 
     function test_settleLiquidity(bytes32 seed) public {
-        // settlement 1
-        (address[] memory accounts, int256[] memory liquidity,) =
+        (uint256[] memory indices, address[] memory accounts, int256[] memory liquidity,) =
             _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
         (bytes32 liquidityRoot,, uint256 timestamp) = _sync(local);
 
         uint256 mainIndex = 0;
-        bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
+        bytes32[] memory mainProof = _getMainProof(address(remoteApp), liquidityRoot, mainIndex);
+        bytes memory accountsData = _accountsData(indices, accounts);
         Settler(localSettler).settleLiquidity(
-            address(localApp), EID_REMOTE, timestamp, mainIndex, mainProof, new uint256[](0), accounts, liquidity
+            address(localApp), EID_REMOTE, timestamp, mainIndex, mainProof, accountsData, liquidity
         );
 
         (bytes32 _liquidityRoot, uint256 _timestamp) = local.getLastSettledLiquidityRoot(localApp, EID_REMOTE);
         assertEq(_liquidityRoot, liquidityRoot);
         assertEq(_timestamp, timestamp);
         assertEq(local.isLiquidityRootSettled(localApp, EID_REMOTE, timestamp), true);
+    }
 
-        // settlement 2
-        changePrank(remoteApp, remoteApp);
-
-        uint256 newUserCount;
-        address[] memory _newUsers = new address[](100);
-        uint256 indexCount;
-        uint256[] memory _indices = new uint256[](100);
-        int256[] memory newLiquidity = new int256[](100);
-        for (uint256 i; i < 100; ++i) {
-            address user = users[uint256(seed) % users.length];
-            // check if the user was updated before
-            uint256 index = type(uint256).max;
-            for (uint256 j; j < accounts.length; ++j) {
-                if (accounts[j] == user) {
-                    index = j;
-                    break;
-                }
-            }
-            if (index == type(uint256).max) {
-                _newUsers[newUserCount++] = user;
+    function _accountsData(uint256[] memory indices, address[] memory accounts)
+        private
+        returns (bytes memory accountsData)
+    {
+        for (uint256 i; i < accounts.length; ++i) {
+            address account = accounts[i];
+            uint32 index = uint32(indices[i]);
+            if (accountUpdated[account]) {
+                accountsData = abi.encodePacked(accountsData, index);
             } else {
-                _indices[indexCount++] = index;
+                accountsData = abi.encodePacked(accountsData, TRAILING_MASK | index & INDEX_MASK, accounts[i]);
             }
-            newLiquidity[i] = (int256(uint256(seed)) / 1000);
-            remote.updateLocalLiquidity(user, newLiquidity[i]);
-            seed = keccak256(abi.encodePacked(seed, i));
+            accountUpdated[account] = true;
         }
-        address[] memory newUsers = new address[](newUserCount);
-        for (uint256 i; i < newUserCount; ++i) {
-            newUsers[i] = _newUsers[i];
-        }
-        uint256[] memory indices = new uint256[](indexCount);
-        for (uint256 i; i < indexCount; ++i) {
-            indices[i] = _indices[i];
-        }
-
-        (liquidityRoot,, timestamp) = _sync(local);
-
-        mainProof = _getMainProof(address(remoteApp), remoteStorage.appLiquidityTree.root, mainIndex);
-        Settler(localSettler).settleLiquidity(
-            address(localApp), EID_REMOTE, timestamp, mainIndex, mainProof, indices, newUsers, newLiquidity
-        );
     }
 
     function test_settleData(bytes32 seed) public {
-        // settlement 1
-        (bytes32[] memory keys, bytes[] memory values) = _updateLocalData(remote, remoteApp, remoteStorage, seed);
+        (uint256[] memory indices, bytes32[] memory keys, bytes[] memory values) =
+            _updateLocalData(remote, remoteApp, remoteStorage, seed);
         (, bytes32 dataRoot, uint256 timestamp) = _sync(local);
 
         uint256 mainIndex = 0;
         bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appDataTree.root, mainIndex);
-
+        bytes memory keysData = _keysData(indices, keys);
         Settler(localSettler).settleData(
-            address(localApp), EID_REMOTE, timestamp, mainIndex, mainProof, new uint256[](0), keys, values
+            address(localApp), EID_REMOTE, timestamp, mainIndex, mainProof, keysData, values
         );
 
         (bytes32 _dataRoot, uint256 _timestamp) = local.getLastSettledDataRoot(localApp, EID_REMOTE);
         assertEq(_dataRoot, dataRoot);
         assertEq(_timestamp, timestamp);
         assertEq(local.isDataRootSettled(address(localApp), EID_REMOTE, timestamp), true);
+    }
 
-        // settlement 2
-        changePrank(remoteApp, remoteApp);
-
-        uint256 newKeyCount;
-        bytes32[] memory _newKeys = new bytes32[](100);
-        uint256 indexCount;
-        uint256[] memory _indices = new uint256[](100);
-        bytes[] memory newValues = new bytes[](100);
-        for (uint256 i; i < 100; ++i) {
-            bytes32 key = keys[uint256(seed) % keys.length];
-            // check if the key was updated before
-            uint256 index = type(uint256).max;
-            for (uint256 j; j < keys.length; ++j) {
-                if (keys[j] == key) {
-                    index = j;
-                    break;
-                }
-            }
-            if (index == type(uint256).max) {
-                _newKeys[newKeyCount++] = key;
+    function _keysData(uint256[] memory indices, bytes32[] memory keys) private returns (bytes memory keysData) {
+        for (uint256 i; i < keys.length; ++i) {
+            bytes32 key = keys[i];
+            uint32 index = uint32(indices[i]);
+            if (keyUpdated[key]) {
+                keysData = abi.encodePacked(keysData, index);
             } else {
-                _indices[indexCount++] = index;
+                keysData = abi.encodePacked(keysData, TRAILING_MASK | index & INDEX_MASK, keys[i]);
             }
-            newValues[i] = abi.encodePacked(keccak256(abi.encodePacked(index, i)));
-            remote.updateLocalData(key, newValues[i]);
-            seed = keccak256(abi.encodePacked(seed, i));
+            keyUpdated[key] = true;
         }
-        bytes32[] memory newKeys = new bytes32[](newKeyCount);
-        for (uint256 i; i < newKeyCount; ++i) {
-            newKeys[i] = _newKeys[i];
-        }
-        uint256[] memory indices = new uint256[](indexCount);
-        for (uint256 i; i < indexCount; ++i) {
-            indices[i] = _indices[i];
-        }
-        (, dataRoot, timestamp) = _sync(local);
-
-        mainProof = _getMainProof(address(remoteApp), remoteStorage.appDataTree.root, mainIndex);
-        Settler(localSettler).settleData(
-            address(localApp), EID_REMOTE, timestamp, mainIndex, mainProof, indices, newKeys, newValues
-        );
     }
 }

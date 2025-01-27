@@ -70,11 +70,16 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
         Storage storage s,
         address[] memory users,
         bytes32 seed
-    ) internal returns (address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) {
-        address[] memory _accounts = new address[](users.length);
+    )
+        internal
+        returns (uint256[] memory indices, address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity)
+    {
+        uint256 size = 256;
+        indices = new uint256[](size);
+        accounts = new address[](size);
+        liquidity = new int256[](size);
 
-        uint256 size;
-        for (uint256 i; i < 256; ++i) {
+        for (uint256 i; i < size; ++i) {
             uint256 timestamp = vm.getBlockTimestamp();
             address user = users[uint256(seed) % users.length];
             int256 l = (int256(uint256(seed)) / 1000);
@@ -89,10 +94,9 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
 
             changePrank(app, app);
             (, uint256 index) = synchronizer.updateLocalLiquidity(user, l);
-            _accounts[index] = user;
-            if (size <= index) {
-                size = index + 1;
-            }
+            indices[i] = index;
+            accounts[i] = user;
+            liquidity[i] = l;
             assertEq(synchronizer.getLocalLiquidity(address(app), user), l);
             assertEq(synchronizer.getLocalTotalLiquidity(address(app)), totalLiquidity);
 
@@ -118,24 +122,18 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
             uint256 timestamp = s.totalLiquidityTimestamps[i];
             assertEq(synchronizer.getLocalTotalLiquidityAt(address(app), timestamp), s.totalLiquidityAt[timestamp]);
         }
-
-        accounts = new address[](size);
-        liquidity = new int256[](size);
-        for (uint256 i; i < size; ++i) {
-            address account = _accounts[i];
-            accounts[i] = account;
-            liquidity[i] = s.liquidity[account];
-        }
     }
 
     function _updateLocalData(ISynchronizer synchronizer, address app, Storage storage s, bytes32 seed)
         internal
-        returns (bytes32[] memory keys, bytes[] memory values)
+        returns (uint256[] memory indices, bytes32[] memory keys, bytes[] memory values)
     {
-        keys = new bytes32[](256);
-        values = new bytes[](256);
+        uint256 size = 256;
+        indices = new uint256[](size);
+        keys = new bytes32[](size);
+        values = new bytes[](size);
 
-        for (uint256 i; i < 256; ++i) {
+        for (uint256 i; i < size; ++i) {
             uint256 timestamp = vm.getBlockTimestamp();
             keys[i] = seed;
             values[i] = abi.encodePacked(keccak256(abi.encodePacked(keys[i], i)));
@@ -144,7 +142,8 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
             s.dataTimestamps[keys[i]].push(timestamp);
 
             changePrank(app, app);
-            synchronizer.updateLocalData(keys[i], values[i]);
+            (, uint256 index) = synchronizer.updateLocalData(keys[i], values[i]);
+            indices[i] = index;
             assertEq(synchronizer.getLocalDataHash(address(app), keys[i]), keccak256(values[i]));
 
             s.appDataTree.update(keys[i], keccak256(values[i]));

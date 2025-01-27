@@ -61,6 +61,7 @@ contract BasexDERC20Test is BaseSynchronizerTest {
             synchronizers[i].updateSettlerWhitelisted(settlers[i], true);
             vm.label(address(synchronizers[i]), string.concat("Synchronizer", vm.toString(i)));
             vm.label(address(erc20s[i]), string.concat("xDERC20", vm.toString(i)));
+            vm.deal(settlers[i], 1000e18);
         }
 
         wireOApps(address[](oapps));
@@ -112,7 +113,6 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         assertEq(local.localBalanceOf(alice), 100e18);
         assertEq(local.localBalanceOf(bob), 100e18);
 
-        changePrank(alice, alice);
         _syncAndSettleLiquidity();
         assertEq(local.totalSupply(), CHAINS * 300e18);
         assertEq(local.balanceOf(alice), CHAINS * 100e18);
@@ -178,6 +178,7 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         _syncAndSettleLiquidity();
         assertEq(local.balanceOf(alice), 100e18 * CHAINS);
 
+        changePrank(alice, alice);
         local.transfer{ value: fee.nativeFee }(bob, amount, GAS_LIMIT);
     }
 
@@ -199,11 +200,11 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         xDERC20 local = erc20s[0];
         xDERC20 remote = erc20s[1];
 
-        changePrank(alice, alice);
         _syncAndSettleLiquidity();
         assertEq(local.localBalanceOf(alice), 100e18);
         assertEq(local.balanceOf(alice), CHAINS * 100e18);
 
+        changePrank(alice, alice);
         uint256 amount = CHAINS * 100e18;
         MessagingFee memory fee = local.quoteTransfer(bob, GAS_LIMIT);
         local.transfer{ value: fee.nativeFee }(bob, amount, GAS_LIMIT);
@@ -231,9 +232,9 @@ contract BasexDERC20Test is BaseSynchronizerTest {
     function test_cancelPendingTransfer() public {
         xDERC20 local = erc20s[0];
 
-        changePrank(alice, alice);
         _syncAndSettleLiquidity();
 
+        changePrank(alice, alice);
         uint256 amount = 101e18;
         MessagingFee memory fee = local.quoteTransfer(bob, GAS_LIMIT);
         local.transfer{ value: fee.nativeFee }(bob, amount, GAS_LIMIT);
@@ -267,6 +268,7 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         address localSettler = settlers[0];
         xDERC20 localApp = erc20s[0];
 
+        changePrank(localSettler, localSettler);
         ISynchronizer[] memory remotes = new ISynchronizer[](CHAINS - 1);
         for (uint256 i; i < remotes.length; ++i) {
             remotes[i] = synchronizers[i + 1];
@@ -277,17 +279,15 @@ contract BasexDERC20Test is BaseSynchronizerTest {
             ISynchronizer remote = synchronizers[i];
             xDERC20 remoteApp = erc20s[i];
 
-            uint256 mainIndex = 0;
-            bytes32[] memory mainProof =
-                _getMainProof(address(remoteApp), remote.getLocalLiquidityRoot(address(remoteApp)), mainIndex);
             (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(eids[i]);
 
             int256[] memory liquidity = new int256[](users.length);
             for (uint256 j; j < users.length; ++j) {
                 liquidity[j] = remote.getLocalLiquidity(address(remoteApp), users[j]);
             }
-            Settler(localSettler).settleLiquidity(
-                address(localApp), eids[i], rootTimestamp, mainIndex, mainProof, new uint256[](0), users, liquidity
+
+            local.settleLiquidity(
+                ISynchronizer.SettleLiquidityParams(address(localApp), eids[i], rootTimestamp, users, liquidity)
             );
         }
     }
