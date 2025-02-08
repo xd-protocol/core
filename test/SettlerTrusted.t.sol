@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { Settler } from "src/settlers/Settler.sol";
+import { SettlerTrusted } from "src/settlers/SettlerTrusted.sol";
 import { BaseSettlerTest, MerkleTreeLib } from "./BaseSettlerTest.sol";
 
-contract SettlerTest is BaseSettlerTest {
+contract SettlerTrustedTest is BaseSettlerTest {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
     function setUp() public override {
         super.setUp();
 
-        localSettler = address(new Settler(address(local)));
-        remoteSettler = address(new Settler(address(remote)));
+        localSettler = address(new SettlerTrusted(address(local)));
+        SettlerTrusted(localSettler).updateTrusted(users[0], true);
+        remoteSettler = address(new SettlerTrusted(address(remote)));
+        SettlerTrusted(remoteSettler).updateTrusted(users[0], true);
 
         local.updateSettlerWhitelisted(localSettler, true);
         remote.updateSettlerWhitelisted(remoteSettler, true);
@@ -32,11 +34,20 @@ contract SettlerTest is BaseSettlerTest {
             _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
         (bytes32 liquidityRoot,, uint256 timestamp) = _sync(local);
 
+        changePrank(users[0], users[0]);
+
         uint256 mainIndex = 0;
         bytes32[] memory mainProof = _getMainProof(address(remoteApp), liquidityRoot, mainIndex);
         bytes memory accountsData = _accountsData(indices, accounts);
-        Settler(localSettler).settleLiquidity(
-            address(localApp), EID_REMOTE, timestamp, mainIndex, mainProof, accountsData, liquidity
+        SettlerTrusted(localSettler).settleLiquidity(
+            address(localApp),
+            EID_REMOTE,
+            timestamp,
+            mainIndex,
+            mainProof,
+            accountsData,
+            liquidity,
+            remoteStorage.appLiquidityTree.root
         );
 
         (bytes32 _liquidityRoot, uint256 _timestamp) = local.getLastSettledLiquidityRoot(localApp, EID_REMOTE);
@@ -50,11 +61,20 @@ contract SettlerTest is BaseSettlerTest {
             _updateLocalData(remote, remoteApp, remoteStorage, seed);
         (, bytes32 dataRoot, uint256 timestamp) = _sync(local);
 
+        changePrank(users[0], users[0]);
+
         uint256 mainIndex = 0;
         bytes32[] memory mainProof = _getMainProof(address(remoteApp), remoteStorage.appDataTree.root, mainIndex);
         bytes memory keysData = _keysData(indices, keys);
-        Settler(localSettler).settleData(
-            address(localApp), EID_REMOTE, timestamp, mainIndex, mainProof, keysData, values
+        SettlerTrusted(localSettler).settleData(
+            address(localApp),
+            EID_REMOTE,
+            timestamp,
+            mainIndex,
+            mainProof,
+            keysData,
+            values,
+            remoteStorage.appDataTree.root
         );
 
         (bytes32 _dataRoot, uint256 _timestamp) = local.getLastSettledDataRoot(localApp, EID_REMOTE);

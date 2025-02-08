@@ -4,7 +4,6 @@ pragma solidity ^0.8.28;
 import { BaseSettler } from "../mixins/BaseSettler.sol";
 import { ISynchronizer } from "../interfaces/ISynchronizer.sol";
 import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
-import { ArrayLib } from "../libraries/ArrayLib.sol";
 
 contract Settler is BaseSettler {
     using MerkleTreeLib for MerkleTreeLib.Tree;
@@ -24,6 +23,13 @@ contract Settler is BaseSettler {
     uint32 internal constant INDEX_MASK = uint32(0x7fffffff);
 
     mapping(address app => mapping(uint32 eid => State)) internal _states;
+
+    /*//////////////////////////////////////////////////////////////
+                                 EVENTS
+    //////////////////////////////////////////////////////////////*/
+
+    event StoreAccount(uint32 indexed index, address indexed accounts);
+    event StoreKey(uint32 indexed index, bytes32 indexed key);
 
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
@@ -79,6 +85,7 @@ contract Settler is BaseSettler {
                 accounts[i] = address(bytes20(accountsData[offset:offset + 20]));
                 offset += 20;
                 state.accounts[index] = accounts[i];
+                emit StoreAccount(index, accounts[i]);
             } else {
                 accounts[i] = state.accounts[index];
             }
@@ -130,6 +137,7 @@ contract Settler is BaseSettler {
                 keys[i] = bytes32(keysData[offset:offset + 32]);
                 offset += 32;
                 state.keys[index] = keys[i];
+                emit StoreKey(index, keys[i]);
             } else {
                 keys[i] = state.keys[index];
             }
