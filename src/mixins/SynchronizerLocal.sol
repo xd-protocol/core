@@ -138,7 +138,6 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
         uint256 appTreeIndex,
         uint256 indexed timestamp
     );
-    event MapAccount(address indexed app, uint32 indexed eid, address remote, address indexed local);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS

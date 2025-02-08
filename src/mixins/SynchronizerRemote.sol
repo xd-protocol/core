@@ -106,6 +106,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
     event OnReceiveRoots(
         uint32 indexed eid, bytes32 indexed liquidityRoot, bytes32 indexed dataRoot, uint256 timestamp
     );
+    event MapAccount(address indexed app, uint32 indexed eid, address remote, address indexed local);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -377,7 +378,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
      * @return value The value of the specified key for the specified `eid`.
      */
     function getSettledRemoteDataHash(address app, uint32 eid, bytes32 key) public view returns (bytes32 value) {
-        (, uint256 timestamp) = getLastSettledLiquidityRoot(app, eid);
+        (, uint256 timestamp) = getLastSettledDataRoot(app, eid);
         if (timestamp == 0) return 0;
         return getRemoteDataHashAt(app, eid, key, timestamp);
     }
@@ -563,7 +564,6 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
         int256 totalLiquidity;
         for (uint256 i; i < params.accounts.length; i++) {
             (address account, int256 liquidity) = (params.accounts[i], params.liquidity[i]);
-            totalLiquidity += liquidity;
 
             address _account = state.mappedAccounts[account];
             if (syncMappedAccountsOnly && _account == address(0)) continue;
@@ -572,14 +572,15 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
             }
 
             SnapshotsLib.Snapshots storage snapshots = state.liquidity[_account];
-            int256 accLiquidity = snapshots.getAsInt(params.timestamp) + liquidity;
-            snapshots.setAsInt(accLiquidity, params.timestamp);
+            totalLiquidity -= state.liquidity[_account].getLastAsInt();
+            snapshots.setAsInt(liquidity, params.timestamp);
+            totalLiquidity += liquidity;
 
             if (useCallbacks) {
                 try ISynchronizerCallbacks(params.app).onUpdateLiquidity(
-                    params.eid, params.timestamp, _account, accLiquidity
+                    params.eid, params.timestamp, _account, liquidity
                 ) { } catch (bytes memory reason) {
-                    emit OnUpdateLiquidityFailure(params.eid, params.timestamp, _account, accLiquidity, reason);
+                    emit OnUpdateLiquidityFailure(params.eid, params.timestamp, _account, liquidity, reason);
                 }
             }
         }
@@ -654,7 +655,7 @@ abstract contract SynchronizerRemote is SynchronizerLocal {
             // only 1-1 mapping between remote-local is allowed and it can't be changed once set
             if (state.mappedAccounts[remote] != address(0)) revert RemoteAccountAlreadyMapped(eid, remote);
             if (state.localAccountMapped[local]) revert LocalAccountAlreadyMapped(eid, local);
-            if (!ISynchronizerAccountMapper(app).shouldMapAccounts(eid, remote, local)) {
+            if (useCallbacks && !ISynchronizerAccountMapper(app).shouldMapAccounts(eid, remote, local)) {
                 revert AccountsNotMapped(eid, remote, local);
             }
             state.mappedAccounts[remote] = local;

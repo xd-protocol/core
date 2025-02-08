@@ -186,12 +186,12 @@ library MerkleTreeLib {
             self.size++;
         }
 
+        index = _index - 1;
+
         bytes32 node = keccak256(abi.encodePacked(key, value));
         self.nodes[0][index] = node;
 
         _updateRoot(self, index);
-
-        return _index - 1;
     }
 
     /**
