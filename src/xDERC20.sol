@@ -24,7 +24,7 @@ contract xDERC20 is BasexDERC20 {
      * @dev This function should be called by derived contracts with appropriate access control.
      */
     function mint(address to, uint256 amount) external onlyOwner {
-        _transfer(address(0), to, amount);
+        _transferFrom(address(0), to, amount);
     }
 
     /**
@@ -34,6 +34,6 @@ contract xDERC20 is BasexDERC20 {
      * @dev This function should be called by derived contracts with appropriate access control.
      */
     function burn(uint256 amount, uint128 gasLimit) external payable returns (MessagingReceipt memory receipt) {
-        return transfer(address(0), amount, gasLimit);
+        return _transfer(address(0), amount, "", 0, gasLimit);
     }
 }

@@ -361,6 +361,14 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
         returns (MessagingReceipt memory receipt)
     {
         if (to == address(0)) revert InvalidAddress();
+
+        return _transfer(to, amount, callData, value, gasLimit);
+    }
+
+    function _transfer(address to, uint256 amount, bytes memory callData, uint256 value, uint128 gasLimit)
+        internal
+        returns (MessagingReceipt memory receipt)
+    {
         if (amount == 0) revert InvalidAmount();
         if (amount > uint256(type(int256).max)) revert Overflow();
         if (amount > balanceOf(msg.sender)) revert InsufficientBalance();
@@ -420,7 +428,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
         uint256 allowed = allowance[from][msg.sender];
         if (allowed != type(uint256).max) allowance[from][msg.sender] = allowed - amount;
 
-        _transfer(from, to, amount);
+        _transferFrom(from, to, amount);
 
         return true;
     }
@@ -466,7 +474,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
         if (to != address(0) && to.isContract() && callData.length > 0) {
             _compose(nonce, from, to, amount, pending.value, callData);
         } else {
-            _transfer(pending.from, pending.to, amount);
+            _transferFrom(from, to, amount);
         }
     }
 
@@ -474,7 +482,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
         internal
     {
         int256 oldBalance = localBalanceOf(address(this));
-        _transfer(from, address(this), amount);
+        _transferFrom(from, address(this), amount);
 
         allowance[address(this)][to] = amount;
         _composing = true;
@@ -489,11 +497,11 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
         int256 newBalance = localBalanceOf(address(this));
         // refund the change if any
         if (oldBalance < newBalance) {
-            _transfer(address(this), from, uint256(newBalance - oldBalance));
+            _transferFrom(address(this), from, uint256(newBalance - oldBalance));
         }
     }
 
-    function _transfer(address from, address to, uint256 amount) internal virtual {
+    function _transferFrom(address from, address to, uint256 amount) internal virtual {
         if (from != to) {
             if (amount > uint256(type(int256).max)) revert Overflow();
 
