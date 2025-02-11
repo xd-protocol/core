@@ -4,9 +4,9 @@ pragma solidity ^0.8.28;
 import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { ERC20, SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 import { BasexDERC20 } from "./mixins/BasexDERC20.sol";
-import { IRebalancer } from "./interfaces/IRebalancer.sol";
+import { IRebalancer, IRebalancerCallbacks } from "./interfaces/IRebalancer.sol";
 
-contract xDERC20 is BasexDERC20 {
+contract xDERC20 is BasexDERC20, IRebalancerCallbacks {
     using SafeTransferLib for ERC20;
 
     /*//////////////////////////////////////////////////////////////
@@ -15,6 +15,12 @@ contract xDERC20 is BasexDERC20 {
 
     address public immutable underlying;
     address public immutable rebalancer;
+
+    /*//////////////////////////////////////////////////////////////
+                                 ERRORS
+    //////////////////////////////////////////////////////////////*/
+
+    error Forbidden();
 
     /*//////////////////////////////////////////////////////////////
                                CONSTRUCTOR
@@ -40,7 +46,7 @@ contract xDERC20 is BasexDERC20 {
     function wrap(address to, uint256 amount) external {
         ERC20(underlying).safeTransferFrom(msg.sender, address(this), amount);
         ERC20(underlying).approve(rebalancer, amount);
-        IRebalancer(rebalancer).deposit(underlying, amount);
+        IRebalancer(rebalancer).deposit(underlying, msg.sender, amount);
         ERC20(underlying).approve(rebalancer, 0);
 
         _transferFrom(address(0), to, amount);
@@ -56,9 +62,15 @@ contract xDERC20 is BasexDERC20 {
         PendingTransfer storage pending = _pendingTransfers[nonce];
         // only when transferred by unwrap()
         if (pending.from != address(0) && pending.to == address(0)) {
-            uint256 amount = pending.amount;
-            IRebalancer(rebalancer).withdraw(underlying, amount);
-            ERC20(underlying).safeTransfer(abi.decode(pending.callData, (address)), amount);
+            address to = abi.decode(pending.callData, (address));
+            IRebalancer(rebalancer).withdraw(underlying, to, pending.amount);
         }
+    }
+
+    // IRebalancerCallbacks
+    function onWithdraw(address asset, address to, uint256 amount) external {
+        if (msg.sender != rebalancer) revert Forbidden();
+
+        ERC20(asset).safeTransferFrom(msg.sender, to, amount);
     }
 }
