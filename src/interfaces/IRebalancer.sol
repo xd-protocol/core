@@ -6,11 +6,11 @@ interface IRebalancerCallbacks {
 }
 
 interface IRebalancer {
-    event Deposit(address indexed asset, address indexed to, uint256 amount);
+    event Rebalance(address indexed asset, uint256 amount);
 
     event Withdraw(address indexed asset, address indexed to, uint256 amount);
 
-    function deposit(address asset, address to, uint256 amount) external;
+    function rebalance(address asset, uint256 amount, bytes calldata extra) external payable;
 
     function withdraw(address asset, address to, uint256 amount) external;
 }

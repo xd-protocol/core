@@ -9,17 +9,48 @@ import { IRebalancer, IRebalancerCallbacks } from "./interfaces/IRebalancer.sol"
 contract xDERC20 is BasexDERC20, IRebalancerCallbacks {
     using SafeTransferLib for ERC20;
 
+    enum TimeLockType {
+        Invalid,
+        UpdateTimeLockPeriod,
+        UpdateRebalancer
+    }
+
+    struct TimeLock {
+        TimeLockType _type;
+        bytes params;
+        uint64 startedAt;
+        bool executed;
+    }
+
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
 
     address public immutable underlying;
-    address public immutable rebalancer;
+
+    uint64 public timeLockPeriod;
+    TimeLock[] public timeLocks;
+
+    address rebalancer;
+
+    /*//////////////////////////////////////////////////////////////
+                                 EVENTS
+    //////////////////////////////////////////////////////////////*/
+
+    event QueueTimeLock(uint256 indexed id, TimeLockType _type, uint64 timestamp);
+    event ExecuteTimeLock(uint256 indexed id);
+    event UpdateTimeLockPeriod(uint64 timeLockPeriod);
+    event UpdateRebalancer(address indexed rebalancer);
+    event Rebalance(uint256 amount);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
+    error TimeLockExecuted();
+    error TimeNotPassed();
+    error InvalidTimeLockType();
+    error TransferFailure(bytes data);
     error Forbidden();
 
     /*//////////////////////////////////////////////////////////////
@@ -28,7 +59,7 @@ contract xDERC20 is BasexDERC20, IRebalancerCallbacks {
 
     constructor(
         address _underlying,
-        address _rebalancer,
+        uint64 _timeLockPeriod,
         string memory _name,
         string memory _symbol,
         uint8 _decimals,
@@ -36,18 +67,69 @@ contract xDERC20 is BasexDERC20, IRebalancerCallbacks {
         address _owner
     ) BasexDERC20(_name, _symbol, _decimals, _synchronizer, _owner) {
         underlying = _underlying;
-        rebalancer = _rebalancer;
+        timeLockPeriod = _timeLockPeriod;
     }
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
+    function queueUpdateTimeLockPeriod(uint64 _timeLockPeriod) external onlyOwner {
+        _queueTimeLock(TimeLockType.UpdateTimeLockPeriod, abi.encode(_timeLockPeriod));
+    }
+
+    function queueUpdateRebalancer(address _rebalancer) external onlyOwner {
+        _queueTimeLock(TimeLockType.UpdateRebalancer, abi.encode(_rebalancer));
+    }
+
+    function _queueTimeLock(TimeLockType _type, bytes memory params) internal {
+        if (_type != TimeLockType.UpdateTimeLockPeriod && _type != TimeLockType.UpdateRebalancer) {
+            revert InvalidTimeLockType();
+        }
+
+        uint256 id = timeLocks.length;
+        timeLocks.push(TimeLock(_type, params, uint64(block.timestamp), false));
+
+        emit QueueTimeLock(id, _type, uint64(block.timestamp));
+    }
+
+    function executeTimeLock(uint256 id) external payable {
+        TimeLock storage timeLock = timeLocks[id];
+        if (timeLock.executed) revert TimeLockExecuted();
+        if (block.timestamp < timeLock.startedAt + timeLockPeriod) revert TimeNotPassed();
+
+        emit ExecuteTimeLock(id);
+
+        if (timeLock._type == TimeLockType.UpdateTimeLockPeriod) {
+            timeLockPeriod = abi.decode(timeLock.params, (uint64));
+
+            emit UpdateTimeLockPeriod(timeLockPeriod);
+        } else if (timeLock._type == TimeLockType.UpdateRebalancer) {
+            address _rebalancer = abi.decode(timeLock.params, (address));
+            rebalancer = _rebalancer;
+
+            emit UpdateRebalancer(_rebalancer);
+        } else {
+            revert InvalidTimeLockType();
+        }
+    }
+
+    function rebalance(uint256 amount, bytes calldata extra) external payable onlyOwner {
+        ERC20(underlying).approve(rebalancer, amount);
+        uint256 balance = address(this).balance;
+        IRebalancer(rebalancer).rebalance{ value: msg.value }(underlying, amount, extra);
+        // refund remainder
+        if (address(this).balance > balance) {
+            (bool ok, bytes memory data) = msg.sender.call{ value: address(this).balance - balance }("");
+            if (!ok) revert TransferFailure(data);
+        }
+        ERC20(underlying).approve(rebalancer, 0);
+
+        emit Rebalance(amount);
+    }
+
     function wrap(address to, uint256 amount) external {
         ERC20(underlying).safeTransferFrom(msg.sender, address(this), amount);
-        ERC20(underlying).approve(rebalancer, amount);
-        IRebalancer(rebalancer).deposit(underlying, msg.sender, amount);
-        ERC20(underlying).approve(rebalancer, 0);
 
         _transferFrom(address(0), to, amount);
     }
