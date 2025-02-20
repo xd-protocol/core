@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-interface IRebalancerCallbacks {
+interface IRebalancerCallbacksLocal {
+    function onWithdraw(address asset, address to, uint256 amount) external;
+}
+
+interface IRebalancerCallbacksRemote {
+    function onRebalance(address asset, uint256 amount, bytes calldata extra) external;
+
     function onWithdraw(address asset, address to, uint256 amount) external;
 }
 
@@ -12,5 +18,5 @@ interface IRebalancer {
 
     function rebalance(address asset, uint256 amount, bytes calldata extra) external payable;
 
-    function withdraw(address asset, address to, uint256 amount) external;
+    function withdraw(address asset, address to, uint256 amount) external payable;
 }

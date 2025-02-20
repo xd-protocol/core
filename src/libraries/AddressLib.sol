@@ -10,4 +10,8 @@ library AddressLib {
     function isContract(address account) internal view returns (bool) {
         return account.code.length > 0;
     }
+
+    function toBytes32(address addr) internal pure returns (bytes32) {
+        return bytes32(uint256(uint160(addr)));
+    }
 }

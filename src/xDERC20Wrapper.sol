@@ -4,9 +4,9 @@ pragma solidity ^0.8.28;
 import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { ERC20, SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 import { BasexDERC20 } from "./mixins/BasexDERC20.sol";
-import { IRebalancer, IRebalancerCallbacks } from "./interfaces/IRebalancer.sol";
+import { IRebalancer, IRebalancerCallbacksLocal } from "./interfaces/IRebalancer.sol";
 
-contract xDERC20 is BasexDERC20, IRebalancerCallbacks {
+contract xDERC20 is BasexDERC20, IRebalancerCallbacksLocal {
     using SafeTransferLib for ERC20;
 
     enum TimeLockType {
@@ -134,8 +134,12 @@ contract xDERC20 is BasexDERC20, IRebalancerCallbacks {
         _transferFrom(address(0), to, amount);
     }
 
-    function unwrap(address to, uint256 amount, uint128 gasLimit) external returns (MessagingReceipt memory receipt) {
-        return _transfer(address(0), amount, abi.encode(to), 0, gasLimit);
+    function unwrap(address to, uint256 amount, uint128 gasLimit)
+        external
+        payable
+        returns (MessagingReceipt memory receipt)
+    {
+        return _transfer(msg.sender, address(0), amount, abi.encode(to), msg.value, gasLimit);
     }
 
     function _onTransfer(uint256 nonce, int256 globalAvailability) internal override {
@@ -145,11 +149,17 @@ contract xDERC20 is BasexDERC20, IRebalancerCallbacks {
         // only when transferred by unwrap()
         if (pending.from != address(0) && pending.to == address(0)) {
             address to = abi.decode(pending.callData, (address));
-            IRebalancer(rebalancer).withdraw(underlying, to, pending.amount);
+            uint256 balance = address(this).balance;
+            IRebalancer(rebalancer).withdraw{ value: pending.value }(underlying, to, pending.amount);
+            // refund remainder
+            if (address(this).balance > balance) {
+                (bool ok, bytes memory data) = msg.sender.call{ value: address(this).balance - balance }("");
+                if (!ok) revert TransferFailure(data);
+            }
         }
     }
 
-    // IRebalancerCallbacks
+    // IRebalancerCallbacksLocal
     function onWithdraw(address asset, address to, uint256 amount) external {
         if (msg.sender != rebalancer) revert Forbidden();
 

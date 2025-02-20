@@ -362,36 +362,36 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
     {
         if (to == address(0)) revert InvalidAddress();
 
-        return _transfer(to, amount, callData, value, gasLimit);
+        return _transfer(msg.sender, to, amount, callData, value, gasLimit);
     }
 
-    function _transfer(address to, uint256 amount, bytes memory callData, uint256 value, uint128 gasLimit)
+    function _transfer(address from, address to, uint256 amount, bytes memory callData, uint256 value, uint128 gasLimit)
         internal
         returns (MessagingReceipt memory receipt)
     {
         if (amount == 0) revert InvalidAmount();
         if (amount > uint256(type(int256).max)) revert Overflow();
-        if (amount > balanceOf(msg.sender)) revert InsufficientBalance();
+        if (amount > balanceOf(from)) revert InsufficientBalance();
         if (msg.value < value) revert InsufficientValue();
 
-        uint256 nonce = _pendingNonce[msg.sender];
+        uint256 nonce = _pendingNonce[from];
         if (nonce > 0) revert TransferPending();
 
         nonce = _pendingTransfers.length;
-        _pendingTransfers.push(PendingTransfer(true, msg.sender, to, amount, callData, value));
-        _pendingNonce[msg.sender] = nonce;
+        _pendingTransfers.push(PendingTransfer(true, from, to, amount, callData, value));
+        _pendingNonce[from] = nonce;
 
-        bytes memory cmd = getTransferCmd(msg.sender, nonce);
+        bytes memory cmd = getTransferCmd(from, nonce);
         ISynchronizer.ChainConfig[] memory _chainConfigs = ISynchronizer(synchronizer).chainConfigs();
         bytes memory options = OptionsBuilder.newOptions().addExecutorLzReadOption(
             gasLimit, transferCalldataSize * uint32(_chainConfigs.length), 0
         );
         // directly use endpoint.send() to bypass _payNative() check in _lzSend()
         receipt = endpoint.send{ value: msg.value - value }(
-            MessagingParams(READ_CHANNEL, _getPeerOrRevert(READ_CHANNEL), cmd, options, false), payable(msg.sender)
+            MessagingParams(READ_CHANNEL, _getPeerOrRevert(READ_CHANNEL), cmd, options, false), payable(from)
         );
 
-        emit Transfer(msg.sender, to, amount, nonce);
+        emit Transfer(from, to, amount, nonce);
     }
 
     /**
