@@ -24,9 +24,10 @@ contract xDERC20Wrapper is BasexDERC20, IStakingVaultCallbacks {
     }
 
     struct FailedWithdrawal {
-        bool failed;
-        address to;
+        bool resolved;
         uint256 amount;
+        bytes data;
+        uint256 value;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -50,9 +51,9 @@ contract xDERC20Wrapper is BasexDERC20, IStakingVaultCallbacks {
     event ExecuteTimeLock(uint256 indexed id);
     event UpdateTimeLockPeriod(uint64 timeLockPeriod);
     event UpdateVault(address indexed vault);
-    event Deposit(uint256 amount);
+    event Wrap(uint256 amount);
     event WithdrawFail(uint256 id, bytes reason);
-    event Withdraw(address to, uint256 amount);
+    event Unwrap(address to, uint256 amount);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -108,7 +109,7 @@ contract xDERC20Wrapper is BasexDERC20, IStakingVaultCallbacks {
         emit QueueTimeLock(id, _type, uint64(block.timestamp));
     }
 
-    function executeTimeLock(uint256 id) external payable {
+    function executeTimeLock(uint256 id) external payable nonReentrant {
         TimeLock storage timeLock = timeLocks[id];
         if (timeLock.executed) revert TimeLockExecuted();
         if (block.timestamp < timeLock.startedAt + timeLockPeriod) revert TimeNotPassed();
@@ -129,7 +130,7 @@ contract xDERC20Wrapper is BasexDERC20, IStakingVaultCallbacks {
         }
     }
 
-    function wrap(address to, uint256 amount, bytes calldata depositOptions) external payable {
+    function wrap(address to, uint256 amount, uint256 minAmount, uint128 gasLimit) external payable nonReentrant {
         ERC20(underlying).safeTransferFrom(msg.sender, address(this), amount);
 
         _transferFrom(address(0), to, amount);
@@ -137,7 +138,7 @@ contract xDERC20Wrapper is BasexDERC20, IStakingVaultCallbacks {
         uint256 balance = address(this).balance;
 
         ERC20(underlying).approve(vault, amount);
-        IStakingVault(vault).deposit{ value: msg.value }(underlying, amount, depositOptions);
+        IStakingVault(vault).deposit{ value: msg.value }(underlying, amount, minAmount, gasLimit, msg.sender);
         ERC20(underlying).approve(vault, 0);
 
         // refund remainder
@@ -145,55 +146,58 @@ contract xDERC20Wrapper is BasexDERC20, IStakingVaultCallbacks {
             AddressLib.transferNative(msg.sender, address(this).balance - balance + msg.value);
         }
 
-        emit Deposit(amount);
+        emit Wrap(amount);
     }
 
-    function unwrap(address to, uint256 amount, uint128 readGasLimit, bytes calldata withdrawOptions)
+    function unwrap(address to, uint256 amount, uint128 readGasLimit, uint128 withdrawGasLimit, uint256 withdrawFee)
         external
         payable
+        nonReentrant
         returns (MessagingReceipt memory receipt)
     {
         if (to == address(0)) revert InvalidAddress();
 
-        return _transfer(msg.sender, address(0), amount, abi.encode(to, withdrawOptions), msg.value, readGasLimit);
+        receipt = _transfer(
+            msg.sender, address(0), amount, abi.encode(msg.sender, withdrawGasLimit), withdrawFee, readGasLimit
+        );
+
+        emit Unwrap(to, amount);
     }
 
-    function _onTransfer(uint256 nonce, int256 globalAvailability) internal override {
-        super._onTransfer(nonce, globalAvailability);
-
-        PendingTransfer storage pending = _pendingTransfers[nonce];
+    function _executePendingTransfer(PendingTransfer memory pending) internal override {
         // only when transferred by unwrap()
         if (pending.from != address(0) && pending.to == address(0)) {
-            (address to, bytes memory options) = abi.decode(pending.callData, (address, bytes));
-            uint256 balance = address(this).balance;
-
-            try IStakingVault(vault).withdraw{ value: pending.value }(underlying, to, pending.amount, options) { }
-            catch (bytes memory reason) {
+            (address to, uint128 gasLimit) = abi.decode(pending.callData, (address, uint128));
+            bytes memory data = abi.encode(pending.from, to);
+            try IStakingVault(vault).withdraw{ value: pending.value }(
+                underlying, pending.amount, data, gasLimit, pending.from
+            ) { } catch (bytes memory reason) {
                 uint256 id = failedWithdrawals.length;
-                failedWithdrawals.push(FailedWithdrawal(true, to, pending.amount));
+                failedWithdrawals.push(FailedWithdrawal(false, pending.amount, data, pending.value));
                 emit WithdrawFail(id, reason);
             }
-
-            // refund remainder
-            if (address(this).balance > balance - msg.value) {
-                AddressLib.transferNative(msg.sender, address(this).balance - balance + msg.value);
-            }
+        } else {
+            super._executePendingTransfer(pending);
         }
     }
 
-    function retryWithdraw(uint256 id, bytes calldata options) external payable {
+    function retryWithdraw(uint256 id, uint128 gasLimit) external payable {
         FailedWithdrawal storage withdrawal = failedWithdrawals[id];
-        if (!withdrawal.failed) revert InvalidId();
+        if (withdrawal.resolved) revert InvalidId();
 
-        withdrawal.failed = false;
+        withdrawal.resolved = true;
 
-        IStakingVault(vault).withdraw{ value: msg.value }(underlying, withdrawal.to, withdrawal.amount, options);
+        IStakingVault(vault).withdraw{ value: withdrawal.value + msg.value }(
+            underlying, withdrawal.amount, withdrawal.data, gasLimit, msg.sender
+        );
     }
 
     // IStakingVaultCallbacks
-    function onWithdraw(address, address to, uint256 amount) external {
+    function onWithdraw(address, uint256 amount, bytes calldata data) external {
         if (msg.sender != vault) revert Forbidden();
 
-        emit Withdraw(to, amount);
+        (address from, address to) = abi.decode(data, (address, address));
+        _transferFrom(from, address(0), amount);
+        ERC20(underlying).safeTransferFrom(msg.sender, to, amount);
     }
 }

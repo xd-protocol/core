@@ -87,7 +87,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
     error Overflow();
     error RefundFailure(uint256 nonce);
     error InsufficientAvailability(uint256 nonce, uint256 amount, int256 availabillity);
-    error CallFailure(uint256 nonce, address to, bytes reason);
+    error CallFailure(address to, bytes reason);
     error NotComposing();
 
     /*//////////////////////////////////////////////////////////////
@@ -407,8 +407,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
         pending.pending = false;
         _pendingNonce[msg.sender] = 0;
 
-        (bool ok) = payable(msg.sender).send(pending.value);
-        if (!ok) revert RefundFailure(nonce);
+        AddressLib.transferNative(msg.sender, pending.value);
 
         emit CancelPendingTransfer(nonce);
     }
@@ -470,17 +469,23 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
         int256 availability = localBalanceOf(from) + globalAvailability;
         if (availability < int256(amount)) revert InsufficientAvailability(nonce, amount, availability);
 
-        (address to, bytes memory callData) = (pending.to, pending.callData);
-        if (to != address(0) && to.isContract() && callData.length > 0) {
-            _compose(nonce, from, to, amount, pending.value, callData);
-        } else {
-            _transferFrom(from, to, amount);
+        uint256 balance = address(this).balance;
+        _executePendingTransfer(pending);
+        if (address(this).balance > balance - pending.value) {
+            AddressLib.transferNative(from, address(this).balance - balance + pending.value);
         }
     }
 
-    function _compose(uint256 nonce, address from, address to, uint256 amount, uint256 value, bytes memory callData)
-        internal
-    {
+    function _executePendingTransfer(PendingTransfer memory pending) internal virtual {
+        (address to, bytes memory callData) = (pending.to, pending.callData);
+        if (to != address(0) && to.isContract() && callData.length > 0) {
+            _compose(pending.from, to, pending.amount, pending.value, callData);
+        } else {
+            _transferFrom(pending.from, to, pending.amount);
+        }
+    }
+
+    function _compose(address from, address to, uint256 amount, uint256 value, bytes memory callData) internal {
         int256 oldBalance = localBalanceOf(address(this));
         _transferFrom(from, address(this), amount);
 
@@ -489,7 +494,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
 
         // transferFrom() can be called multiple times inside the next call
         (bool ok, bytes memory reason) = to.call{ value: value }(callData);
-        if (!ok) revert CallFailure(nonce, to, reason);
+        if (!ok) revert CallFailure(to, reason);
 
         allowance[address(this)][to] = 0;
         _composing = false;
