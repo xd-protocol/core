@@ -129,8 +129,8 @@ contract xDERC20Test is BaseSynchronizerTest {
         assertEq(erc20s[0].balanceOf(alice), 100e18);
 
         changePrank(alice, alice);
-        MessagingFee memory fee = erc20s[0].quoteTransfer(alice, GAS_LIMIT);
-        erc20s[0].burn{ value: fee.nativeFee }(100e18, GAS_LIMIT);
+        uint256 fee = erc20s[0].quoteTransfer(alice, GAS_LIMIT);
+        erc20s[0].burn{ value: fee }(100e18, GAS_LIMIT);
         _executeTransfer(erc20s[0], alice, 1, "");
 
         assertEq(erc20s[0].localBalanceOf(alice), 0);

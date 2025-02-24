@@ -177,16 +177,16 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
     function _quoteWithdraw(address asset, address to, uint256 amount, uint128 gasLimit)
         internal
         view
-        returns (uint256)
+        returns (uint256 fee)
     {
         Stargate memory stargate = stargates[asset];
-        MessagingFee memory fee = _quote(
+        MessagingFee memory _fee = _quote(
             stargate.dstEid,
             abi.encode(WITHDRAW, asset, to, amount),
             OptionsBuilder.newOptions().addExecutorLzReceiveOption(gasLimit, 0),
             false
         );
-        return fee.nativeFee;
+        return _fee.nativeFee;
     }
 
     /*//////////////////////////////////////////////////////////////

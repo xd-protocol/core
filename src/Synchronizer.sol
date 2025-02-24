@@ -111,13 +111,14 @@ contract Synchronizer is SynchronizerRemote, OAppRead {
      * @param calldataSize The size of the calldata in bytes.
      * @return fee The estimated messaging fee for the request.
      */
-    function quoteSync(uint128 gasLimit, uint32 calldataSize) public view returns (MessagingFee memory fee) {
-        return _quote(
+    function quoteSync(uint128 gasLimit, uint32 calldataSize) public view returns (uint256 fee) {
+        MessagingFee memory _fee = _quote(
             READ_CHANNEL,
             getSyncCmd(),
             OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0),
             false
         );
+        return _fee.nativeFee;
     }
 
     /**
@@ -132,13 +133,14 @@ contract Synchronizer is SynchronizerRemote, OAppRead {
         address[] memory locals,
         address[] memory remotes,
         uint128 gasLimit
-    ) public view returns (MessagingFee memory fee) {
-        return _quote(
+    ) public view returns (uint256 fee) {
+        MessagingFee memory _fee = _quote(
             eid,
             abi.encode(MAP_REMOTE_ACCOUNTS, app, remoteApp, locals, remotes),
             OptionsBuilder.newOptions().addExecutorLzReceiveOption(gasLimit, 0),
             false
         );
+        return _fee.nativeFee;
     }
 
     /**
@@ -216,16 +218,16 @@ contract Synchronizer is SynchronizerRemote, OAppRead {
      *      The user must provide sufficient fees via `msg.value`.
      * @param gasLimit The gas limit to allocate for the executor.
      * @param calldataSize The size of the calldata for the request, in bytes.
-     * @return fee The messaging receipt from LayerZero, confirming the request details.
+     * @return receipt The messaging receipt from LayerZero, confirming the request details.
      *         Includes the `guid` and `block` parameters for tracking.
      */
-    function sync(uint128 gasLimit, uint32 calldataSize) external payable returns (MessagingReceipt memory fee) {
+    function sync(uint128 gasLimit, uint32 calldataSize) external payable returns (MessagingReceipt memory receipt) {
         if (block.timestamp <= _lastSyncRequestTimestamp) revert AlreadyRequested();
         _lastSyncRequestTimestamp = block.timestamp;
 
         bytes memory cmd = getSyncCmd();
         bytes memory options = OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0);
-        fee = _lzSend(READ_CHANNEL, cmd, options, MessagingFee(msg.value, 0), payable(msg.sender));
+        receipt = _lzSend(READ_CHANNEL, cmd, options, MessagingFee(msg.value, 0), payable(msg.sender));
 
         emit Sync(msg.sender);
     }

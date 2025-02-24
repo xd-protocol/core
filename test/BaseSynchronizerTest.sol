@@ -5,7 +5,6 @@ import {
     ILayerZeroEndpointV2,
     MessagingParams,
     MessagingReceipt,
-    MessagingFee,
     Origin
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { ISynchronizer } from "src/interfaces/ISynchronizer.sol";
@@ -185,8 +184,8 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
 
         uint128 gasLimit = 200_000 * uint128(_remotes.length);
         uint32 calldataSize = 128 * uint32(_remotes.length);
-        MessagingFee memory fee = _local.quoteSync(gasLimit, calldataSize);
-        _local.sync{ value: fee.nativeFee }(gasLimit, calldataSize);
+        uint256 fee = _local.quoteSync(gasLimit, calldataSize);
+        _local.sync{ value: fee }(gasLimit, calldataSize);
         skip(1);
 
         bytes[] memory responses = new bytes[](_remotes.length);
@@ -245,9 +244,8 @@ abstract contract BaseSynchronizerTest is TestHelperOz5 {
             }
 
             uint128 gasLimit = uint128(150_000 * to.length);
-            MessagingFee memory fee =
-                _local.quoteRequestMapRemoteAccounts(toEid, _localApp, remoteApps[i], from, to, gasLimit);
-            _local.requestMapRemoteAccounts{ value: fee.nativeFee }(toEid, remoteApps[i], from, to, gasLimit);
+            uint256 fee = _local.quoteRequestMapRemoteAccounts(toEid, _localApp, remoteApps[i], from, to, gasLimit);
+            _local.requestMapRemoteAccounts{ value: fee }(toEid, remoteApps[i], from, to, gasLimit);
             verifyPackets(toEid, address(_remote));
 
             for (uint256 j; j < to.length; ++j) {

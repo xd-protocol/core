@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {
-    MessagingReceipt,
-    MessagingFee
-} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
+import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { ILayerZeroReceiver } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroReceiver.sol";
 import { IOAppCore } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppCore.sol";
 import { IOAppReducer } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppReducer.sol";
@@ -39,7 +36,7 @@ interface ISynchronizer is ILayerZeroReceiver, IOAppCore, IOAppReducer {
 
     function chainConfigs() external view returns (ChainConfig[] memory);
 
-    function quoteSync(uint128 gasLimit, uint32 calldataSize) external view returns (MessagingFee memory fee);
+    function quoteSync(uint128 gasLimit, uint32 calldataSize) external view returns (uint256 fee);
 
     function quoteRequestMapRemoteAccounts(
         uint32 eid,
@@ -48,7 +45,7 @@ interface ISynchronizer is ILayerZeroReceiver, IOAppCore, IOAppReducer {
         address[] memory remotes,
         address[] memory locals,
         uint128 gasLimit
-    ) external view returns (MessagingFee memory fee);
+    ) external view returns (uint256 fee);
 
     function getSyncCmd() external view returns (bytes memory);
 

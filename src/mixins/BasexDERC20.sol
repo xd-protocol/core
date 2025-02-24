@@ -177,9 +177,9 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      * @param gasLimit The gas limit to allocate for actual transfer after lzRead.
      * @return fee The estimated messaging fee for the request.
      */
-    function quoteTransfer(address from, uint128 gasLimit) public view returns (MessagingFee memory fee) {
+    function quoteTransfer(address from, uint128 gasLimit) public view returns (uint256 fee) {
         ISynchronizer.ChainConfig[] memory _chainConfigs = ISynchronizer(synchronizer).chainConfigs();
-        return _quote(
+        MessagingFee memory _fee = _quote(
             READ_CHANNEL,
             getTransferCmd(from, _pendingTransfers.length),
             OptionsBuilder.newOptions().addExecutorLzReadOption(
@@ -187,6 +187,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
             ),
             false
         );
+        return _fee.nativeFee;
     }
 
     /**
