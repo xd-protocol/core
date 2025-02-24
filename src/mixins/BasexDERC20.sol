@@ -150,7 +150,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      * @param value The `int256` value to convert.
      * @return The converted `uint256` value.
      */
-    function _toUint(int256 value) internal pure returns (uint256) {
+    function _toUint(int256 value) internal pure virtual returns (uint256) {
         return value < 0 ? 0 : uint256(value);
     }
 
@@ -256,7 +256,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
         return ReadCodecV1.encode(CMD_TRANSFER, readRequests, _computeSettings());
     }
 
-    function _computeSettings() internal view returns (EVMCallComputeV1 memory) {
+    function _computeSettings() internal view virtual returns (EVMCallComputeV1 memory) {
         return EVMCallComputeV1({
             computeSetting: 1, // lzReduce()
             targetEid: ILayerZeroEndpointV2(endpoint).eid(),
@@ -367,6 +367,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
 
     function _transfer(address from, address to, uint256 amount, bytes memory callData, uint256 value, uint128 gasLimit)
         internal
+        virtual
         returns (MessagingReceipt memory receipt)
     {
         if (amount == 0) revert InvalidAmount();
@@ -438,7 +439,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
         bytes calldata _message,
         address, /* _executor */
         bytes calldata /* _extraData */
-    ) internal override nonReentrant {
+    ) internal virtual override nonReentrant {
         if (_origin.srcEid == READ_CHANNEL) {
             uint16 appCmdLabel = abi.decode(_message, (uint16));
             if (appCmdLabel == CMD_TRANSFER) {
@@ -485,7 +486,10 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
         }
     }
 
-    function _compose(address from, address to, uint256 amount, uint256 value, bytes memory callData) internal {
+    function _compose(address from, address to, uint256 amount, uint256 value, bytes memory callData)
+        internal
+        virtual
+    {
         int256 oldBalance = localBalanceOf(address(this));
         _transferFrom(from, address(this), amount);
 

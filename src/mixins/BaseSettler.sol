@@ -52,7 +52,7 @@ abstract contract BaseSettler is ReentrancyGuard {
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function _getRemoteAppOrRevert(address app, uint32 eid) internal view returns (address remoteApp) {
+    function _getRemoteAppOrRevert(address app, uint32 eid) internal view virtual returns (address remoteApp) {
         remoteApp = ISynchronizer(synchronizer).getRemoteApp(app, eid);
         if (remoteApp == address(0)) revert RemoteAppNotSet();
     }
@@ -79,7 +79,7 @@ abstract contract BaseSettler is ReentrancyGuard {
         uint256 mainTreeIndex,
         bytes32[] memory mainTreeProof,
         bytes32 mainTreeRoot
-    ) internal {
+    ) internal virtual {
         if (mainTreeRoot == bytes32(0)) revert MainTreeRootNotFound();
 
         bool valid = MerkleTreeLib.verifyProof(

@@ -1,25 +1,28 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { ERC20, SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 import { BasexDERC20Wrapper } from "./mixins/BasexDERC20Wrapper.sol";
-import { IStakingVault, IStakingVaultCallbacks } from "./interfaces/IStakingVault.sol";
+import { IStakingVault, IStakingVaultNativeCallbacks } from "./interfaces/IStakingVault.sol";
+import { AddressLib } from "./libraries/AddressLib.sol";
 
-contract xDERC20Wrapper is BasexDERC20Wrapper, IStakingVaultCallbacks {
-    using SafeTransferLib for ERC20;
+contract xDNative is BasexDERC20Wrapper, IStakingVaultNativeCallbacks {
+    /*//////////////////////////////////////////////////////////////
+                                STORAGE
+    //////////////////////////////////////////////////////////////*/
+
+    address public constant NATIVE = address(0);
 
     /*//////////////////////////////////////////////////////////////
                                CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
     constructor(
-        address _underlying,
         uint64 _timeLockPeriod,
         string memory _name,
         string memory _symbol,
         uint8 _decimals,
         address _synchronizer,
         address _owner
-    ) BasexDERC20Wrapper(_underlying, _timeLockPeriod, _name, _symbol, _decimals, _synchronizer, _owner) { }
+    ) BasexDERC20Wrapper(NATIVE, _timeLockPeriod, _name, _symbol, _decimals, _synchronizer, _owner) { }
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
@@ -29,30 +32,28 @@ contract xDERC20Wrapper is BasexDERC20Wrapper, IStakingVaultCallbacks {
         internal
         override
     {
-        ERC20(underlying).safeTransferFrom(msg.sender, address(this), amount);
+        if (value < amount) revert InsufficientValue();
 
-        ERC20(underlying).approve(vault, amount);
-        IStakingVault(vault).deposit{ value: value }(underlying, amount, minAmount, gasLimit, refundTo);
-        ERC20(underlying).approve(vault, 0);
+        IStakingVault(vault).depositNative{ value: value }(amount, minAmount, gasLimit, refundTo);
     }
 
     function _withdraw(uint256 amount, bytes memory data, uint128 gasLimit, uint256 value, address refundTo)
         internal
         override
     {
-        try IStakingVault(vault).withdraw{ value: value }(underlying, amount, data, gasLimit, refundTo) { }
+        try IStakingVault(vault).withdrawNative{ value: value }(amount, data, gasLimit, refundTo) { }
         catch (bytes memory reason) {
             _onFailedWithdrawal(amount, data, value, reason);
         }
     }
 
-    // IStakingVaultCallbacks
-    function onWithdraw(address, uint256 amount, bytes calldata data) external nonReentrant {
+    // IStakingVaultNativeCallbacks
+    function onWithdrawNative(bytes calldata data) external payable nonReentrant {
         if (msg.sender != vault) revert Forbidden();
 
         (address from, address to) = abi.decode(data, (address, address));
-        _transferFrom(from, address(0), amount);
+        _transferFrom(from, address(0), msg.value);
 
-        ERC20(underlying).safeTransferFrom(msg.sender, to, amount);
+        AddressLib.transferNative(to, msg.value);
     }
 }
