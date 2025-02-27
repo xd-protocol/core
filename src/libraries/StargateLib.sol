@@ -104,12 +104,10 @@ library StargateLib {
         if (asset == NATIVE) {
             value += amount;
         } else {
+            ERC20(asset).safeApprove(address(stargate), 0);
             ERC20(asset).safeApprove(address(stargate), amount);
         }
         (, OFTReceipt memory receipt,) = stargate.sendToken{ value: value }(sendParam, MessagingFee(fee, 0), msg.sender);
-        if (asset != NATIVE) {
-            ERC20(asset).safeApprove(address(stargate), 0);
-        }
 
         // refund remainder
         if (refundTo != address(0) && address(this).balance > balance - value) {

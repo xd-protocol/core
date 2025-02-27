@@ -58,9 +58,9 @@ contract xDERC20Wrapper is BasexDERC20Wrapper, IStakingVaultCallbacks {
     function _deposit(uint256 amount, uint256 minAmount, uint256 fee, bytes memory options) internal override {
         ERC20(underlying).safeTransferFrom(msg.sender, address(this), amount);
 
+        ERC20(underlying).safeApprove(vault, 0);
         ERC20(underlying).safeApprove(vault, amount);
         IStakingVault(vault).deposit{ value: fee }(underlying, amount, minAmount, options);
-        ERC20(underlying).safeApprove(vault, 0);
     }
 
     /**

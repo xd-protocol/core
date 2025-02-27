@@ -281,9 +281,9 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
         if (asset == StargateLib.NATIVE) {
             IStaker(staker).stake{ value: amount }(amount);
         } else {
+            ERC20(asset).safeApprove(staker, 0);
             ERC20(asset).safeApprove(staker, amount);
             IStaker(staker).stake(amount);
-            ERC20(asset).safeApprove(staker, 0);
         }
 
         emit Stake(asset, amount);
@@ -580,9 +580,9 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
             if (asset == StargateLib.NATIVE) {
                 IStakingVaultNativeCallbacks(msg.sender).onWithdrawNative{ value: amount }(incomingData);
             } else {
+                ERC20(asset).safeApprove(to, 0);
                 ERC20(asset).safeApprove(to, amount);
                 IStakingVaultCallbacks(msg.sender).onWithdraw(asset, amount, incomingData);
-                ERC20(asset).safeApprove(to, 0);
             }
         } else {
             _lzSend(
@@ -820,9 +820,9 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
         if (asset == StargateLib.NATIVE) {
             IStakingVaultNativeCallbacks(to).onWithdrawNative{ value: amount }(data);
         } else {
+            ERC20(asset).safeApprove(to, 0);
             ERC20(asset).safeApprove(to, amount);
             IStakingVaultCallbacks(to).onWithdraw(asset, amount, data);
-            ERC20(asset).safeApprove(to, 0);
         }
     }
 }
