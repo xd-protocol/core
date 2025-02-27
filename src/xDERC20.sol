@@ -14,6 +14,14 @@ contract xDERC20 is BasexDERC20 {
     { }
 
     /*//////////////////////////////////////////////////////////////
+                             VIEW FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    function quoteBurn(address from, uint128 gasLimit) public view returns (uint256 fee) {
+        return quoteTransfer(from, gasLimit);
+    }
+
+    /*//////////////////////////////////////////////////////////////
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
@@ -30,10 +38,10 @@ contract xDERC20 is BasexDERC20 {
     /**
      * @notice Burns tokens by transferring them to the zero address.
      * @param amount The amount of tokens to burn.
-     * @param gasLimit The gas limit to allocate for actual transfer after lzRead.
+     * @param options Additional options for the transfer call.
      * @dev This function should be called by derived contracts with appropriate access control.
      */
-    function burn(uint256 amount, uint128 gasLimit) external payable returns (MessagingReceipt memory receipt) {
-        return _transfer(msg.sender, address(0), amount, "", 0, gasLimit);
+    function burn(uint256 amount, bytes calldata options) external payable returns (MessagingReceipt memory receipt) {
+        return _transfer(msg.sender, address(0), amount, "", 0, options);
     }
 }

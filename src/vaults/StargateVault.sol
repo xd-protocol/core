@@ -12,8 +12,18 @@ import { OFTComposeMsgCodec } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oft/
 import { IStakingVault, IStakingVaultCallbacks, IStakingVaultNativeCallbacks } from "../interfaces/IStakingVault.sol";
 import { IStaker } from "../interfaces/IStaker.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
+import { LzLib } from "../libraries/LzLib.sol";
 import { IStargate, StargateLib } from "../libraries/StargateLib.sol";
 
+/**
+ * @title StargateVault
+ * @notice A cross-chain vault that handles asset deposits, withdrawals, and staking through
+ *         integrations with LayerZero, Stargate, and external staking protocols.
+ * @dev This contract supports both ERC20 and native currency operations. It provides functionality
+ *      for quoting deposit/withdraw fees, staking/unstaking assets, and processing cross-chain messages.
+ *      Outgoing cross-chain messages are composed and sent via _lzSend(), while incoming messages are
+ *      handled in _lzReceive() to complete withdrawal operations.
+ */
 contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
     using OptionsBuilder for bytes;
     using SafeTransferLib for ERC20;
@@ -61,10 +71,14 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
     error UnsupportedAsset();
     error InsufficientValue();
     error InsufficientBalance();
+    error InvalidAmount();
+    error InvalidMinAmount();
+    error InvalidLzReceiveOption();
     error InvalidEid();
     error Forbidden();
-    error InvalidMessage();
+    error InvalidComposeMsg();
     error NotStargate();
+    error InvalidMessage();
 
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
@@ -142,28 +156,51 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
     /**
      * @notice Provides a withdrawal fee quote for a token asset.
      * @param asset The asset to withdraw.
-     * @param to The recipient address.
+     * @param to The recipient address on the destination.
      * @param amount The amount to withdraw.
+     * @param minAmount The minimum acceptable amount for withdrawal.
+     * @param incomingData Data for the incoming cross-chain message.
+     * @param incomingFee Fee for processing the incoming message.
+     * @param incomingOptions Options for the incoming message.
      * @param gasLimit The gas limit for the operation.
      * @return fee The fee required.
      */
-    function quoteWithdraw(address asset, address to, uint256 amount, uint128 gasLimit)
-        external
-        view
-        returns (uint256 fee)
-    {
-        return _quoteWithdraw(asset, to, amount, gasLimit);
+    function quoteWithdraw(
+        address asset,
+        address to,
+        uint256 amount,
+        uint256 minAmount,
+        bytes memory incomingData,
+        uint128 incomingFee,
+        bytes memory incomingOptions,
+        uint128 gasLimit
+    ) external view returns (uint256 fee) {
+        return _quoteWithdraw(asset, to, amount, minAmount, incomingData, incomingFee, incomingOptions, gasLimit);
     }
 
     /**
      * @notice Provides a withdrawal fee quote for native currency.
-     * @param to The recipient address.
+     * @param to The recipient address on the destination.
      * @param amount The amount to withdraw.
+     * @param minAmount The minimum acceptable amount for withdrawal.
+     * @param incomingData Data for the incoming cross-chain message.
+     * @param incomingFee Fee for processing the incoming message.
+     * @param incomingOptions Options for the incoming message.
      * @param gasLimit The gas limit for the operation.
      * @return fee The fee required.
      */
-    function quoteWithdrawNative(address to, uint256 amount, uint128 gasLimit) external view returns (uint256 fee) {
-        return _quoteWithdraw(StargateLib.NATIVE, to, amount, gasLimit);
+    function quoteWithdrawNative(
+        address to,
+        uint256 amount,
+        uint256 minAmount,
+        bytes memory incomingData,
+        uint128 incomingFee,
+        bytes memory incomingOptions,
+        uint128 gasLimit
+    ) external view returns (uint256 fee) {
+        return _quoteWithdraw(
+            StargateLib.NATIVE, to, amount, minAmount, incomingData, incomingFee, incomingOptions, gasLimit
+        );
     }
 
     /**
@@ -171,19 +208,28 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
      * @param asset The asset to withdraw.
      * @param to The recipient address.
      * @param amount The amount to withdraw.
-     * @param gasLimit The gas limit for cross-chain operations.
+     * @param minAmount The minimum acceptable withdrawal amount.
+     * @param incomingData Data for the incoming cross-chain message.
+     * @param incomingFee Fee for the incoming message.
+     * @param incomingOptions Options for the incoming message.
+     * @param gasLimit The gas limit for the operation.
      * @return fee The native fee required.
      */
-    function _quoteWithdraw(address asset, address to, uint256 amount, uint128 gasLimit)
-        internal
-        view
-        returns (uint256 fee)
-    {
+    function _quoteWithdraw(
+        address asset,
+        address to,
+        uint256 amount,
+        uint256 minAmount,
+        bytes memory incomingData,
+        uint128 incomingFee,
+        bytes memory incomingOptions,
+        uint128 gasLimit
+    ) internal view returns (uint256 fee) {
         Stargate memory stargate = stargates[asset];
         MessagingFee memory _fee = _quote(
             stargate.dstEid,
-            abi.encode(WITHDRAW, asset, to, amount),
-            OptionsBuilder.newOptions().addExecutorLzReceiveOption(gasLimit, 0),
+            abi.encode(WITHDRAW, asset, to, amount, minAmount, incomingData, incomingFee, incomingOptions),
+            OptionsBuilder.newOptions().addExecutorLzReceiveOption(gasLimit, incomingFee),
             false
         );
         return _fee.nativeFee;
@@ -214,10 +260,20 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
         _stake(asset, amount);
     }
 
+    /**
+     * @notice Stakes a given amount of native currency.
+     * @param amount The amount of native currency to stake.
+     */
     function stakeNative(uint256 amount) external nonReentrant onlyOwner {
         _stake(StargateLib.NATIVE, amount);
     }
 
+    /**
+     * @notice Internal function to perform the staking operation.
+     * @dev Retrieves the staker for the asset, sets token approvals if needed, and calls the stake function.
+     * @param asset The asset to stake.
+     * @param amount The amount to stake.
+     */
     function _stake(address asset, uint256 amount) internal {
         address staker = stakers[asset];
         if (staker == address(0)) revert UnsupportedAsset();
@@ -233,14 +289,29 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
         emit Stake(asset, amount);
     }
 
+    /**
+     * @notice Unstakes a specified amount of an asset.
+     * @param asset The asset to unstake.
+     * @param amount The amount to unstake.
+     */
     function unstake(address asset, uint256 amount) external nonReentrant onlyOwner {
         _unstake(asset, amount);
     }
 
+    /**
+     * @notice Unstakes a specified amount of native currency.
+     * @param amount The amount of native currency to unstake.
+     */
     function unstakeNative(uint256 amount) external nonReentrant onlyOwner {
         _unstake(StargateLib.NATIVE, amount);
     }
 
+    /**
+     * @notice Internal function to perform unstaking.
+     * @dev Calls the unstake function on the staker contract associated with the asset.
+     * @param asset The asset to unstake.
+     * @param amount The amount to unstake.
+     */
     function _unstake(address asset, uint256 amount) internal {
         address staker = stakers[asset];
         if (staker == address(0)) revert UnsupportedAsset();
@@ -288,17 +359,18 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
      * @param asset The asset to deposit.
      * @param amount The amount to deposit.
      * @param minAmount The minimum acceptable deposit.
-     * @param gasLimit The gas limit for cross-chain operations.
+     * @param options Extra options.
      * @return shares The number of shares received.
      */
-    function depositIdle(address asset, uint256 amount, uint256 minAmount, uint128 gasLimit)
+    function depositIdle(address asset, uint256 amount, uint256 minAmount, bytes calldata options)
         external
         payable
         onlyOwner
         nonReentrant
         returns (uint256 shares)
     {
-        return _deposit(asset, amount, minAmount, gasLimit, msg.value, msg.sender);
+        (uint128 gasLimit, address refundTo) = LzLib.decodeOptions(options);
+        return _deposit(asset, amount, minAmount, gasLimit, msg.value, refundTo);
     }
 
     /**
@@ -306,17 +378,18 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
      * @dev Processes the deposit and returns the amount of shares received.
      * @param amount The native currency amount to deposit.
      * @param minAmount The minimum acceptable deposit.
-     * @param gasLimit The gas limit for cross-chain operations.
+     * @param options Extra options.
      * @return shares The number of shares received.
      */
-    function depositIdleNative(uint256 amount, uint256 minAmount, uint128 gasLimit)
+    function depositIdleNative(uint256 amount, uint256 minAmount, bytes calldata options)
         external
         payable
         onlyOwner
         nonReentrant
         returns (uint256 shares)
     {
-        return _deposit(StargateLib.NATIVE, amount, minAmount, gasLimit, msg.value, msg.sender);
+        (uint128 gasLimit, address refundTo) = LzLib.decodeOptions(options);
+        return _deposit(StargateLib.NATIVE, amount, minAmount, gasLimit, msg.value, refundTo);
     }
 
     /**
@@ -325,11 +398,10 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
      * @param asset The asset to deposit.
      * @param amount The amount to deposit.
      * @param minAmount The minimum acceptable deposit.
-     * @param gasLimit The gas limit for cross-chain operations.
-     * @param refundTo The address to refund any excess fee.
+     * @param options Extra options.
      * @return shares The number of shares received.
      */
-    function deposit(address asset, uint256 amount, uint256 minAmount, uint128 gasLimit, address refundTo)
+    function deposit(address asset, uint256 amount, uint256 minAmount, bytes calldata options)
         external
         payable
         nonReentrant
@@ -337,6 +409,7 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
     {
         ERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
 
+        (uint128 gasLimit, address refundTo) = LzLib.decodeOptions(options);
         shares = _deposit(asset, amount, minAmount, gasLimit, msg.value, refundTo);
         balances[asset][msg.sender] += shares;
     }
@@ -346,11 +419,10 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
      * @dev Processes the deposit and updates the sender's balance.
      * @param amount The native currency amount to deposit.
      * @param minAmount The minimum acceptable deposit.
-     * @param gasLimit The gas limit for cross-chain operations.
-     * @param refundTo The address to refund any excess fee.
+     * @param options Extra options.
      * @return shares The number of shares received.
      */
-    function depositNative(uint256 amount, uint256 minAmount, uint128 gasLimit, address refundTo)
+    function depositNative(uint256 amount, uint256 minAmount, bytes calldata options)
         external
         payable
         nonReentrant
@@ -358,6 +430,7 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
     {
         if (msg.value < amount) revert InsufficientValue();
 
+        (uint128 gasLimit, address refundTo) = LzLib.decodeOptions(options);
         shares = _deposit(StargateLib.NATIVE, amount, minAmount, gasLimit, msg.value - amount, refundTo);
         balances[StargateLib.NATIVE][msg.sender] += shares;
     }
@@ -377,6 +450,9 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
         internal
         returns (uint256 shares)
     {
+        if (amount == 0) revert InvalidAmount();
+        if (minAmount > amount) revert InvalidMinAmount();
+
         Stargate memory stargate = stargates[asset];
         if (stargate.dstEid == 0) revert UnsupportedAsset();
         if (stargate.dstEid == eid) {
@@ -397,119 +473,235 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
 
     /**
      * @notice Withdraws tokens from the vault.
-     * @dev Checks balance and processes local or cross-chain withdrawals.
+     * @dev Processes the withdrawal request and routes it based on whether the asset is local or cross-chain.
      * @param asset The asset to withdraw.
      * @param amount The amount to withdraw.
-     * @param data Arbitrary data to be passed as an argument for onWithdraw().
-     * @param gasLimit The gas limit for cross-chain operations.
-     * @param refundTo The address to refund any excess fee.
+     * @param minAmount The minimum acceptable withdrawal amount.
+     * @param incomingData Data for the incoming cross-chain message.
+     * @param incomingFee Fee for processing the incoming message.
+     * @param incomingOptions Options for the incoming message.
+     * @param options Extra options encoded as bytes.
      */
-    function withdraw(address asset, uint256 amount, bytes calldata data, uint128 gasLimit, address refundTo)
-        external
-        payable
-        nonReentrant
-    {
-        _withdraw(asset, amount, data, gasLimit, refundTo);
+    function withdraw(
+        address asset,
+        uint256 amount,
+        uint256 minAmount,
+        bytes memory incomingData,
+        uint128 incomingFee,
+        bytes calldata incomingOptions,
+        bytes calldata options
+    ) external payable nonReentrant {
+        (uint128 gasLimit, address refundTo) = LzLib.decodeOptions(options);
+        _withdraw(
+            asset,
+            msg.sender,
+            amount,
+            minAmount,
+            incomingData,
+            incomingFee,
+            incomingOptions,
+            gasLimit,
+            msg.value,
+            refundTo
+        );
     }
 
     /**
      * @notice Withdraws native currency from the vault.
-     * @dev Checks balance and processes local or cross-chain withdrawals.
      * @param amount The native amount to withdraw.
-     * @param data Arbitrary data to be passed as an argument for onWithdraw().
-     * @param gasLimit The gas limit for cross-chain operations.
-     * @param refundTo The address to refund any excess fee.
+     * @param minAmount The minimum acceptable withdrawal amount.
+     * @param incomingData Data for the incoming cross-chain message.
+     * @param incomingFee Fee for processing the incoming message.
+     * @param incomingOptions Options for the incoming message.
+     * @param options Extra options encoded as bytes.
      */
-    function withdrawNative(uint256 amount, bytes calldata data, uint128 gasLimit, address refundTo)
-        external
-        payable
-        nonReentrant
-    {
-        _withdraw(StargateLib.NATIVE, amount, data, gasLimit, refundTo);
+    function withdrawNative(
+        uint256 amount,
+        uint256 minAmount,
+        bytes memory incomingData,
+        uint128 incomingFee,
+        bytes calldata incomingOptions,
+        bytes calldata options
+    ) external payable nonReentrant {
+        (uint128 gasLimit, address refundTo) = LzLib.decodeOptions(options);
+        _withdraw(
+            StargateLib.NATIVE,
+            msg.sender,
+            amount,
+            minAmount,
+            incomingData,
+            incomingFee,
+            incomingOptions,
+            gasLimit,
+            msg.value,
+            refundTo
+        );
     }
 
     /**
      * @notice Internal function to process withdrawals.
-     * @dev Validates the user's balance and handles local vs. cross-chain logic.
+     * @dev Checks sender balance, performs unstaking if needed, and routes the withdrawal locally or cross-chain.
      * @param asset The asset to withdraw.
+     * @param to The recipient address.
      * @param amount The amount to withdraw.
-     * @param data Arbitrary data to be passed as an argument for onWithdraw().
+     * @param minAmount The minimum acceptable withdrawal amount.
+     * @param incomingData Data for the incoming cross-chain message.
+     * @param incomingFee Fee for the incoming message.
+     * @param incomingOptions Options for the incoming message.
      * @param gasLimit The gas limit for cross-chain operations.
+     * @param fee The fee to forward with the withdrawal.
      * @param refundTo The address to refund any excess fee.
      */
-    function _withdraw(address asset, uint256 amount, bytes memory data, uint128 gasLimit, address refundTo) internal {
+    function _withdraw(
+        address asset,
+        address to,
+        uint256 amount,
+        uint256 minAmount,
+        bytes memory incomingData,
+        uint128 incomingFee,
+        bytes memory incomingOptions,
+        uint128 gasLimit,
+        uint256 fee,
+        address refundTo
+    ) internal {
         if (balances[asset][msg.sender] < amount) revert InsufficientBalance();
+        if (amount == 0) revert InvalidAmount();
+        if (minAmount > amount) revert InvalidMinAmount();
+        if (incomingOptions.length != 16 && incomingOptions.length != 32) revert InvalidLzReceiveOption();
 
         balances[asset][msg.sender] -= amount;
 
         Stargate memory stargate = stargates[asset];
         if (stargate.dstEid == 0) revert UnsupportedAsset();
 
-        (, address to) = abi.decode(data, (address, address));
+        _unstakeIfNeeded(asset, amount);
         if (stargate.dstEid == eid) {
-            _unstakeIfNeeded(asset, amount);
-            AddressLib.transferNative(refundTo, msg.value);
+            AddressLib.transferNative(refundTo, fee);
             if (asset == StargateLib.NATIVE) {
-                IStakingVaultNativeCallbacks(msg.sender).onWithdrawNative{ value: amount }(data);
+                IStakingVaultNativeCallbacks(msg.sender).onWithdrawNative{ value: amount }(incomingData);
             } else {
                 ERC20(asset).approve(to, amount);
-                IStakingVaultCallbacks(msg.sender).onWithdraw(asset, amount, data);
+                IStakingVaultCallbacks(msg.sender).onWithdraw(asset, amount, incomingData);
                 ERC20(asset).approve(to, 0);
             }
         } else {
             _lzSend(
                 stargate.dstEid,
-                abi.encode(WITHDRAW, asset, amount, data),
-                OptionsBuilder.newOptions().addExecutorLzReceiveOption(gasLimit, 0),
-                MessagingFee(msg.value, 0),
-                payable(msg.sender)
+                abi.encode(WITHDRAW, asset, to, amount, minAmount, incomingData, incomingFee, incomingOptions),
+                OptionsBuilder.newOptions().addExecutorLzReceiveOption(gasLimit, incomingFee),
+                MessagingFee(fee, 0),
+                payable(refundTo)
             );
         }
 
         emit Withdraw(asset, amount);
     }
 
-    function unstakeAndSend(address asset, uint256 amount, uint256 minAmount, uint32 dstEid, uint128 gasLimit)
+    /**
+     * @notice Unstakes tokens and sends them cross-chain.
+     * @dev Initiates an outgoing message to transfer tokens after unstaking.
+     * @param dstEid The destination endpoint identifier.
+     * @param asset The asset to send.
+     * @param to The recipient address.
+     * @param amount The amount to send.
+     * @param minAmount The minimum acceptable amount on the destination.
+     * @param options Extra options encoded as bytes.
+     * @return dstAmount The amount received on the destination chain.
+     */
+    function unstakeAndSend(
+        uint32 dstEid,
+        address asset,
+        address to,
+        uint256 amount,
+        uint256 minAmount,
+        bytes calldata options
+    ) external payable nonReentrant onlyOwner returns (uint256 dstAmount) {
+        (uint128 gasLimit, address refundTo) = LzLib.decodeOptions(options);
+        return _unstakeAndSend(dstEid, asset, amount, minAmount, to, gasLimit, msg.value, refundTo);
+    }
+
+    /**
+     * @notice Unstakes native tokens and sends them cross-chain.
+     * @param dstEid The destination endpoint identifier.
+     * @param to The recipient address.
+     * @param amount The amount to send.
+     * @param minAmount The minimum acceptable amount on the destination.
+     * @param options Extra options encoded as bytes.
+     * @return dstAmount The amount received on the destination chain.
+     */
+    function unstakeAndSendNative(uint32 dstEid, address to, uint256 amount, uint256 minAmount, bytes calldata options)
         external
         payable
         nonReentrant
         onlyOwner
         returns (uint256 dstAmount)
     {
-        return _unstakeAndSend(asset, amount, minAmount, dstEid, gasLimit, msg.value, msg.sender);
+        (uint128 gasLimit, address refundTo) = LzLib.decodeOptions(options);
+        return _unstakeAndSend(dstEid, StargateLib.NATIVE, amount, minAmount, to, gasLimit, msg.value, refundTo);
     }
 
-    function unstakeNativeAndSend(uint256 amount, uint256 minAmount, uint32 dstEid, uint128 gasLimit)
-        external
-        payable
-        nonReentrant
-        onlyOwner
-        returns (uint256 dstAmount)
-    {
-        return _unstakeAndSend(StargateLib.NATIVE, amount, minAmount, dstEid, gasLimit, msg.value, msg.sender);
-    }
-
+    /**
+     * @notice Internal function to unstake tokens and initiate an outgoing cross-chain send.
+     * @param dstEid The destination endpoint identifier.
+     * @param asset The asset to send.
+     * @param amount The amount to send.
+     * @param minAmount The minimum acceptable amount on the destination.
+     * @param to The recipient address.
+     * @param gasLimit The gas limit for cross-chain operations.
+     * @param fee The fee to forward with the send.
+     * @param refundTo The address to refund any excess fee.
+     * @return dstAmount The amount received on the destination chain.
+     */
     function _unstakeAndSend(
+        uint32 dstEid,
         address asset,
         uint256 amount,
         uint256 minAmount,
-        uint32 dstEid,
+        address to,
         uint128 gasLimit,
         uint256 fee,
         address refundTo
     ) internal returns (uint256 dstAmount) {
         if (dstEid == eid) revert InvalidEid();
-
-        Stargate memory stargate = stargates[asset];
-        if (stargate.dstEid == 0) revert UnsupportedAsset();
-
-        address peer = AddressLib.fromBytes32(peers[stargate.dstEid]);
-        if (peer == address(0)) revert NoPeer(stargate.dstEid);
+        if (amount == 0) revert InvalidAmount();
+        if (minAmount > amount) revert InvalidMinAmount();
 
         _unstake(asset, amount);
 
+        return _sendToken(dstEid, asset, to, amount, minAmount, "", gasLimit, fee, refundTo);
+    }
+
+    /**
+     * @notice Internal function to send tokens cross-chain using Stargate.
+     * @param dstEid The destination endpoint identifier.
+     * @param asset The asset to send.
+     * @param to The recipient address.
+     * @param amount The amount to send.
+     * @param minAmount The minimum acceptable amount on the destination.
+     * @param data Additional data to pass with the send.
+     * @param gasLimit The gas limit for cross-chain operations.
+     * @param fee The fee to forward with the send.
+     * @param refundTo The address to refund any excess fee.
+     * @return dstAmount The amount received on the destination chain.
+     */
+    function _sendToken(
+        uint32 dstEid,
+        address asset,
+        address to,
+        uint256 amount,
+        uint256 minAmount,
+        bytes memory data,
+        uint128 gasLimit,
+        uint256 fee,
+        address refundTo
+    ) internal returns (uint256 dstAmount) {
+        Stargate memory stargate = stargates[asset];
+        if (stargate.dstEid == 0) revert UnsupportedAsset();
+        address peer = AddressLib.fromBytes32(peers[stargate.dstEid]);
+        if (peer == address(0)) revert NoPeer(stargate.dstEid);
+
         dstAmount = IStargate(stargate.addr).sendToken(
-            dstEid, asset, peer, amount, minAmount, "", gasLimit, false, fee, refundTo
+            dstEid, asset, peer, amount, minAmount, abi.encode(asset, to, data), gasLimit, false, fee, refundTo
         );
     }
 
@@ -519,11 +711,13 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
 
     /**
      * @notice Receives and processes a cross-chain message.
-     * @dev This function should decode the message, perform unstaking, and transfer tokens via Stargate.
+     * @dev Decodes the incoming message and, after unstaking if needed, routes tokens
+     *      either locally (if on the same chain) or via a cross-chain send.
+     * @param _origin The origin of the message.
      * @param _message The encoded message payload.
      */
     function _lzReceive(
-        Origin calldata, /* _origin */
+        Origin calldata _origin,
         bytes32, /* _guid */
         bytes calldata _message,
         address, /* _executor */
@@ -532,11 +726,27 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
         uint16 mt = abi.decode(_message, (uint16));
         if (mt != WITHDRAW) revert InvalidMessageType();
 
-        (, address asset, uint256 amount, bytes memory data) = abi.decode(_message, (uint16, address, uint256, bytes));
+        (
+            ,
+            address asset,
+            address to,
+            uint256 amount,
+            uint256 minAmount,
+            bytes memory data,
+            uint128 fee,
+            bytes memory options
+        ) = abi.decode(_message, (uint16, address, address, uint256, uint256, bytes, uint128, bytes));
+        (uint128 gasLimit, address refundTo) = LzLib.decodeOptions(options);
         _unstakeIfNeeded(asset, amount);
-        // TODO: sendToken
+        _sendToken(_origin.srcEid, asset, to, amount, minAmount, data, gasLimit, fee, refundTo);
     }
 
+    /**
+     * @notice Internal helper to unstake tokens if the current balance is insufficient.
+     * @dev Checks the contract's current balance (or native balance) and calls _unstake() if needed.
+     * @param asset The asset to check.
+     * @param amount The required amount.
+     */
     function _unstakeIfNeeded(address asset, uint256 amount) internal {
         uint256 balance;
         if (asset == StargateLib.NATIVE) {
@@ -550,21 +760,25 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
     }
 
     /**
-     * @notice Composes and sends a cross-chain withdrawal message.
-     * @dev This function should encode the withdrawal request and dispatch it to the destination chain.
-     * @param from The address initiating the withdrawal.
-     * @param guid A unique identifier for this withdrawal.
-     * @param message The encoded withdrawal details.
-     * @param executor The address that will execute the withdrawal on the target chain.
-     * @param extraData Additional data needed for composing the message.
+     * @notice Composes a LayerZero message from an OApp.
+     * @dev Validates the sender, composes the message using OFTComposeMsgCodec, and then processes a withdrawal.
+     *      If processing fails, records the failure in failedMessages.
+     * @param from The address initiating the composition.
+     * @param message The encoded message payload.
      */
-    function lzCompose(address from, bytes32 guid, bytes calldata message, address executor, bytes calldata extraData)
-        external
-        payable
-    {
+    function lzCompose(
+        address from,
+        bytes32, /* guid */
+        bytes calldata message,
+        address, /* executor */
+        bytes calldata /* extraData */
+    ) external payable {
         if (msg.sender != address(endpoint)) revert Forbidden();
-        if (message.length < 20) revert InvalidMessage();
-        address asset = abi.decode(message, (address));
+
+        bytes memory composeMsg = OFTComposeMsgCodec.composeMsg(message);
+        if (composeMsg.length < 20) revert InvalidComposeMsg();
+
+        address asset = abi.decode(composeMsg, (address));
         if (from != stargates[asset].addr) revert NotStargate();
 
         try this.processWithdraw(message) { }
@@ -575,6 +789,12 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
         }
     }
 
+    /**
+     * @notice Retries processing a previously failed withdrawal message.
+     * @dev Checks that the hash of the provided message matches the stored failure and then attempts processing.
+     * @param id The identifier of the failed message.
+     * @param message The original message payload.
+     */
     function retryWithdraw(uint256 id, bytes calldata message) external {
         FailedMessage storage fail = failedMessages[id];
         if (fail.hash != keccak256(message)) revert InvalidMessage();
@@ -584,15 +804,24 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
         processWithdraw(message);
     }
 
+    /**
+     * @notice Processes a withdrawal message.
+     * @dev Decodes the source endpoint, the composed message, and the amount. Then, depending on whether the asset
+     *      is native or not, calls the appropriate onWithdraw callback.
+     * @param message The encoded withdrawal message.
+     */
     function processWithdraw(bytes calldata message) public {
-        (address asset, uint256 amount, bytes memory data) = abi.decode(message, (address, uint256, bytes));
+        uint32 srcEid = OFTComposeMsgCodec.srcEid(message);
+        bytes memory composeMsg = OFTComposeMsgCodec.composeMsg(message);
+        uint256 amount = OFTComposeMsgCodec.amountLD(message);
+        (address srcAsset, address to, bytes memory data) = abi.decode(composeMsg, (address, address, bytes));
+        address asset = assets[srcEid][srcAsset];
 
         if (asset == StargateLib.NATIVE) {
-            IStakingVaultNativeCallbacks(msg.sender).onWithdrawNative{ value: amount }(data);
+            IStakingVaultNativeCallbacks(to).onWithdrawNative{ value: amount }(data);
         } else {
-            (, address to) = abi.decode(data, (address, address));
             ERC20(asset).approve(to, amount);
-            IStakingVaultCallbacks(msg.sender).onWithdraw(asset, amount, data);
+            IStakingVaultCallbacks(to).onWithdraw(asset, amount, data);
             ERC20(asset).approve(to, 0);
         }
     }

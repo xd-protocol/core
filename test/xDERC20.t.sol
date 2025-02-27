@@ -14,12 +14,13 @@ import { Synchronizer } from "src/Synchronizer.sol";
 import { xDERC20 } from "src/xDERC20.sol";
 import { BasexDERC20 } from "src/mixins/BasexDERC20.sol";
 import { ISynchronizer } from "src/interfaces/ISynchronizer.sol";
+import { LzLib } from "src/libraries/LzLib.sol";
 import { BaseSynchronizerTest } from "./BaseSynchronizerTest.sol";
 
 contract xDERC20Test is BaseSynchronizerTest {
     uint8 public constant CHAINS = 8;
     uint16 public constant CMD_XD_TRANSFER = 1;
-    uint128 public constant GAS_LIMIT = 500_000;
+    uint96 public constant GAS_LIMIT = 500_000;
 
     uint32[CHAINS] eids;
     ISynchronizer[CHAINS] synchronizers;
@@ -130,7 +131,7 @@ contract xDERC20Test is BaseSynchronizerTest {
 
         changePrank(alice, alice);
         uint256 fee = erc20s[0].quoteTransfer(alice, GAS_LIMIT);
-        erc20s[0].burn{ value: fee }(100e18, GAS_LIMIT);
+        erc20s[0].burn{ value: fee }(100e18, LzLib.encodeOptions(GAS_LIMIT, alice));
         _executeTransfer(erc20s[0], alice, 1, "");
 
         assertEq(erc20s[0].localBalanceOf(alice), 0);

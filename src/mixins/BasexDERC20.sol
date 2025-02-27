@@ -22,7 +22,31 @@ import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
 import { BaseERC20 } from "./BaseERC20.sol";
 import { ISynchronizer } from "../interfaces/ISynchronizer.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
+import { LzLib } from "../libraries/LzLib.sol";
 
+/**
+ * @title BasexDERC20
+ * @notice An abstract cross-chain ERC20 token implementation that manages global liquidity
+ *         and facilitates cross-chain transfer operations.
+ * @dev This contract extends BaseERC20 and integrates with LayerZero’s OAppRead protocol and a
+ *      Synchronizer contract to track both local and settled liquidity across chains.
+ *
+ *      Key functionalities include:
+ *      - Maintaining pending transfers and nonces to coordinate cross-chain token transfers.
+ *      - Initiating cross-chain transfer requests via LayerZero by composing a read command
+ *        (global availability check) that aggregates liquidity across multiple chains.
+ *      - Processing incoming responses through _lzReceive() to execute transfers once the global
+ *        liquidity check confirms sufficient availability.
+ *      - Supporting cancellation of pending transfers and updating local liquidity via the
+ *        Synchronizer.
+ *
+ *      Outgoing messages (transfers initiated by this contract) are composed and sent to remote chains
+ *      for validation, while incoming messages (responses from remote chains) trigger the execution
+ *      of the transfer logic.
+ *
+ *      Note: This contract is abstract and requires derived implementations to provide specific logic
+ *      for functions such as _compose() and _transferFrom() as well as other operational details.
+ */
 abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
     using AddressLib for address;
     using OptionsBuilder for bytes;
@@ -311,17 +335,17 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      *      The user must provide sufficient fees via `msg.value`.
      * @param to The recipient address on the target chain.
      * @param amount The amount of tokens to transfer.
-     * @param gasLimit The gas limit to allocate for actual transfer after lzRead.
+     * @param options Extra options.
      * @return receipt The messaging receipt from LayerZero, confirming the request details.
      *         Includes the `guid` and `block` parameters for tracking.
      * @dev Emits a `Transfer` event upon successful initiation.
      */
-    function transfer(address to, uint256 amount, uint128 gasLimit)
+    function transfer(address to, uint256 amount, bytes memory options)
         public
         payable
         returns (MessagingReceipt memory receipt)
     {
-        return transfer(to, amount, "", 0, gasLimit);
+        return transfer(to, amount, "", 0, options);
     }
 
     /**
@@ -331,16 +355,17 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      * @param to The recipient address on the target chain.
      * @param amount The amount of tokens to transfer.
      * @param callData Optional calldata for executing a function on the recipient contract.
+     * @param options Extra options.
      * @return receipt The messaging receipt from LayerZero, confirming the request details.
      *         Includes the `guid` and `block` parameters for tracking.
      * @dev Emits a `Transfer` event upon successful initiation.
      */
-    function transfer(address to, uint256 amount, bytes memory callData, uint128 gasLimit)
+    function transfer(address to, uint256 amount, bytes memory callData, bytes memory options)
         public
         payable
         returns (MessagingReceipt memory receipt)
     {
-        return transfer(to, amount, callData, 0, gasLimit);
+        return transfer(to, amount, callData, 0, options);
     }
 
     /**
@@ -351,26 +376,29 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
      * @param amount The amount of tokens to transfer.
      * @param callData Optional calldata for executing a function on the recipient contract.
      * @param value Native cryptocurrency to be sent when calling the recipient with `callData`.
-     * @param gasLimit The gas limit to allocate for actual transfer after lzRead.
+     * @param options Extra options.
      * @return receipt The messaging receipt from LayerZero, confirming the request details.
      *         Includes the `guid` and `block` parameters for tracking.
      * @dev Emits a `Transfer` event upon successful initiation.
      */
-    function transfer(address to, uint256 amount, bytes memory callData, uint256 value, uint128 gasLimit)
+    function transfer(address to, uint256 amount, bytes memory callData, uint256 value, bytes memory options)
         public
         payable
         returns (MessagingReceipt memory receipt)
     {
         if (to == address(0)) revert InvalidAddress();
 
-        return _transfer(msg.sender, to, amount, callData, value, gasLimit);
+        return _transfer(msg.sender, to, amount, callData, value, options);
     }
 
-    function _transfer(address from, address to, uint256 amount, bytes memory callData, uint256 value, uint128 gasLimit)
-        internal
-        virtual
-        returns (MessagingReceipt memory receipt)
-    {
+    function _transfer(
+        address from,
+        address to,
+        uint256 amount,
+        bytes memory callData,
+        uint256 value,
+        bytes memory options
+    ) internal virtual returns (MessagingReceipt memory receipt) {
         if (amount == 0) revert InvalidAmount();
         if (amount > uint256(type(int256).max)) revert Overflow();
         if (amount > balanceOf(from)) revert InsufficientBalance();
@@ -385,12 +413,19 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
 
         bytes memory cmd = getTransferCmd(from, nonce);
         ISynchronizer.ChainConfig[] memory _chainConfigs = ISynchronizer(synchronizer).chainConfigs();
-        bytes memory options = OptionsBuilder.newOptions().addExecutorLzReadOption(
-            gasLimit, transferCalldataSize * uint32(_chainConfigs.length), 0
-        );
         // directly use endpoint.send() to bypass _payNative() check in _lzSend()
+        (uint128 gasLimit, address refundTo) = LzLib.decodeOptions(options);
         receipt = endpoint.send{ value: msg.value - value }(
-            MessagingParams(READ_CHANNEL, _getPeerOrRevert(READ_CHANNEL), cmd, options, false), payable(from)
+            MessagingParams(
+                READ_CHANNEL,
+                _getPeerOrRevert(READ_CHANNEL),
+                cmd,
+                OptionsBuilder.newOptions().addExecutorLzReadOption(
+                    gasLimit, transferCalldataSize * uint32(_chainConfigs.length), 0
+                ),
+                false
+            ),
+            payable(refundTo)
         );
 
         emit Transfer(from, to, amount, nonce);
@@ -490,6 +525,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
     function _compose(address from, address to, uint256 amount, uint256 value, bytes memory callData)
         internal
         virtual
+        nonReentrant
     {
         int256 oldBalance = localBalanceOf(address(this));
         _transferFrom(from, address(this), amount);

@@ -13,6 +13,7 @@ import { Synchronizer } from "src/Synchronizer.sol";
 import { xDERC20 } from "src/xDERC20.sol";
 import { BasexDERC20 } from "src/mixins/BasexDERC20.sol";
 import { ISynchronizer } from "src/interfaces/ISynchronizer.sol";
+import { LzLib } from "src/libraries/LzLib.sol";
 import { BaseSynchronizerTest } from "./BaseSynchronizerTest.sol";
 
 contract Composable {
@@ -28,7 +29,7 @@ contract Composable {
 contract BasexDERC20Test is BaseSynchronizerTest {
     uint8 public constant CHAINS = 8;
     uint16 public constant CMD_XD_TRANSFER = 1;
-    uint128 public constant GAS_LIMIT = 500_000;
+    uint96 public constant GAS_LIMIT = 500_000;
 
     uint32[CHAINS] eids;
     ISynchronizer[CHAINS] synchronizers;
@@ -120,7 +121,7 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         changePrank(alice, alice);
         uint256 amount = 101e18;
         uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
-        local.transfer{ value: fee }(bob, amount, GAS_LIMIT);
+        local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
 
         uint256 nonce = 1;
         xDERC20.PendingTransfer memory pending = local.pendingTransfer(alice);
@@ -151,9 +152,11 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         uint256 amount = 100e18;
         bytes memory callData = abi.encodeWithSelector(Composable.compose.selector, local, amount);
         uint256 native = 1e18;
-        uint128 gasLimit = 1_000_000;
+        uint96 gasLimit = 1_000_000;
         uint256 fee = local.quoteTransfer(bob, gasLimit);
-        local.transfer{ value: fee + native }(address(composable), amount, callData, native, gasLimit);
+        local.transfer{ value: fee + native }(
+            address(composable), amount, callData, native, LzLib.encodeOptions(gasLimit, address(composable))
+        );
 
         vm.expectEmit();
         emit Composable.Compose(address(local), amount);
@@ -172,13 +175,13 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         uint256 amount = 101e18;
         uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
         vm.expectRevert(BasexDERC20.InsufficientBalance.selector);
-        local.transfer{ value: fee }(bob, amount, GAS_LIMIT);
+        local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
 
         _syncAndSettleLiquidity();
         assertEq(local.balanceOf(alice), 100e18 * CHAINS);
 
         changePrank(alice, alice);
-        local.transfer{ value: fee }(bob, amount, GAS_LIMIT);
+        local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
     }
 
     function test_transfer_revertTransferPending() public {
@@ -189,10 +192,10 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         changePrank(alice, alice);
         uint256 amount = 1e18;
         uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
-        local.transfer{ value: fee }(bob, amount, GAS_LIMIT);
+        local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
 
         vm.expectRevert(BasexDERC20.TransferPending.selector);
-        local.transfer{ value: fee }(bob, amount, GAS_LIMIT);
+        local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
     }
 
     function test_transfer_revertInsufficientAvailability() public {
@@ -206,7 +209,7 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         changePrank(alice, alice);
         uint256 amount = CHAINS * 100e18;
         uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
-        local.transfer{ value: fee }(bob, amount, GAS_LIMIT);
+        local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
 
         _executeTransfer(local, alice, 1, "");
         assertEq(local.localBalanceOf(alice), -(int256(int8(CHAINS) - 1)) * 100e18);
@@ -218,7 +221,7 @@ contract BasexDERC20Test is BaseSynchronizerTest {
 
         amount = 100e18;
         fee = remote.quoteTransfer(bob, GAS_LIMIT);
-        remote.transfer{ value: fee }(bob, amount, GAS_LIMIT);
+        remote.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
         assertEq(remote.availableLocalBalanceOf(alice, 0), 0);
 
         uint256 nonce = 1;
@@ -236,7 +239,7 @@ contract BasexDERC20Test is BaseSynchronizerTest {
         changePrank(alice, alice);
         uint256 amount = 101e18;
         uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
-        local.transfer{ value: fee }(bob, amount, GAS_LIMIT);
+        local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
 
         uint256 nonce = 1;
         assertEq(local.pendingNonce(alice), nonce);
@@ -256,7 +259,7 @@ contract BasexDERC20Test is BaseSynchronizerTest {
 
         uint256 amount = 1e18;
         uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
-        local.transfer{ value: fee }(bob, amount, GAS_LIMIT);
+        local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
 
         local.cancelPendingTransfer();
         assertEq(local.pendingNonce(alice), 0);

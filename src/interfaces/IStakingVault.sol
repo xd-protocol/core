@@ -26,39 +26,14 @@ interface IStakingVault {
     event Withdraw(address indexed asset, uint256 amount);
 
     /**
-     * @notice Provides a quote for depositing an asset.
-     * @param asset The asset to deposit.
-     * @param amount The amount to deposit.
-     * @param gasLimit The gas limit for the operation.
-     * @return minAmount The minimum amount accepted.
-     * @return fee The fee required.
-     */
-    function quoteDeposit(address asset, uint256 amount, uint128 gasLimit)
-        external
-        view
-        returns (uint256 minAmount, uint256 fee);
-
-    /**
-     * @notice Provides a quote for depositing native currency.
-     * @param amount The native amount to deposit.
-     * @param gasLimit The gas limit for the operation.
-     * @return minAmount The minimum amount accepted.
-     * @return fee The fee required.
-     */
-    function quoteDepositNative(uint256 amount, uint128 gasLimit)
-        external
-        view
-        returns (uint256 minAmount, uint256 fee);
-
-    /**
      * @notice Deposits an idle asset.
      * @param asset The asset address.
      * @param amount The amount to deposit.
      * @param minAmount The minimum acceptable deposit.
-     * @param gasLimit The gas limit for the operation.
+     * @param options Extra options.
      * @return dstAmount The resulting share amount.
      */
-    function depositIdle(address asset, uint256 amount, uint256 minAmount, uint128 gasLimit)
+    function depositIdle(address asset, uint256 amount, uint256 minAmount, bytes calldata options)
         external
         payable
         returns (uint256 dstAmount);
@@ -67,10 +42,10 @@ interface IStakingVault {
      * @notice Deposits idle native currency.
      * @param amount The native amount to deposit.
      * @param minAmount The minimum acceptable deposit.
-     * @param gasLimit The gas limit for the operation.
+     * @param options Extra options.
      * @return dstAmount The resulting share amount.
      */
-    function depositIdleNative(uint256 amount, uint256 minAmount, uint128 gasLimit)
+    function depositIdleNative(uint256 amount, uint256 minAmount, bytes calldata options)
         external
         payable
         returns (uint256 dstAmount);
@@ -80,11 +55,10 @@ interface IStakingVault {
      * @param asset The asset to deposit.
      * @param amount The amount to deposit.
      * @param minAmount The minimum acceptable deposit.
-     * @param gasLimit The gas limit for the operation.
-     * @param refundTo The address to refund any excess fee.
+     * @param options Extra options.
      * @return dstAmount The resulting share amount.
      */
-    function deposit(address asset, uint256 amount, uint256 minAmount, uint128 gasLimit, address refundTo)
+    function deposit(address asset, uint256 amount, uint256 minAmount, bytes calldata options)
         external
         payable
         returns (uint256 dstAmount);
@@ -93,55 +67,43 @@ interface IStakingVault {
      * @notice Deposits native currency.
      * @param amount The native amount to deposit.
      * @param minAmount The minimum acceptable deposit.
-     * @param gasLimit The gas limit for the operation.
-     * @param refundTo The address to refund any excess fee.
+     * @param options Extra options.
      * @return dstAmount The resulting share amount.
      */
-    function depositNative(uint256 amount, uint256 minAmount, uint128 gasLimit, address refundTo)
+    function depositNative(uint256 amount, uint256 minAmount, bytes calldata options)
         external
         payable
         returns (uint256 dstAmount);
 
     /**
-     * @notice Provides a quote for withdrawing an asset.
-     * @param asset The asset to withdraw.
-     * @param to The recipient address.
-     * @param amount The amount to withdraw.
-     * @param gasLimit The gas limit for the operation.
-     * @return fee The fee required.
-     */
-    function quoteWithdraw(address asset, address to, uint256 amount, uint128 gasLimit)
-        external
-        view
-        returns (uint256 fee);
-
-    /**
-     * @notice Provides a quote for withdrawing native currency.
-     * @param to The recipient address.
-     * @param amount The native amount to withdraw.
-     * @param gasLimit The gas limit for the operation.
-     * @return fee The fee required.
-     */
-    function quoteWithdrawNative(address to, uint256 amount, uint128 gasLimit) external view returns (uint256 fee);
-
-    /**
-     * @notice Withdraws a specified asset.
+     * @notice Withdraws tokens from the vault.
+     * @dev Checks balance and processes local or cross-chain withdrawals.
      * @param asset The asset to withdraw.
      * @param amount The amount to withdraw.
-     * @param data Arbitrary data.
-     * @param gasLimit The gas limit for the operation.
-     * @param refundTo The address to refund any excess fee.
+     * @param options Extra options.
      */
-    function withdraw(address asset, uint256 amount, bytes calldata data, uint128 gasLimit, address refundTo)
-        external
-        payable;
+    function withdraw(
+        address asset,
+        uint256 amount,
+        uint256 minAmount,
+        bytes memory incomingData,
+        uint128 incomingFee,
+        bytes calldata incomingOptions,
+        bytes calldata options
+    ) external payable;
 
     /**
-     * @notice Withdraws native currency.
+     * @notice Withdraws native currency from the vault.
+     * @dev Checks balance and processes local or cross-chain withdrawals.
      * @param amount The native amount to withdraw.
-     * @param data Arbitrary data.
-     * @param gasLimit The gas limit for the operation.
-     * @param refundTo The address to refund any excess fee.
+     * @param options Extra options.
      */
-    function withdrawNative(uint256 amount, bytes calldata data, uint128 gasLimit, address refundTo) external payable;
+    function withdrawNative(
+        uint256 amount,
+        uint256 minAmount,
+        bytes memory incomingData,
+        uint128 incomingFee,
+        bytes calldata incomingOptions,
+        bytes calldata options
+    ) external payable;
 }
