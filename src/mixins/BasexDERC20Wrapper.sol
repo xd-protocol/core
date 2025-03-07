@@ -72,7 +72,7 @@ abstract contract BasexDERC20Wrapper is BasexDERC20 {
     uint64 public timeLockPeriod;
     TimeLock[] public timeLocks;
 
-    address vault;
+    address public vault;
 
     FailedWithdrawal[] public failedWithdrawals;
 
@@ -106,6 +106,7 @@ abstract contract BasexDERC20Wrapper is BasexDERC20 {
      * @notice Initializes the BasexDERC20Wrapper with the underlying token, timelock period, and token parameters.
      * @param _underlying The address of the underlying token.
      * @param _timeLockPeriod The initial timelock period (in seconds) for executing queued operations.
+     * @param _vault The vault contract's address.
      * @param _name The token name.
      * @param _symbol The token symbol.
      * @param _decimals The token decimals.
@@ -115,6 +116,7 @@ abstract contract BasexDERC20Wrapper is BasexDERC20 {
     constructor(
         address _underlying,
         uint64 _timeLockPeriod,
+        address _vault,
         string memory _name,
         string memory _symbol,
         uint8 _decimals,
@@ -123,6 +125,7 @@ abstract contract BasexDERC20Wrapper is BasexDERC20 {
     ) BasexDERC20(_name, _symbol, _decimals, _synchronizer, _owner) {
         underlying = _underlying;
         timeLockPeriod = _timeLockPeriod;
+        vault = _vault;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -187,10 +190,13 @@ abstract contract BasexDERC20Wrapper is BasexDERC20 {
         if (timeLock.executed) revert TimeLockExecuted();
         if (block.timestamp < timeLock.startedAt + timeLockPeriod) revert TimeNotPassed();
 
+        timeLock.executed = true;
+
         emit ExecuteTimeLock(id);
 
         if (timeLock._type == TimeLockType.UpdateTimeLockPeriod) {
-            timeLockPeriod = abi.decode(timeLock.params, (uint64));
+            uint64 _timeLockPeriod = abi.decode(timeLock.params, (uint64));
+            timeLockPeriod = _timeLockPeriod;
 
             emit UpdateTimeLockPeriod(timeLockPeriod);
         } else if (timeLock._type == TimeLockType.UpdateVault) {

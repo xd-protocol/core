@@ -25,6 +25,7 @@ contract xDERC20Wrapper is BasexDERC20Wrapper, IStakingVaultCallbacks {
      * @dev Forwards the provided parameters to the BasexDERC20Wrapper constructor.
      * @param _underlying The address of the underlying token.
      * @param _timeLockPeriod The timelock period for configuration updates.
+     * @param _vault The vault contract's address.
      * @param _name The token name.
      * @param _symbol The token symbol.
      * @param _decimals The token decimals.
@@ -34,12 +35,13 @@ contract xDERC20Wrapper is BasexDERC20Wrapper, IStakingVaultCallbacks {
     constructor(
         address _underlying,
         uint64 _timeLockPeriod,
+        address _vault,
         string memory _name,
         string memory _symbol,
         uint8 _decimals,
         address _synchronizer,
         address _owner
-    ) BasexDERC20Wrapper(_underlying, _timeLockPeriod, _name, _symbol, _decimals, _synchronizer, _owner) { }
+    ) BasexDERC20Wrapper(_underlying, _timeLockPeriod, _vault, _name, _symbol, _decimals, _synchronizer, _owner) { }
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
