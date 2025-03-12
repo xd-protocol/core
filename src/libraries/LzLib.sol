@@ -8,12 +8,16 @@ library LzLib {
 
     error InvalidOptions();
 
+    function isValidOptions(bytes memory options) internal pure returns (bool) {
+        return options.length == 32;
+    }
+
     function encodeOptions(uint96 gasLimit, address refundTo) internal pure returns (bytes memory) {
         return abi.encodePacked(gasLimit, refundTo);
     }
 
     function decodeOptions(bytes memory options) internal pure returns (uint96 gasLimit, address refundTo) {
-        if (options.length != 32) revert InvalidOptions();
+        if (!isValidOptions(options)) revert InvalidOptions();
 
         return (uint96(bytes12(options.slice(0, 96))), address(bytes20(options.slice(96, 160))));
     }

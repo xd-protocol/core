@@ -29,6 +29,11 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
     using SafeTransferLib for ERC20;
     using StargateLib for IStargate;
 
+    struct Asset {
+        bool supported;
+        address addr;
+    }
+
     struct Stargate {
         uint32 dstEid;
         address addr;
@@ -50,7 +55,7 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
     mapping(address asset => address) public stakers;
     mapping(address asset => mapping(address owner => uint256)) public balances;
 
-    mapping(uint32 srcEid => mapping(address srcAsset => address)) public assets;
+    mapping(uint32 srcEid => mapping(address srcAsset => Asset)) public assets;
     FailedMessage[] public failedMessages;
 
     /*//////////////////////////////////////////////////////////////
@@ -59,7 +64,7 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
 
     event UpdateStargate(address indexed asset, uint32 dstEid, address indexed stargate);
     event UpdateStaker(address indexed asset, address indexed staker);
-    event UpdateAsset(uint32 indexed srcEid, address indexed srcAsset, address indexed asset);
+    event UpdateAsset(uint32 indexed srcEid, address indexed srcAsset, bool supported, address indexed asset);
     event MessageFail(uint256 indexed id, bytes message, bytes reason);
 
     /*//////////////////////////////////////////////////////////////
@@ -67,8 +72,8 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
     //////////////////////////////////////////////////////////////*/
 
     error InvalidMessageType();
-    error InvalidAddress();
     error UnsupportedAsset();
+    error NoFeeRequired();
     error InsufficientValue();
     error InsufficientBalance();
     error InvalidAmount();
@@ -96,6 +101,14 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
     /*//////////////////////////////////////////////////////////////
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
+
+    function getReserve(address asset) public view returns (uint256 balance) {
+        if (asset == StargateLib.NATIVE) {
+            balance = address(this).balance;
+        } else {
+            balance = ERC20(asset).balanceOf(address(this));
+        }
+    }
 
     /**
      * @notice Provides a deposit quote for a given asset.
@@ -345,12 +358,10 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
      * @param srcAsset The asset address on the source chain.
      * @param asset The corresponding asset address in this vault.
      */
-    function updateAsset(uint32 srcEid, address srcAsset, address asset) external onlyOwner {
-        if (srcAsset == address(0)) revert InvalidAddress();
+    function updateAsset(uint32 srcEid, address srcAsset, bool supported, address asset) external onlyOwner {
+        assets[srcEid][srcAsset] = Asset(supported, asset);
 
-        assets[srcEid][srcAsset] = asset;
-
-        emit UpdateAsset(srcEid, srcAsset, asset);
+        emit UpdateAsset(srcEid, srcAsset, supported, asset);
     }
 
     /**
@@ -369,6 +380,9 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
         nonReentrant
         returns (uint256 shares)
     {
+        Stargate memory stargate = stargates[asset];
+        if (stargate.dstEid == eid) revert InvalidEid();
+
         (uint128 gasLimit, address refundTo) = LzLib.decodeOptions(options);
         return _deposit(asset, amount, minAmount, gasLimit, msg.value, refundTo);
     }
@@ -388,6 +402,9 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
         nonReentrant
         returns (uint256 shares)
     {
+        Stargate memory stargate = stargates[StargateLib.NATIVE];
+        if (stargate.dstEid == eid) revert InvalidEid();
+
         (uint128 gasLimit, address refundTo) = LzLib.decodeOptions(options);
         return _deposit(StargateLib.NATIVE, amount, minAmount, gasLimit, msg.value, refundTo);
     }
@@ -566,25 +583,25 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
     ) internal {
         if (balances[asset][msg.sender] < amount) revert InsufficientBalance();
         if (amount == 0) revert InvalidAmount();
-        if (minAmount > amount) revert InvalidMinAmount();
-        if (incomingOptions.length != 16 && incomingOptions.length != 32) revert InvalidLzReceiveOption();
 
         balances[asset][msg.sender] -= amount;
 
+        if (getReserve(asset) >= amount) {
+            _doWithdraw(asset, to, amount, incomingData);
+            return;
+        }
+
         Stargate memory stargate = stargates[asset];
         if (stargate.dstEid == 0) revert UnsupportedAsset();
-
-        _unstakeIfNeeded(asset, amount);
         if (stargate.dstEid == eid) {
-            AddressLib.transferNative(refundTo, fee);
-            if (asset == StargateLib.NATIVE) {
-                IStakingVaultNativeCallbacks(msg.sender).onWithdrawNative{ value: amount }(incomingData);
-            } else {
-                ERC20(asset).safeApprove(to, 0);
-                ERC20(asset).safeApprove(to, amount);
-                IStakingVaultCallbacks(msg.sender).onWithdraw(asset, amount, incomingData);
-            }
+            if (fee != 0) revert NoFeeRequired();
+
+            _unstakeIfNeeded(asset, amount);
+            _doWithdraw(asset, to, amount, incomingData);
         } else {
+            if (minAmount > amount) revert InvalidMinAmount();
+            if (!LzLib.isValidOptions(incomingOptions)) revert InvalidLzReceiveOption();
+
             _lzSend(
                 stargate.dstEid,
                 abi.encode(WITHDRAW, asset, to, amount, minAmount, incomingData, incomingFee, incomingOptions),
@@ -592,6 +609,29 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
                 MessagingFee(fee, 0),
                 payable(refundTo)
             );
+        }
+    }
+
+    /**
+     * @notice Internal helper to unstake tokens if the current balance is insufficient.
+     * @dev Checks the contract's current balance (or native balance) and calls _unstake() if needed.
+     * @param asset The asset to check.
+     * @param amount The required amount.
+     */
+    function _unstakeIfNeeded(address asset, uint256 amount) internal {
+        uint256 balance = getReserve(asset);
+        if (balance < amount) {
+            _unstake(asset, amount - balance);
+        }
+    }
+
+    function _doWithdraw(address asset, address to, uint256 amount, bytes memory data) internal {
+        if (asset == StargateLib.NATIVE) {
+            IStakingVaultNativeCallbacks(to).onWithdrawNative{ value: amount }(data);
+        } else {
+            ERC20(asset).safeApprove(to, 0);
+            ERC20(asset).safeApprove(to, amount);
+            IStakingVaultCallbacks(to).onWithdraw(asset, amount, data);
         }
 
         emit Withdraw(asset, amount);
@@ -666,7 +706,7 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
         if (amount == 0) revert InvalidAmount();
         if (minAmount > amount) revert InvalidMinAmount();
 
-        _unstake(asset, amount);
+        _unstakeIfNeeded(asset, amount);
 
         return _sendToken(dstEid, asset, to, amount, minAmount, "", gasLimit, fee, refundTo);
     }
@@ -737,26 +777,10 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
             bytes memory options
         ) = abi.decode(_message, (uint16, address, address, uint256, uint256, bytes, uint128, bytes));
         (uint128 gasLimit, address refundTo) = LzLib.decodeOptions(options);
-        _unstakeIfNeeded(asset, amount);
-        _sendToken(_origin.srcEid, asset, to, amount, minAmount, data, gasLimit, fee, refundTo);
-    }
 
-    /**
-     * @notice Internal helper to unstake tokens if the current balance is insufficient.
-     * @dev Checks the contract's current balance (or native balance) and calls _unstake() if needed.
-     * @param asset The asset to check.
-     * @param amount The required amount.
-     */
-    function _unstakeIfNeeded(address asset, uint256 amount) internal {
-        uint256 balance;
-        if (asset == StargateLib.NATIVE) {
-            balance = address(this).balance;
-        } else {
-            balance = ERC20(asset).balanceOf(address(this));
-        }
-        if (balance < amount) {
-            _unstake(asset, amount - balance);
-        }
+        _unstakeIfNeeded(asset, amount);
+
+        _sendToken(_origin.srcEid, asset, to, amount, minAmount, data, gasLimit, fee, refundTo);
     }
 
     /**
@@ -812,17 +836,13 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
      */
     function processWithdraw(bytes calldata message) public {
         uint32 srcEid = OFTComposeMsgCodec.srcEid(message);
-        bytes memory composeMsg = OFTComposeMsgCodec.composeMsg(message);
         uint256 amount = OFTComposeMsgCodec.amountLD(message);
+        bytes memory composeMsg = OFTComposeMsgCodec.composeMsg(message);
         (address srcAsset, address to, bytes memory data) = abi.decode(composeMsg, (address, address, bytes));
-        address asset = assets[srcEid][srcAsset];
 
-        if (asset == StargateLib.NATIVE) {
-            IStakingVaultNativeCallbacks(to).onWithdrawNative{ value: amount }(data);
-        } else {
-            ERC20(asset).safeApprove(to, 0);
-            ERC20(asset).safeApprove(to, amount);
-            IStakingVaultCallbacks(to).onWithdraw(asset, amount, data);
-        }
+        Asset memory asset = assets[srcEid][srcAsset];
+        if (!asset.supported) revert UnsupportedAsset();
+
+        _doWithdraw(asset.addr, to, amount, data);
     }
 }
