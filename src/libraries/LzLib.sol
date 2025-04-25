@@ -19,6 +19,6 @@ library LzLib {
     function decodeOptions(bytes memory options) internal pure returns (uint96 gasLimit, address refundTo) {
         if (!isValidOptions(options)) revert InvalidOptions();
 
-        return (uint96(bytes12(options.slice(0, 96))), address(bytes20(options.slice(96, 160))));
+        return (uint96(bytes12(options.slice(0, 12))), address(bytes20(options.slice(12, 20))));
     }
 }

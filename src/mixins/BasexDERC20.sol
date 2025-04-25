@@ -525,7 +525,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
     function _compose(address from, address to, uint256 amount, uint256 value, bytes memory callData)
         internal
         virtual
-        nonReentrant
+    // TODO: should be kept or not: nonReentrant
     {
         int256 oldBalance = localBalanceOf(address(this));
         _transferFrom(from, address(this), amount);
