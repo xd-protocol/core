@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-interface ISynchronizerCallbacks {
+interface ILiquidityMatrixCallbacks {
     function onMapAccounts(uint32 eid, address remoteAccount, address localAccount) external;
 
     function onUpdateLiquidity(uint32 eid, uint256 timestamp, address account, int256 liquidity) external;

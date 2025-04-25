@@ -29,7 +29,7 @@ contract xDERC20Wrapper is BasexDERC20Wrapper, IStakingVaultCallbacks {
      * @param _name The token name.
      * @param _symbol The token symbol.
      * @param _decimals The token decimals.
-     * @param _synchronizer The address of the synchronizer contract.
+     * @param _liquidityMatrix The address of the liquidityMatrix contract.
      * @param _owner The owner of this contract.
      */
     constructor(
@@ -39,9 +39,9 @@ contract xDERC20Wrapper is BasexDERC20Wrapper, IStakingVaultCallbacks {
         string memory _name,
         string memory _symbol,
         uint8 _decimals,
-        address _synchronizer,
+        address _liquidityMatrix,
         address _owner
-    ) BasexDERC20Wrapper(_underlying, _timeLockPeriod, _vault, _name, _symbol, _decimals, _synchronizer, _owner) { }
+    ) BasexDERC20Wrapper(_underlying, _timeLockPeriod, _vault, _name, _symbol, _decimals, _liquidityMatrix, _owner) { }
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC

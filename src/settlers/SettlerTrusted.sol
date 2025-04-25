@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import { BaseSettler } from "../mixins/BaseSettler.sol";
-import { ISynchronizer } from "../interfaces/ISynchronizer.sol";
+import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
 import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
 
 contract SettlerTrusted is BaseSettler {
@@ -48,7 +48,7 @@ contract SettlerTrusted is BaseSettler {
                              CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address _synchronizer) BaseSettler(_synchronizer) { }
+    constructor(address _liquidityMatrix) BaseSettler(_liquidityMatrix) { }
 
     /*//////////////////////////////////////////////////////////////
                              VIEW FUNCTIONS
@@ -115,11 +115,11 @@ contract SettlerTrusted is BaseSettler {
             }
         }
 
-        bytes32 mainTreeRoot = ISynchronizer(synchronizer).getLiquidityRootAt(eid, timestamp);
+        bytes32 mainTreeRoot = ILiquidityMatrix(liquidityMatrix).getLiquidityRootAt(eid, timestamp);
         _verifyMainTreeRoot(_getRemoteAppOrRevert(app, eid), appRoot, mainTreeIndex, mainTreeProof, mainTreeRoot);
 
-        ISynchronizer(synchronizer).settleLiquidity(
-            ISynchronizer.SettleLiquidityParams(app, eid, timestamp, accounts, liquidity)
+        ILiquidityMatrix(liquidityMatrix).settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(app, eid, timestamp, accounts, liquidity)
         );
     }
 
@@ -166,9 +166,11 @@ contract SettlerTrusted is BaseSettler {
             }
         }
 
-        bytes32 mainTreeRoot = ISynchronizer(synchronizer).getDataRootAt(eid, timestamp);
+        bytes32 mainTreeRoot = ILiquidityMatrix(liquidityMatrix).getDataRootAt(eid, timestamp);
         _verifyMainTreeRoot(_getRemoteAppOrRevert(app, eid), appRoot, mainTreeIndex, mainTreeProof, mainTreeRoot);
 
-        ISynchronizer(synchronizer).settleData(ISynchronizer.SettleDataParams(app, eid, timestamp, keys, values));
+        ILiquidityMatrix(liquidityMatrix).settleData(
+            ILiquidityMatrix.SettleDataParams(app, eid, timestamp, keys, values)
+        );
     }
 }

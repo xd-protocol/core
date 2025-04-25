@@ -5,10 +5,10 @@ import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
 import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
 import { SnapshotsLib } from "../libraries/SnapshotsLib.sol";
-import { ISynchronizer } from "../interfaces/ISynchronizer.sol";
+import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
 
 /**
- * @title SynchronizerLocal
+ * @title LiquidityMatrixLocal
  * @dev A contract managing hierarchical Merkle trees to track and synchronize liquidity and data updates across applications.
  *
  * ## Architecture Overview:
@@ -82,7 +82,7 @@ import { ISynchronizer } from "../interfaces/ISynchronizer.sol";
  *    - Allows querying of the current roots of the main liquidity and data trees.
  *    - Enables synchronization across chains or with off-chain systems.
  */
-abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
+abstract contract LiquidityMatrixLocal is ReentrancyGuard, ILiquidityMatrix {
     using AddressLib for address;
     using MerkleTreeLib for MerkleTreeLib.Tree;
     using SnapshotsLib for SnapshotsLib.Snapshots;
@@ -296,7 +296,7 @@ abstract contract SynchronizerLocal is ReentrancyGuard, ISynchronizer {
      * @notice Registers a new application, initializing its liquidity and data trees.
      * @param syncMappedAccountsOnly A boolean indicating whether contract accounts should be synchronized.
      * @param useCallbacks A boolean indicating whether to listen to ILiquidityMatirxCallbacks.
-     * @param settler A contract to be used for settling roots (see `SynchronizerRemote` for details)
+     * @param settler A contract to be used for settling roots (see `LiquidityMatrixRemote` for details)
      *
      * Requirements:
      * - Caller must be a contract.

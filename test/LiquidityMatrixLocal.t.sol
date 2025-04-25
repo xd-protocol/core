@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { Synchronizer } from "src/Synchronizer.sol";
-import { SynchronizerLocal } from "src/mixins/SynchronizerLocal.sol";
+import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
+import { LiquidityMatrixLocal } from "src/mixins/LiquidityMatrixLocal.sol";
 import { MerkleTreeLib } from "src/libraries/MerkleTreeLib.sol";
 import { Test, console } from "forge-std/Test.sol";
 import { AppMock } from "./mocks/AppMock.sol";
 import { IAppMock } from "./mocks/IAppMock.sol";
-import { BaseSynchronizerTest } from "./BaseSynchronizerTest.sol";
+import { BaseLiquidityMatrixTest } from "./BaseLiquidityMatrixTest.sol";
 
-contract SynchronizerLocalTest is BaseSynchronizerTest {
+contract LiquidityMatrixLocalTest is BaseLiquidityMatrixTest {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
     address owner = makeAddr("owner");
@@ -22,7 +22,7 @@ contract SynchronizerLocalTest is BaseSynchronizerTest {
         super.setUp();
         setUpEndpoints(1, LibraryType.UltraLightNode);
 
-        local = new Synchronizer(DEFAULT_CHANNEL_ID, endpoints[1], owner);
+        local = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[1], owner);
         localApp = address(new AppMock(address(local)));
         initialize(localStorage);
 

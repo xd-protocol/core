@@ -35,7 +35,7 @@ contract xDNative is BasexDERC20Wrapper, IStakingVaultNativeCallbacks {
      * @param _name The name of the wrapped native token.
      * @param _symbol The symbol of the wrapped native token.
      * @param _decimals The number of decimals for the wrapped native token.
-     * @param _synchronizer The address of the synchronizer contract.
+     * @param _liquidityMatrix The address of the liquidityMatrix contract.
      * @param _owner The address that will be granted ownership privileges.
      */
     constructor(
@@ -44,9 +44,9 @@ contract xDNative is BasexDERC20Wrapper, IStakingVaultNativeCallbacks {
         string memory _name,
         string memory _symbol,
         uint8 _decimals,
-        address _synchronizer,
+        address _liquidityMatrix,
         address _owner
-    ) BasexDERC20Wrapper(NATIVE, _timeLockPeriod, _vault, _name, _symbol, _decimals, _synchronizer, _owner) { }
+    ) BasexDERC20Wrapper(NATIVE, _timeLockPeriod, _vault, _name, _symbol, _decimals, _liquidityMatrix, _owner) { }
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC

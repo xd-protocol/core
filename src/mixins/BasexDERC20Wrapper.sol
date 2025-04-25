@@ -110,7 +110,7 @@ abstract contract BasexDERC20Wrapper is BasexDERC20 {
      * @param _name The token name.
      * @param _symbol The token symbol.
      * @param _decimals The token decimals.
-     * @param _synchronizer The address used for synchronization.
+     * @param _liquidityMatrix The address used for synchronization.
      * @param _owner The owner of the contract.
      */
     constructor(
@@ -120,9 +120,9 @@ abstract contract BasexDERC20Wrapper is BasexDERC20 {
         string memory _name,
         string memory _symbol,
         uint8 _decimals,
-        address _synchronizer,
+        address _liquidityMatrix,
         address _owner
-    ) BasexDERC20(_name, _symbol, _decimals, _synchronizer, _owner) {
+    ) BasexDERC20(_name, _symbol, _decimals, _liquidityMatrix, _owner) {
         underlying = _underlying;
         timeLockPeriod = _timeLockPeriod;
         vault = _vault;

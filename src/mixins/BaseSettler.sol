@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
-import { ISynchronizer } from "../interfaces/ISynchronizer.sol";
+import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
 import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
 
 abstract contract BaseSettler is ReentrancyGuard {
@@ -10,7 +10,7 @@ abstract contract BaseSettler is ReentrancyGuard {
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
 
-    address immutable synchronizer;
+    address immutable liquidityMatrix;
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
@@ -34,7 +34,7 @@ abstract contract BaseSettler is ReentrancyGuard {
     //////////////////////////////////////////////////////////////*/
 
     modifier onlyApp(address account) {
-        (bool registered,,, address settler) = ISynchronizer(synchronizer).getAppSetting(account);
+        (bool registered,,, address settler) = ILiquidityMatrix(liquidityMatrix).getAppSetting(account);
         if (!registered) revert AppNotRegistered();
         if (settler != address(this)) revert SettlerNotSet();
         _;
@@ -44,8 +44,8 @@ abstract contract BaseSettler is ReentrancyGuard {
                              CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address _synchronizer) {
-        synchronizer = _synchronizer;
+    constructor(address _liquidityMatrix) {
+        liquidityMatrix = _liquidityMatrix;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -53,7 +53,7 @@ abstract contract BaseSettler is ReentrancyGuard {
     //////////////////////////////////////////////////////////////*/
 
     function _getRemoteAppOrRevert(address app, uint32 eid) internal view virtual returns (address remoteApp) {
-        remoteApp = ISynchronizer(synchronizer).getRemoteApp(app, eid);
+        remoteApp = ILiquidityMatrix(liquidityMatrix).getRemoteApp(app, eid);
         if (remoteApp == address(0)) revert RemoteAppNotSet();
     }
 

@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import { IAppMock } from "./IAppMock.sol";
 
 contract AppMock is IAppMock {
-    address immutable synchronizer;
+    address immutable liquidityMatrix;
     mapping(uint32 remoteEid => mapping(address remoteAccount => mapping(address localAccont => bool))) public
         shouldMapAccounts;
 
@@ -12,8 +12,8 @@ contract AppMock is IAppMock {
     mapping(uint32 eid => int256) _remoteTotalLiquidity;
     mapping(uint32 eid => mapping(bytes32 key => bytes value)) _remoteData;
 
-    constructor(address _synchronizer) {
-        synchronizer = _synchronizer;
+    constructor(address _liquidityMatrix) {
+        liquidityMatrix = _liquidityMatrix;
     }
 
     function remoteLiquidity(uint32 eid, address account) external view returns (int256) {

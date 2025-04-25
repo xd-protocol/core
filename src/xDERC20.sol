@@ -9,8 +9,8 @@ contract xDERC20 is BasexDERC20 {
                                CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    constructor(string memory _name, string memory _symbol, uint8 _decimals, address _synchronizer, address _owner)
-        BasexDERC20(_name, _symbol, _decimals, _synchronizer, _owner)
+    constructor(string memory _name, string memory _symbol, uint8 _decimals, address _liquidityMatrix, address _owner)
+        BasexDERC20(_name, _symbol, _decimals, _liquidityMatrix, _owner)
     { }
 
     /*//////////////////////////////////////////////////////////////

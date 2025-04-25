@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { Synchronizer } from "src/Synchronizer.sol";
-import { ISynchronizer } from "src/interfaces/ISynchronizer.sol";
+import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
+import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { ArrayLib } from "src/libraries/ArrayLib.sol";
 import { MerkleTreeLib } from "src/libraries/MerkleTreeLib.sol";
 import { Settler } from "src/settlers/Settler.sol";
 import { Test, console } from "forge-std/Test.sol";
 import { AppMock } from "./mocks/AppMock.sol";
 import { IAppMock } from "./mocks/IAppMock.sol";
-import { BaseSynchronizerTest } from "./BaseSynchronizerTest.sol";
+import { BaseLiquidityMatrixTest } from "./BaseLiquidityMatrixTest.sol";
 
-contract SynchronizerRemoteTest is BaseSynchronizerTest {
+contract LiquidityMatrixRemoteTest is BaseLiquidityMatrixTest {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
     address owner = makeAddr("owner");
@@ -22,8 +22,8 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         setUpEndpoints(2, LibraryType.UltraLightNode);
 
         changePrank(owner, owner);
-        local = new Synchronizer(DEFAULT_CHANNEL_ID, endpoints[EID_LOCAL], owner);
-        remote = new Synchronizer(DEFAULT_CHANNEL_ID, endpoints[EID_REMOTE], owner);
+        local = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[EID_LOCAL], owner);
+        remote = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[EID_REMOTE], owner);
         localApp = address(new AppMock(address(local)));
         remoteApp = address(new AppMock(address(remote)));
         localSettler = address(new Settler(address(local)));
@@ -39,10 +39,10 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         local.updateSettlerWhitelisted(localSettler, true);
         remote.updateSettlerWhitelisted(remoteSettler, true);
 
-        ISynchronizer.ChainConfig[] memory configs = new ISynchronizer.ChainConfig[](1);
-        configs[0] = ISynchronizer.ChainConfig(EID_REMOTE, 0);
+        ILiquidityMatrix.ChainConfig[] memory configs = new ILiquidityMatrix.ChainConfig[](1);
+        configs[0] = ILiquidityMatrix.ChainConfig(EID_REMOTE, 0);
         local.configChains(configs);
-        configs[0] = ISynchronizer.ChainConfig(EID_LOCAL, 0);
+        configs[0] = ILiquidityMatrix.ChainConfig(EID_LOCAL, 0);
         remote.configChains(configs);
 
         changePrank(localApp, localApp);
@@ -82,7 +82,7 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
         local.settleLiquidity(
-            ISynchronizer.SettleLiquidityParams(address(localApp), EID_REMOTE, rootTimestamp, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(address(localApp), EID_REMOTE, rootTimestamp, accounts, liquidity)
         );
 
         for (uint256 i; i < accounts.length; ++i) {
@@ -120,7 +120,7 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
         local.settleLiquidity(
-            ISynchronizer.SettleLiquidityParams(address(localApp), EID_REMOTE, rootTimestamp, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(address(localApp), EID_REMOTE, rootTimestamp, accounts, liquidity)
         );
 
         for (uint256 i; i < accounts.length; ++i) {
@@ -146,7 +146,7 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         assertEq(local.areRootsFinalized(address(localApp), EID_REMOTE, timestamp), false);
 
         changePrank(localSettler, localSettler);
-        local.settleData(ISynchronizer.SettleDataParams(address(localApp), EID_REMOTE, rootTimestamp, keys, values));
+        local.settleData(ILiquidityMatrix.SettleDataParams(address(localApp), EID_REMOTE, rootTimestamp, keys, values));
         assertEq(local.isDataRootSettled(address(localApp), EID_REMOTE, timestamp), true);
 
         (_liquidityRoot, _timestamp) = local.getLastFinalizedLiquidityRoot(address(localApp), EID_REMOTE);
@@ -165,7 +165,7 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
         local.settleLiquidity(
-            ISynchronizer.SettleLiquidityParams(address(localApp), EID_REMOTE, rootTimestamp, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(address(localApp), EID_REMOTE, rootTimestamp, accounts, liquidity)
         );
 
         for (uint256 i; i < accounts.length; ++i) {
@@ -190,7 +190,7 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
         local.settleLiquidity(
-            ISynchronizer.SettleLiquidityParams(address(localApp), EID_REMOTE, rootTimestamp, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(address(localApp), EID_REMOTE, rootTimestamp, accounts, liquidity)
         );
 
         for (uint256 i; i < accounts.length; ++i) {
@@ -214,7 +214,7 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
         local.settleLiquidity(
-            ISynchronizer.SettleLiquidityParams(address(localApp), EID_REMOTE, rootTimestamp, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(address(localApp), EID_REMOTE, rootTimestamp, accounts, liquidity)
         );
 
         for (uint256 i; i < accounts.length; ++i) {
@@ -240,7 +240,7 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
         changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
         local.settleLiquidity(
-            ISynchronizer.SettleLiquidityParams(address(localApp), EID_REMOTE, rootTimestamp, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(address(localApp), EID_REMOTE, rootTimestamp, accounts, liquidity)
         );
 
         for (uint256 i; i < accounts.length; ++i) {
@@ -260,7 +260,7 @@ contract SynchronizerRemoteTest is BaseSynchronizerTest {
 
         changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
-        local.settleData(ISynchronizer.SettleDataParams(address(localApp), EID_REMOTE, rootTimestamp, keys, values));
+        local.settleData(ILiquidityMatrix.SettleDataParams(address(localApp), EID_REMOTE, rootTimestamp, keys, values));
 
         for (uint256 i; i < keys.length; ++i) {
             assertEq(local.getSettledRemoteDataHash(localApp, EID_REMOTE, keys[i]), keccak256(values[i]));

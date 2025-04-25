@@ -8,39 +8,25 @@ import {
     EVMCallComputeV1
 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
 import { Test, Vm, console } from "forge-std/Test.sol";
-import { MockERC20 } from "forge-std/mocks/MockERC20.sol";
 import { Settler } from "src/settlers/Settler.sol";
-import { Synchronizer } from "src/Synchronizer.sol";
+import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
 import { xDERC20Wrapper } from "src/xDERC20Wrapper.sol";
 import { BasexDERC20Wrapper } from "src/mixins/BasexDERC20Wrapper.sol";
-import { ISynchronizer } from "src/interfaces/ISynchronizer.sol";
+import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { LzLib } from "src/libraries/LzLib.sol";
-import { BaseSynchronizerTest } from "./BaseSynchronizerTest.sol";
+import { ERC20Mock } from "./mocks/ERC20Mock.sol";
+import { BaseLiquidityMatrixTest } from "./BaseLiquidityMatrixTest.sol";
 
-contract ERC20 is MockERC20 {
-    constructor(string memory name, string memory symbol, uint8 decimals) {
-        initialize(name, symbol, decimals);
-    }
-
-    function mint(address to, uint256 value) public virtual {
-        _mint(to, value);
-    }
-
-    function burn(address from, uint256 value) public virtual {
-        _burn(from, value);
-    }
-}
-
-contract BasexDERC20WrapperTest is BaseSynchronizerTest {
+contract BasexDERC20WrapperTest is BaseLiquidityMatrixTest {
     uint8 public constant CHAINS = 8;
     uint64 public constant TIMELOCK_PERIOD = 1 days;
     uint16 public constant CMD_XD_TRANSFER = 1;
     uint96 public constant GAS_LIMIT = 500_000;
 
     uint32[CHAINS] eids;
-    ERC20[CHAINS] underlyings;
+    ERC20Mock[CHAINS] underlyings;
     address[CHAINS] vaults;
-    ISynchronizer[CHAINS] synchronizers;
+    ILiquidityMatrix[CHAINS] liquidityMatrices;
     address[CHAINS] settlers;
     xDERC20Wrapper[CHAINS] erc20s;
 
@@ -59,18 +45,25 @@ contract BasexDERC20WrapperTest is BaseSynchronizerTest {
         address[] memory _erc20s = new address[](CHAINS);
         for (uint32 i; i < CHAINS; ++i) {
             eids[i] = i + 1;
-            underlyings[i] = new ERC20("Mock", "MOCK", 18);
+            underlyings[i] = new ERC20Mock("Mock", "MOCK", 18);
             vaults[i] = makeAddr(string.concat("vault", vm.toString(i)));
-            synchronizers[i] = new Synchronizer(DEFAULT_CHANNEL_ID, endpoints[eids[i]], owner);
-            settlers[i] = address(new Settler(address(synchronizers[i])));
-            oapps[i] = address(synchronizers[i]);
+            liquidityMatrices[i] = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[eids[i]], owner);
+            settlers[i] = address(new Settler(address(liquidityMatrices[i])));
+            oapps[i] = address(liquidityMatrices[i]);
             erc20s[i] = new xDERC20Wrapper(
-                address(underlyings[i]), TIMELOCK_PERIOD, vaults[i], "xD", "xD", 18, address(synchronizers[i]), owner
+                address(underlyings[i]),
+                TIMELOCK_PERIOD,
+                vaults[i],
+                "xD",
+                "xD",
+                18,
+                address(liquidityMatrices[i]),
+                owner
             );
             _erc20s[i] = address(erc20s[i]);
 
-            synchronizers[i].updateSettlerWhitelisted(settlers[i], true);
-            vm.label(address(synchronizers[i]), string.concat("Synchronizer", vm.toString(i)));
+            liquidityMatrices[i].updateSettlerWhitelisted(settlers[i], true);
+            vm.label(address(liquidityMatrices[i]), string.concat("LiquidityMatrix", vm.toString(i)));
             vm.label(address(erc20s[i]), string.concat("xDERC20Wrapper", vm.toString(i)));
             vm.deal(settlers[i], 1000e18);
         }
@@ -81,18 +74,18 @@ contract BasexDERC20WrapperTest is BaseSynchronizerTest {
         for (uint32 i; i < CHAINS; ++i) {
             vm.deal(address(erc20s[i]), 1000e18);
             changePrank(address(erc20s[i]), address(erc20s[i]));
-            synchronizers[i].registerApp(false, false, settlers[i]);
+            liquidityMatrices[i].registerApp(false, false, settlers[i]);
 
-            ISynchronizer.ChainConfig[] memory configs = new ISynchronizer.ChainConfig[](CHAINS - 1);
+            ILiquidityMatrix.ChainConfig[] memory configs = new ILiquidityMatrix.ChainConfig[](CHAINS - 1);
             uint32 count;
             for (uint32 j; j < CHAINS; ++j) {
                 if (i == j) continue;
-                configs[count++] = ISynchronizer.ChainConfig(eids[j], 0);
-                synchronizers[i].updateRemoteApp(eids[j], address(erc20s[j]));
+                configs[count++] = ILiquidityMatrix.ChainConfig(eids[j], 0);
+                liquidityMatrices[i].updateRemoteApp(eids[j], address(erc20s[j]));
             }
 
             changePrank(owner, owner);
-            synchronizers[i].configChains(configs);
+            liquidityMatrices[i].configChains(configs);
             for (uint256 j; j < users.length; ++j) {
                 underlyings[i].mint(users[j], 100e18);
             }
