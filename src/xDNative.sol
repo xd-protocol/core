@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { BasexDERC20Wrapper } from "./mixins/BasexDERC20Wrapper.sol";
+import { BaseERC20xDWrapper } from "./mixins/BaseERC20xDWrapper.sol";
 import { IStakingVault, IStakingVaultNativeCallbacks } from "./interfaces/IStakingVault.sol";
 import { AddressLib } from "./libraries/AddressLib.sol";
 
 /**
  * @title xDNative
  * @notice A native token wrapper that extends cross-chain functionality for an underlying native asset.
- *         This contract builds upon BasexDERC20Wrapper to enable wrapping and unwrapping operations for the
+ *         This contract builds upon BaseERC20xDWrapper to enable wrapping and unwrapping operations for the
  *         native cryptocurrency (e.g., ETH), interacting with a staking vault that supports native token
  *         deposits and withdrawals.
  * @dev Outgoing operations (wrap) are performed by invoking _deposit() to deposit native tokens into the vault,
  *      while outgoing unwrapping (withdraw) operations are executed via _withdraw(). The contract also implements
  *      the IStakingVaultNativeCallbacks interface to handle incoming cross-chain messages confirming withdrawals.
  */
-contract xDNative is BasexDERC20Wrapper, IStakingVaultNativeCallbacks {
+contract xDNative is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
@@ -29,7 +29,7 @@ contract xDNative is BasexDERC20Wrapper, IStakingVaultNativeCallbacks {
 
     /**
      * @notice Initializes the xDNative contract.
-     * @dev Forwards parameters to the BasexDERC20Wrapper constructor using NATIVE as the underlying asset.
+     * @dev Forwards parameters to the BaseERC20xDWrapper constructor using NATIVE as the underlying asset.
      * @param _timeLockPeriod The timelock period used for configuration updates.
      * @param _vault The vault contract's address.
      * @param _name The name of the wrapped native token.
@@ -46,7 +46,7 @@ contract xDNative is BasexDERC20Wrapper, IStakingVaultNativeCallbacks {
         uint8 _decimals,
         address _liquidityMatrix,
         address _owner
-    ) BasexDERC20Wrapper(NATIVE, _timeLockPeriod, _vault, _name, _symbol, _decimals, _liquidityMatrix, _owner) { }
+    ) BaseERC20xDWrapper(NATIVE, _timeLockPeriod, _vault, _name, _symbol, _decimals, _liquidityMatrix, _owner) { }
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC

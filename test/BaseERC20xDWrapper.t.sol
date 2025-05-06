@@ -10,14 +10,14 @@ import {
 import { Test, Vm, console } from "forge-std/Test.sol";
 import { Settler } from "src/settlers/Settler.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
-import { xDERC20Wrapper } from "src/xDERC20Wrapper.sol";
-import { BasexDERC20Wrapper } from "src/mixins/BasexDERC20Wrapper.sol";
+import { ERC20xDWrapper } from "src/ERC20xDWrapper.sol";
+import { BaseERC20xDWrapper } from "src/mixins/BaseERC20xDWrapper.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { LzLib } from "src/libraries/LzLib.sol";
 import { ERC20Mock } from "./mocks/ERC20Mock.sol";
 import { BaseLiquidityMatrixTest } from "./BaseLiquidityMatrixTest.sol";
 
-contract BasexDERC20WrapperTest is BaseLiquidityMatrixTest {
+contract BaseERC20xDWrapperTest is BaseLiquidityMatrixTest {
     uint8 public constant CHAINS = 8;
     uint64 public constant TIMELOCK_PERIOD = 1 days;
     uint16 public constant CMD_XD_TRANSFER = 1;
@@ -28,7 +28,7 @@ contract BasexDERC20WrapperTest is BaseLiquidityMatrixTest {
     address[CHAINS] vaults;
     ILiquidityMatrix[CHAINS] liquidityMatrices;
     address[CHAINS] settlers;
-    xDERC20Wrapper[CHAINS] erc20s;
+    ERC20xDWrapper[CHAINS] erc20s;
 
     address owner = makeAddr("owner");
     address alice = makeAddr("alice");
@@ -50,7 +50,7 @@ contract BasexDERC20WrapperTest is BaseLiquidityMatrixTest {
             liquidityMatrices[i] = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[eids[i]], owner);
             settlers[i] = address(new Settler(address(liquidityMatrices[i])));
             oapps[i] = address(liquidityMatrices[i]);
-            erc20s[i] = new xDERC20Wrapper(
+            erc20s[i] = new ERC20xDWrapper(
                 address(underlyings[i]),
                 TIMELOCK_PERIOD,
                 vaults[i],
@@ -64,7 +64,7 @@ contract BasexDERC20WrapperTest is BaseLiquidityMatrixTest {
 
             liquidityMatrices[i].updateSettlerWhitelisted(settlers[i], true);
             vm.label(address(liquidityMatrices[i]), string.concat("LiquidityMatrix", vm.toString(i)));
-            vm.label(address(erc20s[i]), string.concat("xDERC20Wrapper", vm.toString(i)));
+            vm.label(address(erc20s[i]), string.concat("ERC20xDWrapper", vm.toString(i)));
             vm.deal(settlers[i], 1000e18);
         }
 
@@ -97,40 +97,40 @@ contract BasexDERC20WrapperTest is BaseLiquidityMatrixTest {
     }
 
     function test_queueUpdateTimeLockPeriod() public {
-        xDERC20Wrapper local = erc20s[0];
+        ERC20xDWrapper local = erc20s[0];
 
         uint64 timestamp = uint64(vm.getBlockTimestamp());
         local.queueUpdateTimeLockPeriod(1 weeks);
 
-        (BasexDERC20Wrapper.TimeLockType _type, bytes memory params, uint64 startedAt, bool executed) =
+        (BaseERC20xDWrapper.TimeLockType _type, bytes memory params, uint64 startedAt, bool executed) =
             local.timeLocks(0);
-        assertEq(uint8(_type), uint8(BasexDERC20Wrapper.TimeLockType.UpdateTimeLockPeriod));
+        assertEq(uint8(_type), uint8(BaseERC20xDWrapper.TimeLockType.UpdateTimeLockPeriod));
         assertEq(params, abi.encode(uint64(1 weeks)));
         assertEq(startedAt, timestamp);
         assertEq(executed, false);
     }
 
     function test_queueUpdateVault() public {
-        xDERC20Wrapper local = erc20s[0];
+        ERC20xDWrapper local = erc20s[0];
 
         address vault = makeAddr("vault");
         uint64 timestamp = uint64(vm.getBlockTimestamp());
         local.queueUpdateVault(vault);
 
-        (BasexDERC20Wrapper.TimeLockType _type, bytes memory params, uint64 startedAt, bool executed) =
+        (BaseERC20xDWrapper.TimeLockType _type, bytes memory params, uint64 startedAt, bool executed) =
             local.timeLocks(0);
-        assertEq(uint8(_type), uint8(BasexDERC20Wrapper.TimeLockType.UpdateVault));
+        assertEq(uint8(_type), uint8(BaseERC20xDWrapper.TimeLockType.UpdateVault));
         assertEq(params, abi.encode(vault));
         assertEq(startedAt, timestamp);
         assertEq(executed, false);
     }
 
     function test_executeTimeLock() public {
-        xDERC20Wrapper local = erc20s[0];
+        ERC20xDWrapper local = erc20s[0];
 
         local.queueUpdateTimeLockPeriod(1 weeks);
 
-        vm.expectRevert(BasexDERC20Wrapper.TimeNotPassed.selector);
+        vm.expectRevert(BaseERC20xDWrapper.TimeNotPassed.selector);
         local.executeTimeLock(0);
 
         skip(TIMELOCK_PERIOD);
@@ -138,13 +138,13 @@ contract BasexDERC20WrapperTest is BaseLiquidityMatrixTest {
 
         assertEq(local.timeLockPeriod(), 1 weeks);
 
-        vm.expectRevert(BasexDERC20Wrapper.TimeLockExecuted.selector);
+        vm.expectRevert(BaseERC20xDWrapper.TimeLockExecuted.selector);
         local.executeTimeLock(0);
 
         address vault = makeAddr("vault");
         local.queueUpdateVault(vault);
 
-        vm.expectRevert(BasexDERC20Wrapper.TimeNotPassed.selector);
+        vm.expectRevert(BaseERC20xDWrapper.TimeNotPassed.selector);
         local.executeTimeLock(1);
 
         skip(1 weeks);
@@ -152,7 +152,7 @@ contract BasexDERC20WrapperTest is BaseLiquidityMatrixTest {
 
         assertEq(local.vault(), vault);
 
-        vm.expectRevert(BasexDERC20Wrapper.TimeLockExecuted.selector);
+        vm.expectRevert(BaseERC20xDWrapper.TimeLockExecuted.selector);
         local.executeTimeLock(1);
     }
 }

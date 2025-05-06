@@ -10,8 +10,8 @@ import {
 import { Test, Vm, console } from "forge-std/Test.sol";
 import { Settler } from "src/settlers/Settler.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
-import { xDERC20 } from "src/xDERC20.sol";
-import { BasexDERC20 } from "src/mixins/BasexDERC20.sol";
+import { ERC20xD } from "src/ERC20xD.sol";
+import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { LzLib } from "src/libraries/LzLib.sol";
 import { BaseLiquidityMatrixTest } from "./BaseLiquidityMatrixTest.sol";
@@ -20,13 +20,13 @@ contract Composable {
     event Compose(address indexed token, uint256 amount);
 
     function compose(address token, uint256 amount) external payable {
-        BasexDERC20(token).transferFrom(msg.sender, address(this), amount);
+        BaseERC20xD(token).transferFrom(msg.sender, address(this), amount);
 
         emit Compose(token, amount);
     }
 }
 
-contract BasexDERC20Test is BaseLiquidityMatrixTest {
+contract BaseERC20xDTest is BaseLiquidityMatrixTest {
     uint8 public constant CHAINS = 8;
     uint16 public constant CMD_XD_TRANSFER = 1;
     uint96 public constant GAS_LIMIT = 500_000;
@@ -34,7 +34,7 @@ contract BasexDERC20Test is BaseLiquidityMatrixTest {
     uint32[CHAINS] eids;
     ILiquidityMatrix[CHAINS] liquidityMatrices;
     address[CHAINS] settlers;
-    xDERC20[CHAINS] erc20s;
+    ERC20xD[CHAINS] erc20s;
 
     address owner = makeAddr("owner");
     address alice = makeAddr("alice");
@@ -55,12 +55,12 @@ contract BasexDERC20Test is BaseLiquidityMatrixTest {
             liquidityMatrices[i] = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[eids[i]], owner);
             settlers[i] = address(new Settler(address(liquidityMatrices[i])));
             oapps[i] = address(liquidityMatrices[i]);
-            erc20s[i] = new xDERC20("xD", "xD", 18, address(liquidityMatrices[i]), owner);
+            erc20s[i] = new ERC20xD("xD", "xD", 18, address(liquidityMatrices[i]), owner);
             _erc20s[i] = address(erc20s[i]);
 
             liquidityMatrices[i].updateSettlerWhitelisted(settlers[i], true);
             vm.label(address(liquidityMatrices[i]), string.concat("LiquidityMatrix", vm.toString(i)));
-            vm.label(address(erc20s[i]), string.concat("xDERC20", vm.toString(i)));
+            vm.label(address(erc20s[i]), string.concat("ERC20xD", vm.toString(i)));
             vm.deal(settlers[i], 1000e18);
         }
 
@@ -108,7 +108,7 @@ contract BasexDERC20Test is BaseLiquidityMatrixTest {
     }
 
     function test_transfer() public {
-        xDERC20 local = erc20s[0];
+        ERC20xD local = erc20s[0];
         assertEq(local.localTotalSupply(), 300e18);
         assertEq(local.localBalanceOf(alice), 100e18);
         assertEq(local.localBalanceOf(bob), 100e18);
@@ -124,7 +124,7 @@ contract BasexDERC20Test is BaseLiquidityMatrixTest {
         local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
 
         uint256 nonce = 1;
-        xDERC20.PendingTransfer memory pending = local.pendingTransfer(alice);
+        ERC20xD.PendingTransfer memory pending = local.pendingTransfer(alice);
         assertEq(pending.pending, true);
         assertEq(pending.from, alice);
         assertEq(pending.to, bob);
@@ -146,7 +146,7 @@ contract BasexDERC20Test is BaseLiquidityMatrixTest {
     }
 
     function test_transfer_composable() public {
-        xDERC20 local = erc20s[0];
+        ERC20xD local = erc20s[0];
 
         changePrank(alice, alice);
         uint256 amount = 100e18;
@@ -167,14 +167,14 @@ contract BasexDERC20Test is BaseLiquidityMatrixTest {
     }
 
     function test_transfer_revertInsufficientBalance() public {
-        xDERC20 local = erc20s[0];
+        ERC20xD local = erc20s[0];
 
         assertEq(local.balanceOf(alice), 100e18);
 
         changePrank(alice, alice);
         uint256 amount = 101e18;
         uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
-        vm.expectRevert(BasexDERC20.InsufficientBalance.selector);
+        vm.expectRevert(BaseERC20xD.InsufficientBalance.selector);
         local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
 
         _syncAndSettleLiquidity();
@@ -185,7 +185,7 @@ contract BasexDERC20Test is BaseLiquidityMatrixTest {
     }
 
     function test_transfer_revertTransferPending() public {
-        xDERC20 local = erc20s[0];
+        ERC20xD local = erc20s[0];
 
         assertEq(local.balanceOf(alice), 100e18);
 
@@ -194,13 +194,13 @@ contract BasexDERC20Test is BaseLiquidityMatrixTest {
         uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
         local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
 
-        vm.expectRevert(BasexDERC20.TransferPending.selector);
+        vm.expectRevert(BaseERC20xD.TransferPending.selector);
         local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
     }
 
     function test_transfer_revertInsufficientAvailability() public {
-        xDERC20 local = erc20s[0];
-        xDERC20 remote = erc20s[1];
+        ERC20xD local = erc20s[0];
+        ERC20xD remote = erc20s[1];
 
         _syncAndSettleLiquidity();
         assertEq(local.localBalanceOf(alice), 100e18);
@@ -227,12 +227,12 @@ contract BasexDERC20Test is BaseLiquidityMatrixTest {
         uint256 nonce = 1;
         int256 availability = 0;
         bytes memory error =
-            abi.encodeWithSelector(BasexDERC20.InsufficientAvailability.selector, nonce, amount, availability);
+            abi.encodeWithSelector(BaseERC20xD.InsufficientAvailability.selector, nonce, amount, availability);
         _executeTransfer(remote, alice, nonce, error);
     }
 
     function test_cancelPendingTransfer() public {
-        xDERC20 local = erc20s[0];
+        ERC20xD local = erc20s[0];
 
         _syncAndSettleLiquidity();
 
@@ -251,10 +251,10 @@ contract BasexDERC20Test is BaseLiquidityMatrixTest {
     }
 
     function test_cancelPendingTransfer_revertTransferNotPending() public {
-        xDERC20 local = erc20s[0];
+        ERC20xD local = erc20s[0];
 
         changePrank(alice, alice);
-        vm.expectRevert(abi.encodeWithSelector(BasexDERC20.TransferNotPending.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(BaseERC20xD.TransferNotPending.selector, 0));
         local.cancelPendingTransfer();
 
         uint256 amount = 1e18;
@@ -268,7 +268,7 @@ contract BasexDERC20Test is BaseLiquidityMatrixTest {
     function _syncAndSettleLiquidity() internal {
         ILiquidityMatrix local = liquidityMatrices[0];
         address localSettler = settlers[0];
-        xDERC20 localApp = erc20s[0];
+        ERC20xD localApp = erc20s[0];
 
         changePrank(localSettler, localSettler);
         ILiquidityMatrix[] memory remotes = new ILiquidityMatrix[](CHAINS - 1);
@@ -279,7 +279,7 @@ contract BasexDERC20Test is BaseLiquidityMatrixTest {
 
         for (uint256 i = 1; i < CHAINS; ++i) {
             ILiquidityMatrix remote = liquidityMatrices[i];
-            xDERC20 remoteApp = erc20s[i];
+            ERC20xD remoteApp = erc20s[i];
 
             (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(eids[i]);
 
@@ -294,7 +294,7 @@ contract BasexDERC20Test is BaseLiquidityMatrixTest {
         }
     }
 
-    function _executeTransfer(xDERC20 erc20, address from, uint256 nonce, bytes memory error) internal {
+    function _executeTransfer(ERC20xD erc20, address from, uint256 nonce, bytes memory error) internal {
         bytes[] memory responses = new bytes[](CHAINS - 1);
         uint32 eid;
         uint256 count;

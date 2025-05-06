@@ -2,27 +2,27 @@
 pragma solidity ^0.8.28;
 
 import { ERC20, SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
-import { BasexDERC20Wrapper } from "./mixins/BasexDERC20Wrapper.sol";
+import { BaseERC20xDWrapper } from "./mixins/BaseERC20xDWrapper.sol";
 import { IStakingVault, IStakingVaultCallbacks } from "./interfaces/IStakingVault.sol";
 
 /**
- * @title xDERC20Wrapper
+ * @title ERC20xDWrapper
  * @notice Implements cross-chain wrapping and unwrapping for an underlying ERC20 token.
- *         This contract extends BasexDERC20Wrapper to provide wrapper-specific logic and integrates
+ *         This contract extends BaseERC20xDWrapper to provide wrapper-specific logic and integrates
  *         with a staking vault to perform deposit and withdrawal operations.
  * @dev Outgoing operations (wrap) call _deposit() to transfer tokens to the vault,
  *      while incoming operations (unwrap) call _withdraw() to trigger a vault withdrawal.
  *      The onWithdraw() callback finalizes withdrawals by transferring tokens to the recipient.
  */
-contract xDERC20Wrapper is BasexDERC20Wrapper, IStakingVaultCallbacks {
+contract ERC20xDWrapper is BaseERC20xDWrapper, IStakingVaultCallbacks {
     using SafeTransferLib for ERC20;
 
     /*//////////////////////////////////////////////////////////////
                                CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
     /**
-     * @notice Initializes the xDERC20Wrapper contract.
-     * @dev Forwards the provided parameters to the BasexDERC20Wrapper constructor.
+     * @notice Initializes the ERC20xDWrapper contract.
+     * @dev Forwards the provided parameters to the BaseERC20xDWrapper constructor.
      * @param _underlying The address of the underlying token.
      * @param _timeLockPeriod The timelock period for configuration updates.
      * @param _vault The vault contract's address.
@@ -41,7 +41,7 @@ contract xDERC20Wrapper is BasexDERC20Wrapper, IStakingVaultCallbacks {
         uint8 _decimals,
         address _liquidityMatrix,
         address _owner
-    ) BasexDERC20Wrapper(_underlying, _timeLockPeriod, _vault, _name, _symbol, _decimals, _liquidityMatrix, _owner) { }
+    ) BaseERC20xDWrapper(_underlying, _timeLockPeriod, _vault, _name, _symbol, _decimals, _liquidityMatrix, _owner) { }
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC

@@ -2,15 +2,15 @@
 pragma solidity ^0.8.28;
 
 import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
-import { BasexDERC20 } from "./mixins/BasexDERC20.sol";
+import { BaseERC20xD } from "./mixins/BaseERC20xD.sol";
 
-contract xDERC20 is BasexDERC20 {
+contract ERC20xD is BaseERC20xD {
     /*//////////////////////////////////////////////////////////////
                                CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
     constructor(string memory _name, string memory _symbol, uint8 _decimals, address _liquidityMatrix, address _owner)
-        BasexDERC20(_name, _symbol, _decimals, _liquidityMatrix, _owner)
+        BaseERC20xD(_name, _symbol, _decimals, _liquidityMatrix, _owner)
     { }
 
     /*//////////////////////////////////////////////////////////////

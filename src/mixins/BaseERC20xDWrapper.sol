@@ -3,16 +3,16 @@ pragma solidity ^0.8.28;
 
 import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { ERC20, SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
-import { BasexDERC20 } from "./BasexDERC20.sol";
+import { BaseERC20xD } from "./BaseERC20xD.sol";
 import { IStakingVault } from "../interfaces/IStakingVault.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
 import { LzLib } from "../libraries/LzLib.sol";
 
 /**
- * @title BasexDERC20Wrapper
- * @notice An abstract extension of BasexDERC20 that adds cross-chain wrapping and unwrapping capabilities.
+ * @title BaseERC20xDWrapper
+ * @notice An abstract extension of BaseERC20xD that adds cross-chain wrapping and unwrapping capabilities.
  * @dev This contract builds upon the core cross-chain liquidity and transfer management provided by
- *      BasexDERC20 by implementing wrapper-specific logic. It introduces additional functionality such as:
+ *      BaseERC20xD by implementing wrapper-specific logic. It introduces additional functionality such as:
  *
  *      - **Wrapping Operations:** Allows users to wrap underlying tokens by transferring tokens from their
  *        account and depositing them, which may trigger an outgoing cross-chain message to update global
@@ -37,7 +37,7 @@ import { LzLib } from "../libraries/LzLib.sol";
  *      Derived contracts must implement abstract functions such as _deposit() and _withdraw() to provide the
  *      specific logic for handling the deposit and withdrawal processes associated with wrapping and unwrapping.
  */
-abstract contract BasexDERC20Wrapper is BasexDERC20 {
+abstract contract BaseERC20xDWrapper is BaseERC20xD {
     using SafeTransferLib for ERC20;
 
     enum TimeLockType {
@@ -103,7 +103,7 @@ abstract contract BasexDERC20Wrapper is BasexDERC20 {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Initializes the BasexDERC20Wrapper with the underlying token, timelock period, and token parameters.
+     * @notice Initializes the BaseERC20xDWrapper with the underlying token, timelock period, and token parameters.
      * @param _underlying The address of the underlying token.
      * @param _timeLockPeriod The initial timelock period (in seconds) for executing queued operations.
      * @param _vault The vault contract's address.
@@ -122,7 +122,7 @@ abstract contract BasexDERC20Wrapper is BasexDERC20 {
         uint8 _decimals,
         address _liquidityMatrix,
         address _owner
-    ) BasexDERC20(_name, _symbol, _decimals, _liquidityMatrix, _owner) {
+    ) BaseERC20xD(_name, _symbol, _decimals, _liquidityMatrix, _owner) {
         underlying = _underlying;
         timeLockPeriod = _timeLockPeriod;
         vault = _vault;
@@ -303,7 +303,7 @@ abstract contract BasexDERC20Wrapper is BasexDERC20 {
             _withdraw(
                 pending.amount,
                 minAmount,
-                abi.encode(pending.from, to), // TODO: incorrect since `to` needs to be remote xDERC20Wrapper, not recipient address
+                abi.encode(pending.from, to), // TODO: incorrect since `to` needs to be remote ERC20xDWrapper, not recipient address
                 incomingFee,
                 incomingOptions,
                 outgoingFee,

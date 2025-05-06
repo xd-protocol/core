@@ -25,7 +25,7 @@ import { AddressLib } from "../libraries/AddressLib.sol";
 import { LzLib } from "../libraries/LzLib.sol";
 
 /**
- * @title BasexDERC20
+ * @title BaseERC20xD
  * @notice An abstract cross-chain ERC20 token implementation that manages global liquidity
  *         and facilitates cross-chain transfer operations.
  * @dev This contract extends BaseERC20 and integrates with LayerZero’s OAppRead protocol and a
@@ -47,7 +47,7 @@ import { LzLib } from "../libraries/LzLib.sol";
  *      Note: This contract is abstract and requires derived implementations to provide specific logic
  *      for functions such as _compose() and _transferFrom() as well as other operational details.
  */
-abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
+abstract contract BaseERC20xD is BaseERC20, OAppRead, ReentrancyGuard {
     using AddressLib for address;
     using OptionsBuilder for bytes;
     using BytesLib for bytes;
@@ -119,7 +119,7 @@ abstract contract BasexDERC20 is BaseERC20, OAppRead, ReentrancyGuard {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Initializes the xDERC20 contract with the necessary configurations.
+     * @notice Initializes the ERC20xD contract with the necessary configurations.
      * @param _liquidityMatrix The address of the LiquidityMatrix contract.
      * @param _owner The address that will be granted ownership privileges.
      */

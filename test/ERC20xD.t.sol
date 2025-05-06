@@ -11,13 +11,13 @@ import {
 import { Test, Vm, console } from "forge-std/Test.sol";
 import { Settler } from "src/settlers/Settler.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
-import { xDERC20 } from "src/xDERC20.sol";
-import { BasexDERC20 } from "src/mixins/BasexDERC20.sol";
+import { ERC20xD } from "src/ERC20xD.sol";
+import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { LzLib } from "src/libraries/LzLib.sol";
 import { BaseLiquidityMatrixTest } from "./BaseLiquidityMatrixTest.sol";
 
-contract xDERC20Test is BaseLiquidityMatrixTest {
+contract ERC20xDTest is BaseLiquidityMatrixTest {
     uint8 public constant CHAINS = 8;
     uint16 public constant CMD_XD_TRANSFER = 1;
     uint96 public constant GAS_LIMIT = 500_000;
@@ -25,7 +25,7 @@ contract xDERC20Test is BaseLiquidityMatrixTest {
     uint32[CHAINS] eids;
     ILiquidityMatrix[CHAINS] liquidityMatrices;
     address[CHAINS] settlers;
-    xDERC20[CHAINS] erc20s;
+    ERC20xD[CHAINS] erc20s;
 
     address owner = makeAddr("owner");
     address alice = makeAddr("alice");
@@ -45,12 +45,12 @@ contract xDERC20Test is BaseLiquidityMatrixTest {
             liquidityMatrices[i] = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[eids[i]], owner);
             settlers[i] = address(new Settler(address(liquidityMatrices[i])));
             oapps[i] = address(liquidityMatrices[i]);
-            erc20s[i] = new xDERC20("xD", "xD", 18, address(liquidityMatrices[i]), owner);
+            erc20s[i] = new ERC20xD("xD", "xD", 18, address(liquidityMatrices[i]), owner);
             _erc20s[i] = address(erc20s[i]);
 
             liquidityMatrices[i].updateSettlerWhitelisted(settlers[i], true);
             vm.label(address(liquidityMatrices[i]), string.concat("LiquidityMatrix", vm.toString(i)));
-            vm.label(address(erc20s[i]), string.concat("xDERC20", vm.toString(i)));
+            vm.label(address(erc20s[i]), string.concat("ERC20xD", vm.toString(i)));
             vm.deal(settlers[i], 1000e18);
         }
 
@@ -98,7 +98,7 @@ contract xDERC20Test is BaseLiquidityMatrixTest {
     function _syncAndSettleLiquidity() internal {
         ILiquidityMatrix local = liquidityMatrices[0];
         address localSettler = settlers[0];
-        xDERC20 localApp = erc20s[0];
+        ERC20xD localApp = erc20s[0];
 
         changePrank(localSettler, localSettler);
         ILiquidityMatrix[] memory remotes = new ILiquidityMatrix[](CHAINS - 1);
@@ -109,7 +109,7 @@ contract xDERC20Test is BaseLiquidityMatrixTest {
 
         for (uint256 i = 1; i < CHAINS; ++i) {
             ILiquidityMatrix remote = liquidityMatrices[i];
-            xDERC20 remoteApp = erc20s[i];
+            ERC20xD remoteApp = erc20s[i];
 
             (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(eids[i]);
 
@@ -138,7 +138,7 @@ contract xDERC20Test is BaseLiquidityMatrixTest {
         assertEq(erc20s[0].balanceOf(alice), 0);
     }
 
-    function _executeTransfer(xDERC20 erc20, address from, uint256 nonce, bytes memory error) internal {
+    function _executeTransfer(ERC20xD erc20, address from, uint256 nonce, bytes memory error) internal {
         bytes[] memory responses = new bytes[](CHAINS - 1);
         uint32 eid;
         uint256 count;
