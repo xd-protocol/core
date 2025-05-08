@@ -57,12 +57,16 @@ contract ERC20xDWrapper is BaseERC20xDWrapper, IStakingVaultCallbacks {
      * @param fee The fee to be forwarded with the deposit call.
      * @param options Additional options to be forwarded to the vault deposit function.
      */
-    function _deposit(uint256 amount, uint256 minAmount, uint256 fee, bytes memory options) internal override {
+    function _deposit(uint256 amount, uint256 minAmount, uint256 fee, bytes memory options)
+        internal
+        override
+        returns (uint256 dstAmount)
+    {
         ERC20(underlying).safeTransferFrom(msg.sender, address(this), amount);
 
         ERC20(underlying).safeApprove(vault, 0);
         ERC20(underlying).safeApprove(vault, amount);
-        IStakingVault(vault).deposit{ value: fee }(underlying, amount, minAmount, options);
+        return IStakingVault(vault).deposit{ value: fee }(underlying, address(this), amount, minAmount, options);
     }
 
     /**
@@ -88,7 +92,7 @@ contract ERC20xDWrapper is BaseERC20xDWrapper, IStakingVaultCallbacks {
         bytes memory options
     ) internal virtual override {
         try IStakingVault(vault).withdraw{ value: fee }(
-            underlying, amount, minAmount, incomingData, incomingFee, incomingOptions, options
+            underlying, address(this), amount, minAmount, incomingData, incomingFee, incomingOptions, options
         ) { } catch (bytes memory reason) {
             _onFailedWithdrawal(amount, minAmount, incomingData, incomingFee, incomingOptions, fee, reason);
         }

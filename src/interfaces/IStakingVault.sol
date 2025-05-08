@@ -26,51 +26,28 @@ interface IStakingVault {
     event Withdraw(address indexed asset, uint256 amount);
 
     /**
-     * @notice Deposits an idle asset.
-     * @param asset The asset address.
-     * @param amount The amount to deposit.
-     * @param minAmount The minimum acceptable deposit.
-     * @param options Extra options.
-     * @return dstAmount The resulting share amount.
-     */
-    function depositIdle(address asset, uint256 amount, uint256 minAmount, bytes calldata options)
-        external
-        payable
-        returns (uint256 dstAmount);
-
-    /**
-     * @notice Deposits idle native currency.
-     * @param amount The native amount to deposit.
-     * @param minAmount The minimum acceptable deposit.
-     * @param options Extra options.
-     * @return dstAmount The resulting share amount.
-     */
-    function depositIdleNative(uint256 amount, uint256 minAmount, bytes calldata options)
-        external
-        payable
-        returns (uint256 dstAmount);
-
-    /**
      * @notice Deposits an asset.
      * @param asset The asset to deposit.
+     * @param to The recipient.
      * @param amount The amount to deposit.
      * @param minAmount The minimum acceptable deposit.
      * @param options Extra options.
      * @return dstAmount The resulting share amount.
      */
-    function deposit(address asset, uint256 amount, uint256 minAmount, bytes calldata options)
+    function deposit(address asset, address to, uint256 amount, uint256 minAmount, bytes calldata options)
         external
         payable
         returns (uint256 dstAmount);
 
     /**
      * @notice Deposits native currency.
+     * @param to The recipient.
      * @param amount The native amount to deposit.
      * @param minAmount The minimum acceptable deposit.
      * @param options Extra options.
      * @return dstAmount The resulting share amount.
      */
-    function depositNative(uint256 amount, uint256 minAmount, bytes calldata options)
+    function depositNative(address to, uint256 amount, uint256 minAmount, bytes calldata options)
         external
         payable
         returns (uint256 dstAmount);
@@ -78,12 +55,14 @@ interface IStakingVault {
     /**
      * @notice Withdraws tokens from the vault.
      * @dev Checks balance and processes local or cross-chain withdrawals.
+     * @param to The recipient.
      * @param asset The asset to withdraw.
      * @param amount The amount to withdraw.
      * @param options Extra options.
      */
     function withdraw(
         address asset,
+        address to,
         uint256 amount,
         uint256 minAmount,
         bytes memory incomingData,
@@ -95,10 +74,12 @@ interface IStakingVault {
     /**
      * @notice Withdraws native currency from the vault.
      * @dev Checks balance and processes local or cross-chain withdrawals.
+     * @param to The recipient.
      * @param amount The native amount to withdraw.
      * @param options Extra options.
      */
     function withdrawNative(
+        address to,
         uint256 amount,
         uint256 minAmount,
         bytes memory incomingData,

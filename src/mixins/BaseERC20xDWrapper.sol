@@ -84,7 +84,7 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
     event ExecuteTimeLock(uint256 indexed id);
     event UpdateTimeLockPeriod(uint64 timeLockPeriod);
     event UpdateVault(address indexed vault);
-    event Wrap(uint256 amount);
+    event Wrap(address to, uint256 amount);
     event WithdrawFail(uint256 id, bytes reason);
     event Unwrap(address to, uint256 amount);
 
@@ -224,15 +224,22 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
         payable
         virtual
         nonReentrant
+        returns (uint256 shares)
     {
-        _transferFrom(address(0), to, amount);
+        if (to == address(0)) revert InvalidAddress();
+        if (amount == 0) revert InvalidAmount();
 
-        _deposit(amount, minAmount, depositFee, depositOptions);
+        shares = _deposit(amount, minAmount, depositFee, depositOptions);
 
-        emit Wrap(amount);
+        _transferFrom(address(0), to, shares);
+
+        emit Wrap(to, amount);
     }
 
-    function _deposit(uint256 amount, uint256 minAmount, uint256 fee, bytes memory options) internal virtual;
+    function _deposit(uint256 amount, uint256 minAmount, uint256 fee, bytes memory options)
+        internal
+        virtual
+        returns (uint256 dstAmount);
 
     /**
      * @notice Initiates an unwrap operation to retrieve underlying tokens from a cross-chain context.
@@ -242,31 +249,31 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
      *      message is received on the destination chain, a subsequent call to IStakingVault(vault).withdraw()
      *      should complete the process by sending the tokens back to the original chain.
      * @param to The destination address to receive the unwrapped tokens.
-     * @param amount The amount of tokens to unwrap.
+     * @param shares The amount of the wrapped token.
      * @param minAmount The minimum acceptable amount on the destination side.
      * @param withdrawIncomingFee The fee for processing the incoming cross-chain message.
      * @param withdrawIncomingOptions Options for handling the incoming message.
      * @param withdrawOutgoingFee The fee for the outgoing cross-chain message.
      * @param withdrawOutgoingOptions Options for handling the outgoing message.
-     * @param options Additional options for the unwrap operation.
+     * @param readOptions Options for the reading global availability before unwrapping.
      * @return receipt A MessagingReceipt confirming the outgoing message initiation.
      */
     function unwrap(
         address to,
-        uint256 amount,
+        uint256 shares,
         uint256 minAmount,
         uint128 withdrawIncomingFee,
         bytes memory withdrawIncomingOptions,
         uint128 withdrawOutgoingFee,
         bytes memory withdrawOutgoingOptions,
-        bytes memory options
+        bytes memory readOptions
     ) external payable virtual nonReentrant returns (MessagingReceipt memory receipt) {
         if (to == address(0)) revert InvalidAddress();
 
         receipt = _transfer(
             msg.sender,
             address(0),
-            amount,
+            shares,
             abi.encode(
                 to,
                 minAmount,
@@ -276,10 +283,10 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
                 withdrawOutgoingOptions
             ),
             withdrawIncomingFee + withdrawOutgoingFee,
-            options
+            readOptions
         );
 
-        emit Unwrap(to, amount);
+        emit Unwrap(to, shares);
     }
 
     /**
@@ -303,7 +310,7 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
             _withdraw(
                 pending.amount,
                 minAmount,
-                abi.encode(pending.from, to), // TODO: incorrect since `to` needs to be remote ERC20xDWrapper, not recipient address
+                abi.encode(pending.from, to),
                 incomingFee,
                 incomingOptions,
                 outgoingFee,
@@ -366,6 +373,7 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
 
         IStakingVault(vault).withdraw{ value: withdrawal.value + msg.value }(
             underlying,
+            address(this),
             withdrawal.amount,
             withdrawal.minAmount,
             withdrawal.incomingData,

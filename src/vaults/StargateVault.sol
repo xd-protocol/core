@@ -53,7 +53,7 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
     uint32 public immutable eid;
     mapping(address asset => Stargate) public stargates;
     mapping(address asset => address) public stakers;
-    mapping(address asset => mapping(address owner => uint256)) public balances;
+    mapping(address asset => mapping(address owner => uint256)) public sharesOf;
 
     mapping(uint32 srcEid => mapping(address srcAsset => Asset)) public assets;
     FailedMessage[] public failedMessages;
@@ -413,12 +413,13 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
      * @notice Deposits tokens into the vault.
      * @dev Transfers tokens from the sender and updates their share balance.
      * @param asset The asset to deposit.
+     * @param to The recipient.
      * @param amount The amount to deposit.
      * @param minAmount The minimum acceptable deposit.
      * @param options Extra options.
      * @return shares The number of shares received.
      */
-    function deposit(address asset, uint256 amount, uint256 minAmount, bytes calldata options)
+    function deposit(address asset, address to, uint256 amount, uint256 minAmount, bytes calldata options)
         external
         payable
         nonReentrant
@@ -428,18 +429,19 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
 
         (uint128 gasLimit, address refundTo) = LzLib.decodeOptions(options);
         shares = _deposit(asset, amount, minAmount, gasLimit, msg.value, refundTo);
-        balances[asset][msg.sender] += shares;
+        sharesOf[asset][to] += shares;
     }
 
     /**
      * @notice Deposits native currency into the vault.
      * @dev Processes the deposit and updates the sender's balance.
+     * @param to The recipient.
      * @param amount The native currency amount to deposit.
      * @param minAmount The minimum acceptable deposit.
      * @param options Extra options.
      * @return shares The number of shares received.
      */
-    function depositNative(uint256 amount, uint256 minAmount, bytes calldata options)
+    function depositNative(address to, uint256 amount, uint256 minAmount, bytes calldata options)
         external
         payable
         nonReentrant
@@ -449,7 +451,7 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
 
         (uint128 gasLimit, address refundTo) = LzLib.decodeOptions(options);
         shares = _deposit(StargateLib.NATIVE, amount, minAmount, gasLimit, msg.value - amount, refundTo);
-        balances[StargateLib.NATIVE][msg.sender] += shares;
+        sharesOf[StargateLib.NATIVE][to] += shares;
     }
 
     /**
@@ -481,7 +483,7 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
             if (peer == address(0)) revert NoPeer(stargate.dstEid);
 
             shares = IStargate(stargate.addr).sendToken(
-                stargate.dstEid, asset, peer, amount, minAmount, "", gasLimit, false, fee, refundTo
+                stargate.dstEid, asset, peer, amount, minAmount, "", gasLimit, true, fee, refundTo
             );
         }
 
@@ -492,6 +494,7 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
      * @notice Withdraws tokens from the vault.
      * @dev Processes the withdrawal request and routes it based on whether the asset is local or cross-chain.
      * @param asset The asset to withdraw.
+     * @param to The recipient address.
      * @param amount The amount to withdraw.
      * @param minAmount The minimum acceptable withdrawal amount.
      * @param incomingData Data for the incoming cross-chain message.
@@ -501,6 +504,7 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
      */
     function withdraw(
         address asset,
+        address to,
         uint256 amount,
         uint256 minAmount,
         bytes memory incomingData,
@@ -510,21 +514,13 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
     ) external payable nonReentrant {
         (uint128 gasLimit, address refundTo) = LzLib.decodeOptions(options);
         _withdraw(
-            asset,
-            msg.sender,
-            amount,
-            minAmount,
-            incomingData,
-            incomingFee,
-            incomingOptions,
-            gasLimit,
-            msg.value,
-            refundTo
+            asset, to, amount, minAmount, incomingData, incomingFee, incomingOptions, gasLimit, msg.value, refundTo
         );
     }
 
     /**
      * @notice Withdraws native currency from the vault.
+     * @param to The recipient address.
      * @param amount The native amount to withdraw.
      * @param minAmount The minimum acceptable withdrawal amount.
      * @param incomingData Data for the incoming cross-chain message.
@@ -533,6 +529,7 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
      * @param options Extra options encoded as bytes.
      */
     function withdrawNative(
+        address to,
         uint256 amount,
         uint256 minAmount,
         bytes memory incomingData,
@@ -543,7 +540,7 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
         (uint128 gasLimit, address refundTo) = LzLib.decodeOptions(options);
         _withdraw(
             StargateLib.NATIVE,
-            msg.sender,
+            to,
             amount,
             minAmount,
             incomingData,
@@ -581,10 +578,10 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
         uint256 fee,
         address refundTo
     ) internal {
-        if (balances[asset][msg.sender] < amount) revert InsufficientBalance();
+        if (sharesOf[asset][msg.sender] < amount) revert InsufficientBalance();
         if (amount == 0) revert InvalidAmount();
 
-        balances[asset][msg.sender] -= amount;
+        sharesOf[asset][msg.sender] -= amount;
 
         if (getReserve(asset) >= amount) {
             _doWithdraw(asset, to, amount, incomingData);
@@ -627,11 +624,17 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
 
     function _doWithdraw(address asset, address to, uint256 amount, bytes memory data) internal {
         if (asset == StargateLib.NATIVE) {
-            IStakingVaultNativeCallbacks(to).onWithdrawNative{ value: amount }(data);
+            try IStakingVaultNativeCallbacks(to).onWithdrawNative{ value: amount }(data) { }
+            catch {
+                AddressLib.transferNative(to, amount);
+            }
         } else {
             ERC20(asset).safeApprove(to, 0);
             ERC20(asset).safeApprove(to, amount);
-            IStakingVaultCallbacks(to).onWithdraw(asset, amount, data);
+            try IStakingVaultCallbacks(to).onWithdraw(asset, amount, data) { }
+            catch {
+                ERC20(asset).safeTransfer(to, amount);
+            }
         }
 
         emit Withdraw(asset, amount);
@@ -741,7 +744,7 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
         if (peer == address(0)) revert NoPeer(stargate.dstEid);
 
         dstAmount = IStargate(stargate.addr).sendToken(
-            dstEid, asset, peer, amount, minAmount, abi.encode(asset, to, data), gasLimit, false, fee, refundTo
+            dstEid, asset, peer, amount, minAmount, abi.encode(asset, to, data), gasLimit, true, fee, refundTo
         );
     }
 

@@ -62,10 +62,14 @@ contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
      * @param fee The fee to forward with the deposit call.
      * @param options Additional options to pass to the vault's deposit function.
      */
-    function _deposit(uint256 amount, uint256 minAmount, uint256 fee, bytes memory options) internal override {
+    function _deposit(uint256 amount, uint256 minAmount, uint256 fee, bytes memory options)
+        internal
+        override
+        returns (uint256 dstAmount)
+    {
         if (fee < amount) revert InsufficientValue();
 
-        IStakingVault(vault).depositNative{ value: fee }(amount, minAmount, options);
+        return IStakingVault(vault).depositNative{ value: fee }(address(this), amount, minAmount, options);
     }
 
     /**
@@ -90,7 +94,7 @@ contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
         bytes memory options
     ) internal virtual override {
         try IStakingVault(vault).withdrawNative{ value: fee }(
-            amount, minAmount, incomingData, incomingFee, incomingOptions, options
+            address(this), amount, minAmount, incomingData, incomingFee, incomingOptions, options
         ) { } catch (bytes memory reason) {
             _onFailedWithdrawal(amount, minAmount, incomingData, incomingFee, incomingOptions, fee, reason);
         }
