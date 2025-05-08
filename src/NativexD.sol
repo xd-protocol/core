@@ -6,7 +6,7 @@ import { IStakingVault, IStakingVaultNativeCallbacks } from "./interfaces/IStaki
 import { AddressLib } from "./libraries/AddressLib.sol";
 
 /**
- * @title xDNative
+ * @title NativexD
  * @notice A native token wrapper that extends cross-chain functionality for an underlying native asset.
  *         This contract builds upon BaseERC20xDWrapper to enable wrapping and unwrapping operations for the
  *         native cryptocurrency (e.g., ETH), interacting with a staking vault that supports native token
@@ -15,7 +15,7 @@ import { AddressLib } from "./libraries/AddressLib.sol";
  *      while outgoing unwrapping (withdraw) operations are executed via _withdraw(). The contract also implements
  *      the IStakingVaultNativeCallbacks interface to handle incoming cross-chain messages confirming withdrawals.
  */
-contract xDNative is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
+contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
@@ -28,7 +28,7 @@ contract xDNative is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Initializes the xDNative contract.
+     * @notice Initializes the NativexD contract.
      * @dev Forwards parameters to the BaseERC20xDWrapper constructor using NATIVE as the underlying asset.
      * @param _timeLockPeriod The timelock period used for configuration updates.
      * @param _vault The vault contract's address.
