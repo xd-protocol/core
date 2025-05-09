@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import { BaseERC20xDWrapper } from "./mixins/BaseERC20xDWrapper.sol";
 import { IStakingVault, IStakingVaultNativeCallbacks } from "./interfaces/IStakingVault.sol";
 import { AddressLib } from "./libraries/AddressLib.sol";
+import { LzLib } from "./libraries/LzLib.sol";
 
 /**
  * @title NativexD
@@ -65,11 +66,17 @@ contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
     function _deposit(uint256 amount, uint256 minAmount, uint256 fee, bytes memory options)
         internal
         override
-        returns (uint256 dstAmount)
+        returns (uint256 shares)
     {
-        if (fee < amount) revert InsufficientValue();
+        if (msg.value < amount + fee) revert InsufficientValue();
 
-        return IStakingVault(vault).depositNative{ value: fee }(address(this), amount, minAmount, options);
+        uint256 balance = address(this).balance;
+        uint256 value = amount + fee;
+        shares = IStakingVault(vault).depositNative{ value: value }(address(this), amount, minAmount, options);
+        (, address refundTo) = LzLib.decodeOptions(options);
+        if (refundTo != address(0) && address(this).balance > balance - value) {
+            AddressLib.transferNative(refundTo, address(this).balance + value - balance);
+        }
     }
 
     /**
@@ -111,7 +118,7 @@ contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
      *      updates internal accounting via _transferFrom, and transfers the redeemed native tokens to the recipient.
      * @param data Encoded data containing the original sender and recipient addresses.
      */
-    function onRedeemNative(uint256 shares, bytes calldata data) external payable nonReentrant {
+    function onRedeemNative(uint256 shares, bytes calldata data) external payable {
         if (msg.sender != vault) revert Forbidden();
 
         (address from, address to) = abi.decode(data, (address, address));

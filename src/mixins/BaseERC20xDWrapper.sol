@@ -239,7 +239,7 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
     function _deposit(uint256 amount, uint256 minAmount, uint256 fee, bytes memory options)
         internal
         virtual
-        returns (uint256 dstAmount);
+        returns (uint256 shares);
 
     /**
      * @notice Initiates an unwrap operation to retrieve underlying tokens from a cross-chain context.
@@ -277,7 +277,7 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
             abi.encode(
                 to, minAmount, redeemIncomingFee, redeemIncomingOptions, redeemOutgoingFee, redeemOutgoingOptions
             ),
-            redeemIncomingFee + redeemOutgoingFee,
+            redeemOutgoingFee,
             readOptions
         );
 

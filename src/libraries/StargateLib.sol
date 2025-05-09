@@ -111,7 +111,7 @@ library StargateLib {
 
         // refund remainder
         if (refundTo != address(0) && address(this).balance > balance - value) {
-            AddressLib.transferNative(refundTo, address(this).balance - balance + value);
+            AddressLib.transferNative(refundTo, address(this).balance + value - balance);
         }
 
         return receipt.amountReceivedLD;

@@ -60,7 +60,7 @@ contract ERC20xDWrapper is BaseERC20xDWrapper, IStakingVaultCallbacks {
     function _deposit(uint256 amount, uint256 minAmount, uint256 fee, bytes memory options)
         internal
         override
-        returns (uint256 dstAmount)
+        returns (uint256 shares)
     {
         ERC20(underlying).safeTransferFrom(msg.sender, address(this), amount);
 

@@ -37,12 +37,16 @@ contract StakingVaultMock is IStakingVault {
         fee = gasLimit * 1e9;
     }
 
-    function quoteRedeemNative(address, uint256, uint256, bytes memory, uint128, bytes memory, uint128 gasLimit)
-        public
-        pure
-        returns (uint256 fee)
-    {
-        fee = gasLimit * 1e9;
+    function quoteRedeemNative(
+        address,
+        uint256,
+        uint256,
+        bytes memory,
+        uint128 incomingFee,
+        bytes memory,
+        uint128 gasLimit
+    ) public pure returns (uint256 fee) {
+        fee = incomingFee + gasLimit * 1e9;
     }
 
     function deposit(address asset, address to, uint256 amount, uint256 minAmount, bytes calldata options)
