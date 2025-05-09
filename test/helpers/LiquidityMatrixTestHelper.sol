@@ -15,9 +15,9 @@ import { Origin } from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
 import { ILayerZeroReceiver } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppReceiver.sol";
 import { IOAppCore } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppCore.sol";
 import { TestHelperOz5 } from "@layerzerolabs/test-devtools-evm-foundry/contracts/TestHelperOz5.sol";
-import { IAppMock } from "./mocks/IAppMock.sol";
+import { IAppMock } from "../mocks/IAppMock.sol";
 
-abstract contract BaseLiquidityMatrixTest is TestHelperOz5 {
+abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
     struct Storage {

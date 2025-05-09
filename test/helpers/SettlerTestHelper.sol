@@ -7,11 +7,11 @@ import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { ArrayLib } from "src/libraries/ArrayLib.sol";
 import { MerkleTreeLib } from "src/libraries/MerkleTreeLib.sol";
 import { Test, console } from "forge-std/Test.sol";
-import { AppMock } from "./mocks/AppMock.sol";
-import { IAppMock } from "./mocks/IAppMock.sol";
-import { BaseLiquidityMatrixTest } from "./BaseLiquidityMatrixTest.sol";
+import { AppMock } from "../mocks/AppMock.sol";
+import { IAppMock } from "../mocks/IAppMock.sol";
+import { LiquidityMatrixTestHelper } from "./LiquidityMatrixTestHelper.sol";
 
-abstract contract BaseSettlerTest is BaseLiquidityMatrixTest {
+abstract contract SettlerTestHelper is LiquidityMatrixTestHelper {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
     uint32 constant TRAILING_MASK = uint32(0x80000000);

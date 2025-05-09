@@ -7,9 +7,9 @@ import { MerkleTreeLib } from "src/libraries/MerkleTreeLib.sol";
 import { Test, console } from "forge-std/Test.sol";
 import { AppMock } from "./mocks/AppMock.sol";
 import { IAppMock } from "./mocks/IAppMock.sol";
-import { BaseLiquidityMatrixTest } from "./BaseLiquidityMatrixTest.sol";
+import { LiquidityMatrixTestHelper } from "./helpers/LiquidityMatrixTestHelper.sol";
 
-contract LiquidityMatrixLocalTest is BaseLiquidityMatrixTest {
+contract LiquidityMatrixLocalTest is LiquidityMatrixTestHelper {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
     address owner = makeAddr("owner");

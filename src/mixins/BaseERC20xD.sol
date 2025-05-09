@@ -509,7 +509,7 @@ abstract contract BaseERC20xD is BaseERC20, OAppRead, ReentrancyGuard {
         uint256 balance = address(this).balance;
         _executePendingTransfer(pending);
         if (address(this).balance > balance - pending.value) {
-            AddressLib.transferNative(from, address(this).balance - balance + pending.value);
+            AddressLib.transferNative(from, address(this).balance + pending.value - balance);
         }
     }
 

@@ -110,11 +110,11 @@ contract ERC20xDWrapper is BaseERC20xDWrapper, IStakingVaultCallbacks {
      * @param amount The amount of tokens that have been redeemed.
      * @param data Encoded data containing the original sender and recipient addresses.
      */
-    function onRedeem(address, uint256 amount, bytes calldata data) external nonReentrant {
+    function onRedeem(address, uint256 shares, uint256 amount, bytes calldata data) external {
         if (msg.sender != vault) revert Forbidden();
 
         (address from, address to) = abi.decode(data, (address, address));
-        _transferFrom(from, address(0), amount);
+        _transferFrom(from, address(0), shares);
 
         ERC20(underlying).safeTransferFrom(msg.sender, to, amount);
     }

@@ -111,11 +111,11 @@ contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
      *      updates internal accounting via _transferFrom, and transfers the redeemed native tokens to the recipient.
      * @param data Encoded data containing the original sender and recipient addresses.
      */
-    function onRedeemNative(bytes calldata data) external payable nonReentrant {
+    function onRedeemNative(uint256 shares, bytes calldata data) external payable nonReentrant {
         if (msg.sender != vault) revert Forbidden();
 
         (address from, address to) = abi.decode(data, (address, address));
-        _transferFrom(from, address(0), msg.value);
+        _transferFrom(from, address(0), shares);
 
         AddressLib.transferNative(to, msg.value);
     }

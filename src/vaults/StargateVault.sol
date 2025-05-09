@@ -170,7 +170,7 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
      * @notice Provides a redemption fee quote for a token asset.
      * @param asset The asset to redeem.
      * @param to The recipient address on the destination.
-     * @param amount The amount to redeem.
+     * @param shares The amount of shares to redeem.
      * @param minAmount The minimum acceptable amount for redemption.
      * @param incomingData Data for the incoming cross-chain message.
      * @param incomingFee Fee for processing the incoming message.
@@ -181,20 +181,20 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
     function quoteRedeem(
         address asset,
         address to,
-        uint256 amount,
+        uint256 shares,
         uint256 minAmount,
         bytes memory incomingData,
         uint128 incomingFee,
         bytes memory incomingOptions,
         uint128 gasLimit
     ) external view returns (uint256 fee) {
-        return _quoteRedeem(asset, to, amount, minAmount, incomingData, incomingFee, incomingOptions, gasLimit);
+        return _quoteRedeem(asset, to, shares, minAmount, incomingData, incomingFee, incomingOptions, gasLimit);
     }
 
     /**
      * @notice Provides a redemption fee quote for native currency.
      * @param to The recipient address on the destination.
-     * @param amount The amount to redeem.
+     * @param shares The amount of shares to redeem.
      * @param minAmount The minimum acceptable amount for redemption.
      * @param incomingData Data for the incoming cross-chain message.
      * @param incomingFee Fee for processing the incoming message.
@@ -204,7 +204,7 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
      */
     function quoteRedeemNative(
         address to,
-        uint256 amount,
+        uint256 shares,
         uint256 minAmount,
         bytes memory incomingData,
         uint128 incomingFee,
@@ -212,7 +212,7 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
         uint128 gasLimit
     ) external view returns (uint256 fee) {
         return _quoteRedeem(
-            StargateLib.NATIVE, to, amount, minAmount, incomingData, incomingFee, incomingOptions, gasLimit
+            StargateLib.NATIVE, to, shares, minAmount, incomingData, incomingFee, incomingOptions, gasLimit
         );
     }
 
@@ -582,7 +582,7 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
         sharesOf[asset][msg.sender] -= amount;
 
         if (getReserve(asset) >= amount) {
-            _doRedeem(asset, to, amount, incomingData);
+            _doRedeem(asset, to, amount, amount, incomingData);
             return;
         }
 
@@ -592,7 +592,7 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
             if (fee != 0) revert NoFeeRequired();
 
             _unstakeIfNeeded(asset, amount);
-            _doRedeem(asset, to, amount, incomingData);
+            _doRedeem(asset, to, amount, amount, incomingData);
         } else {
             if (minAmount > amount) revert InvalidMinAmount();
             if (!LzLib.isValidOptions(incomingOptions)) revert InvalidLzReceiveOption();
@@ -620,16 +620,16 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
         }
     }
 
-    function _doRedeem(address asset, address to, uint256 amount, bytes memory data) internal {
+    function _doRedeem(address asset, address to, uint256 shares, uint256 amount, bytes memory data) internal {
         if (asset == StargateLib.NATIVE) {
-            try IStakingVaultNativeCallbacks(to).onRedeemNative{ value: amount }(data) { }
+            try IStakingVaultNativeCallbacks(to).onRedeemNative{ value: amount }(shares, data) { }
             catch {
                 AddressLib.transferNative(to, amount);
             }
         } else {
             ERC20(asset).safeApprove(to, 0);
             ERC20(asset).safeApprove(to, amount);
-            try IStakingVaultCallbacks(to).onRedeem(asset, amount, data) { }
+            try IStakingVaultCallbacks(to).onRedeem(asset, shares, amount, data) { }
             catch {
                 ERC20(asset).safeTransfer(to, amount);
             }
@@ -742,7 +742,7 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
         if (peer == address(0)) revert NoPeer(stargate.dstEid);
 
         dstAmount = IStargate(stargate.addr).sendToken(
-            dstEid, asset, peer, amount, minAmount, abi.encode(asset, to, data), gasLimit, true, fee, refundTo
+            dstEid, asset, peer, amount, minAmount, abi.encode(asset, to, amount, data), gasLimit, true, fee, refundTo
         );
     }
 
@@ -839,11 +839,12 @@ contract StargateVault is OApp, ReentrancyGuard, IStakingVault {
         uint32 srcEid = OFTComposeMsgCodec.srcEid(message);
         uint256 amount = OFTComposeMsgCodec.amountLD(message);
         bytes memory composeMsg = OFTComposeMsgCodec.composeMsg(message);
-        (address srcAsset, address to, bytes memory data) = abi.decode(composeMsg, (address, address, bytes));
+        (address srcAsset, address to, uint256 shares, bytes memory data) =
+            abi.decode(composeMsg, (address, address, uint256, bytes));
 
         Asset memory asset = assets[srcEid][srcAsset];
         if (!asset.supported) revert UnsupportedAsset();
 
-        _doRedeem(asset.addr, to, amount, data);
+        _doRedeem(asset.addr, to, shares, amount, data);
     }
 }

@@ -2,9 +2,9 @@
 pragma solidity ^0.8.28;
 
 import { Settler } from "src/settlers/Settler.sol";
-import { BaseSettlerTest, MerkleTreeLib } from "./BaseSettlerTest.sol";
+import { SettlerTestHelper, MerkleTreeLib } from "./helpers/SettlerTestHelper.sol";
 
-contract SettlerTest is BaseSettlerTest {
+contract SettlerTest is SettlerTestHelper {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
     function setUp() public override {
