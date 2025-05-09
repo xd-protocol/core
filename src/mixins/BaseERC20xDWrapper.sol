@@ -18,13 +18,13 @@ import { LzLib } from "../libraries/LzLib.sol";
  *        account and depositing them, which may trigger an outgoing cross-chain message to update global
  *        liquidity.
  *      - **Unwrapping Operations:** Initiates an unwrap process by calling _transfer(), which performs a global
- *        availability check across chains. This triggers an outgoing cross-chain message to request a withdrawal.
+ *        availability check across chains. This triggers an outgoing cross-chain message to request a redemption.
  *        Once the outgoing message is processed (via incoming cross-chain response), tokens are sent back to
  *        the original chain.
  *      - **Timelock-Based Configuration Updates:** Supports queuing and executing timelock operations to update
  *        configuration parameters (e.g., timelock period, vault address). This delayed execution mechanism
  *        enhances security by allowing governance to review pending updates.
- *      - **Failed Withdrawal Management:** Records details of failed withdrawal attempts and allows for their
+ *      - **Failed Redemption Management:** Records details of failed redemption attempts and allows for their
  *        retry via a designated vault interface.
  *      - **Pending Transfer Management:** Maintains a queue of pending transfers along with nonces to coordinate
  *        cross-chain transfers. Pending transfers are processed upon receiving global liquidity data from remote chains.
@@ -32,10 +32,10 @@ import { LzLib } from "../libraries/LzLib.sol";
  *      **Terminology:**
  *      - *Outgoing messages* are those initiated by this contract (e.g., wrap, unwrap, configuration updates).
  *      - *Incoming messages* refer to cross-chain messages received by this contract (e.g., responses triggering
- *        withdrawals).
+ *        redemptions).
  *
- *      Derived contracts must implement abstract functions such as _deposit() and _withdraw() to provide the
- *      specific logic for handling the deposit and withdrawal processes associated with wrapping and unwrapping.
+ *      Derived contracts must implement abstract functions such as _deposit() and _redeem() to provide the
+ *      specific logic for handling the deposit and redemption processes associated with wrapping and unwrapping.
  */
 abstract contract BaseERC20xDWrapper is BaseERC20xD {
     using SafeTransferLib for ERC20;
@@ -53,7 +53,7 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
         bool executed;
     }
 
-    struct FailedWithdrawal {
+    struct FailedRedemption {
         bool resolved;
         uint256 amount;
         uint256 minAmount;
@@ -74,7 +74,7 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
 
     address public vault;
 
-    FailedWithdrawal[] public failedWithdrawals;
+    FailedRedemption[] public failedRedemptions;
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
@@ -85,7 +85,7 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
     event UpdateTimeLockPeriod(uint64 timeLockPeriod);
     event UpdateVault(address indexed vault);
     event Wrap(address to, uint256 amount);
-    event WithdrawFail(uint256 id, bytes reason);
+    event RedeemFail(uint256 id, bytes reason);
     event Unwrap(address to, uint256 amount);
 
     /*//////////////////////////////////////////////////////////////
@@ -245,16 +245,16 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
      * @notice Initiates an unwrap operation to retrieve underlying tokens from a cross-chain context.
      * @dev This function begins the unwrap process by calling _transfer(), which checks the global token
      *      availability across chains. As a consequence, _executePendingTransfer() is triggered, which in turn
-     *      initiates an outgoing cross-chain message to request a withdrawal (i.e. unwrap). When the outgoing
-     *      message is received on the destination chain, a subsequent call to IStakingVault(vault).withdraw()
+     *      initiates an outgoing cross-chain message to request a redemption (i.e. unwrap). When the outgoing
+     *      message is received on the destination chain, a subsequent call to IStakingVault(vault).redeem()
      *      should complete the process by sending the tokens back to the original chain.
      * @param to The destination address to receive the unwrapped tokens.
      * @param shares The amount of the wrapped token.
      * @param minAmount The minimum acceptable amount on the destination side.
-     * @param withdrawIncomingFee The fee for processing the incoming cross-chain message.
-     * @param withdrawIncomingOptions Options for handling the incoming message.
-     * @param withdrawOutgoingFee The fee for the outgoing cross-chain message.
-     * @param withdrawOutgoingOptions Options for handling the outgoing message.
+     * @param redeemIncomingFee The fee for processing the incoming cross-chain message.
+     * @param redeemIncomingOptions Options for handling the incoming message.
+     * @param redeemOutgoingFee The fee for the outgoing cross-chain message.
+     * @param redeemOutgoingOptions Options for handling the outgoing message.
      * @param readOptions Options for the reading global availability before unwrapping.
      * @return receipt A MessagingReceipt confirming the outgoing message initiation.
      */
@@ -262,10 +262,10 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
         address to,
         uint256 shares,
         uint256 minAmount,
-        uint128 withdrawIncomingFee,
-        bytes memory withdrawIncomingOptions,
-        uint128 withdrawOutgoingFee,
-        bytes memory withdrawOutgoingOptions,
+        uint128 redeemIncomingFee,
+        bytes memory redeemIncomingOptions,
+        uint128 redeemOutgoingFee,
+        bytes memory redeemOutgoingOptions,
         bytes memory readOptions
     ) external payable virtual nonReentrant returns (MessagingReceipt memory receipt) {
         if (to == address(0)) revert InvalidAddress();
@@ -275,14 +275,9 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
             address(0),
             shares,
             abi.encode(
-                to,
-                minAmount,
-                withdrawIncomingFee,
-                withdrawIncomingOptions,
-                withdrawOutgoingFee,
-                withdrawOutgoingOptions
+                to, minAmount, redeemIncomingFee, redeemIncomingOptions, redeemOutgoingFee, redeemOutgoingOptions
             ),
-            withdrawIncomingFee + withdrawOutgoingFee,
+            redeemIncomingFee + redeemOutgoingFee,
             readOptions
         );
 
@@ -292,7 +287,7 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
     /**
      * @notice Processes a pending transfer resulting from an unwrap operation.
      * @dev If the pending transfer indicates an unwrap (i.e. source address is non-zero and destination is zero),
-     *      it decodes the call data and invokes the withdrawal process for an incoming cross-chain message.
+     *      it decodes the call data and invokes the redemption process for an incoming cross-chain message.
      *      Otherwise, it defers to the parent implementation.
      * @param pending The pending transfer data structure.
      */
@@ -307,7 +302,7 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
                 uint128 outgoingFee,
                 bytes memory outgoingOptions
             ) = abi.decode(pending.callData, (address, uint256, uint128, bytes, uint128, bytes));
-            _withdraw(
+            _redeem(
                 pending.amount,
                 minAmount,
                 abi.encode(pending.from, to),
@@ -321,7 +316,7 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
         }
     }
 
-    function _withdraw(
+    function _redeem(
         uint256 amount,
         uint256 minAmount,
         bytes memory incomingData,
@@ -332,17 +327,17 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
     ) internal virtual;
 
     /**
-     * @notice Records a failed withdrawal attempt from an incoming cross-chain message.
+     * @notice Records a failed redemption attempt from an incoming cross-chain message.
      * @dev This function stores the failure details and emits an event so that the operation may be retried.
-     * @param amount The attempted withdrawal amount.
+     * @param amount The attempted redemption amount.
      * @param minAmount The minimum acceptable amount.
      * @param incomingData Encoded data from the incoming cross-chain message.
      * @param incomingFee The fee for the incoming message.
      * @param incomingOptions Options associated with the incoming message.
-     * @param value The native value sent with the withdrawal attempt.
+     * @param value The native value sent with the redemption attempt.
      * @param reason The reason for the failure.
      */
-    function _onFailedWithdrawal(
+    function _onFailedRedemption(
         uint256 amount,
         uint256 minAmount,
         bytes memory incomingData,
@@ -351,34 +346,34 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
         uint256 value,
         bytes memory reason
     ) internal virtual {
-        uint256 id = failedWithdrawals.length;
-        failedWithdrawals.push(
-            FailedWithdrawal(false, amount, minAmount, incomingData, incomingFee, incomingOptions, value)
+        uint256 id = failedRedemptions.length;
+        failedRedemptions.push(
+            FailedRedemption(false, amount, minAmount, incomingData, incomingFee, incomingOptions, value)
         );
-        emit WithdrawFail(id, reason);
+        emit RedeemFail(id, reason);
     }
 
     /**
-     * @notice Retries a previously failed withdrawal.
-     * @dev Marks the failed withdrawal as resolved and re-initiates the withdrawal via the vault contract.
+     * @notice Retries a previously failed redemption.
+     * @dev Marks the failed redemption as resolved and re-initiates the redemption via the vault contract.
      *      This function requires additional fees (if any) to be provided via msg.value.
-     * @param id The identifier of the failed withdrawal.
-     * @param options Additional options for the withdrawal retry.
+     * @param id The identifier of the failed redemption.
+     * @param options Additional options for the redemption retry.
      */
-    function retryWithdraw(uint256 id, bytes memory options) external payable virtual {
-        FailedWithdrawal storage withdrawal = failedWithdrawals[id];
-        if (withdrawal.resolved) revert InvalidId();
+    function retryRedeem(uint256 id, bytes memory options) external payable virtual {
+        FailedRedemption storage redemption = failedRedemptions[id];
+        if (redemption.resolved) revert InvalidId();
 
-        withdrawal.resolved = true;
+        redemption.resolved = true;
 
-        IStakingVault(vault).withdraw{ value: withdrawal.value + msg.value }(
+        IStakingVault(vault).redeem{ value: redemption.value + msg.value }(
             underlying,
             address(this),
-            withdrawal.amount,
-            withdrawal.minAmount,
-            withdrawal.incomingData,
-            withdrawal.incomingFee,
-            withdrawal.incomingOptions,
+            redemption.amount,
+            redemption.minAmount,
+            redemption.incomingData,
+            redemption.incomingFee,
+            redemption.incomingOptions,
             options
         );
     }

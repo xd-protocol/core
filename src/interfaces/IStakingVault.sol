@@ -3,27 +3,27 @@ pragma solidity ^0.8.0;
 
 interface IStakingVaultCallbacks {
     /**
-     * @notice Called when a token withdrawal is performed.
-     * @param asset The address of the asset withdrawn.
-     * @param amount The amount withdrawn.
+     * @notice Called when a token redemption is performed.
+     * @param asset The address of the asset redeemed.
+     * @param amount The amount redeemed.
      * @param data Arbitrary data.
      */
-    function onWithdraw(address asset, uint256 amount, bytes calldata data) external;
+    function onRedeem(address asset, uint256 amount, bytes calldata data) external;
 }
 
 interface IStakingVaultNativeCallbacks {
     /**
-     * @notice Called when a native currency withdrawal is performed.
+     * @notice Called when a native currency redemption is performed.
      * @param data Arbitrary data.
      */
-    function onWithdrawNative(bytes calldata data) external payable;
+    function onRedeemNative(bytes calldata data) external payable;
 }
 
 interface IStakingVault {
     event Stake(address indexed asset, uint256 amount);
     event Unstake(address indexed asset, uint256 amount);
     event Deposit(address indexed asset, uint256 amount, uint256 shares);
-    event Withdraw(address indexed asset, uint256 amount);
+    event Redeem(address indexed asset, uint256 amount);
 
     /**
      * @notice Deposits an asset.
@@ -53,14 +53,14 @@ interface IStakingVault {
         returns (uint256 dstAmount);
 
     /**
-     * @notice Withdraws tokens from the vault.
-     * @dev Checks balance and processes local or cross-chain withdrawals.
+     * @notice Redeems tokens from the vault.
+     * @dev Checks balance and processes local or cross-chain redemptions.
      * @param to The recipient.
-     * @param asset The asset to withdraw.
-     * @param amount The amount to withdraw.
+     * @param asset The asset to redeem.
+     * @param amount The amount to redeem.
      * @param options Extra options.
      */
-    function withdraw(
+    function redeem(
         address asset,
         address to,
         uint256 amount,
@@ -72,13 +72,13 @@ interface IStakingVault {
     ) external payable;
 
     /**
-     * @notice Withdraws native currency from the vault.
-     * @dev Checks balance and processes local or cross-chain withdrawals.
+     * @notice Redeems native currency from the vault.
+     * @dev Checks balance and processes local or cross-chain redemptions.
      * @param to The recipient.
-     * @param amount The native amount to withdraw.
+     * @param amount The native amount to redeem.
      * @param options Extra options.
      */
-    function withdrawNative(
+    function redeemNative(
         address to,
         uint256 amount,
         uint256 minAmount,

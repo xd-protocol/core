@@ -10,10 +10,10 @@ import { AddressLib } from "./libraries/AddressLib.sol";
  * @notice A native token wrapper that extends cross-chain functionality for an underlying native asset.
  *         This contract builds upon BaseERC20xDWrapper to enable wrapping and unwrapping operations for the
  *         native cryptocurrency (e.g., ETH), interacting with a staking vault that supports native token
- *         deposits and withdrawals.
+ *         deposits and redemptions.
  * @dev Outgoing operations (wrap) are performed by invoking _deposit() to deposit native tokens into the vault,
- *      while outgoing unwrapping (withdraw) operations are executed via _withdraw(). The contract also implements
- *      the IStakingVaultNativeCallbacks interface to handle incoming cross-chain messages confirming withdrawals.
+ *      while outgoing unwrapping (redeem) operations are executed via _redeem(). The contract also implements
+ *      the IStakingVaultNativeCallbacks interface to handle incoming cross-chain messages confirming redemptions.
  */
 contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
     /*//////////////////////////////////////////////////////////////
@@ -73,18 +73,18 @@ contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
     }
 
     /**
-     * @notice Executes a withdrawal (unwrap) operation for the native asset.
-     * @dev Initiates an outgoing withdrawal request by calling the vault's withdrawNative function.
-     *      If the withdrawal call fails, the failure is recorded via _onFailedWithdrawal.
-     * @param amount The amount of native tokens to withdraw.
+     * @notice Executes a redemption (unwrap) operation for the native asset.
+     * @dev Initiates an outgoing redemption request by calling the vault's redeemNative function.
+     *      If the redemption call fails, the failure is recorded via _onFailedRedemption.
+     * @param amount The amount of native tokens to redeem.
      * @param minAmount The minimum amount expected to be received.
-     * @param incomingData Encoded data for processing the incoming cross-chain withdrawal message.
-     * @param incomingFee The fee for processing the incoming withdrawal message.
-     * @param incomingOptions Options associated with the incoming withdrawal message.
-     * @param fee The fee to be forwarded with the withdrawal call.
-     * @param options Additional options to pass to the vault's withdrawal function.
+     * @param incomingData Encoded data for processing the incoming cross-chain redemption message.
+     * @param incomingFee The fee for processing the incoming redemption message.
+     * @param incomingOptions Options associated with the incoming redemption message.
+     * @param fee The fee to be forwarded with the redemption call.
+     * @param options Additional options to pass to the vault's redemption function.
      */
-    function _withdraw(
+    function _redeem(
         uint256 amount,
         uint256 minAmount,
         bytes memory incomingData,
@@ -93,10 +93,10 @@ contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
         uint256 fee,
         bytes memory options
     ) internal virtual override {
-        try IStakingVault(vault).withdrawNative{ value: fee }(
+        try IStakingVault(vault).redeemNative{ value: fee }(
             address(this), amount, minAmount, incomingData, incomingFee, incomingOptions, options
         ) { } catch (bytes memory reason) {
-            _onFailedWithdrawal(amount, minAmount, incomingData, incomingFee, incomingOptions, fee, reason);
+            _onFailedRedemption(amount, minAmount, incomingData, incomingFee, incomingOptions, fee, reason);
         }
     }
 
@@ -105,13 +105,13 @@ contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Callback function invoked by the vault when a native withdrawal is executed.
-     * @dev This function handles the incoming cross-chain message (incoming operation) confirming a withdrawal.
+     * @notice Callback function invoked by the vault when a native redemption is executed.
+     * @dev This function handles the incoming cross-chain message (incoming operation) confirming a redemption.
      *      It verifies that the caller is the vault, decodes the original sender and recipient addresses,
-     *      updates internal accounting via _transferFrom, and transfers the withdrawn native tokens to the recipient.
+     *      updates internal accounting via _transferFrom, and transfers the redeemed native tokens to the recipient.
      * @param data Encoded data containing the original sender and recipient addresses.
      */
-    function onWithdrawNative(bytes calldata data) external payable nonReentrant {
+    function onRedeemNative(bytes calldata data) external payable nonReentrant {
         if (msg.sender != vault) revert Forbidden();
 
         (address from, address to) = abi.decode(data, (address, address));

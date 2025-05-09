@@ -9,10 +9,10 @@ import { IStakingVault, IStakingVaultCallbacks } from "./interfaces/IStakingVaul
  * @title ERC20xDWrapper
  * @notice Implements cross-chain wrapping and unwrapping for an underlying ERC20 token.
  *         This contract extends BaseERC20xDWrapper to provide wrapper-specific logic and integrates
- *         with a staking vault to perform deposit and withdrawal operations.
+ *         with a staking vault to perform deposit and redemption operations.
  * @dev Outgoing operations (wrap) call _deposit() to transfer tokens to the vault,
- *      while incoming operations (unwrap) call _withdraw() to trigger a vault withdrawal.
- *      The onWithdraw() callback finalizes withdrawals by transferring tokens to the recipient.
+ *      while incoming operations (unwrap) call _redeem() to trigger a vault redemption.
+ *      The onRedeem() callback finalizes redemptions by transferring tokens to the recipient.
  */
 contract ERC20xDWrapper is BaseERC20xDWrapper, IStakingVaultCallbacks {
     using SafeTransferLib for ERC20;
@@ -70,19 +70,19 @@ contract ERC20xDWrapper is BaseERC20xDWrapper, IStakingVaultCallbacks {
     }
 
     /**
-     * @notice Handles the withdrawal (unwrap) operation by invoking the vault's withdrawal function.
-     * @dev This function attempts to withdraw tokens from the vault. If the withdrawal fails,
-     *      it triggers a failure handler to record the failed withdrawal details.
+     * @notice Handles the redemption (unwrap) operation by invoking the vault's redemption function.
+     * @dev This function attempts to redeem tokens from the vault. If the redemption fails,
+     *      it triggers a failure handler to record the failed redemption details.
      *      This represents an outgoing message to request tokens be unwrapped.
-     * @param amount The amount of tokens to withdraw.
-     * @param minAmount The minimum amount expected from the withdrawal.
-     * @param incomingData Encoded data for the incoming cross-chain withdrawal message.
-     * @param incomingFee The fee associated with the incoming withdrawal message.
+     * @param amount The amount of tokens to redeem.
+     * @param minAmount The minimum amount expected from the redemption.
+     * @param incomingData Encoded data for the incoming cross-chain redemption message.
+     * @param incomingFee The fee associated with the incoming redemption message.
      * @param incomingOptions Options for handling the incoming message.
-     * @param fee The fee to be forwarded for the withdrawal call.
-     * @param options Additional options to be passed to the vault withdrawal function.
+     * @param fee The fee to be forwarded for the redemption call.
+     * @param options Additional options to be passed to the vault redemption function.
      */
-    function _withdraw(
+    function _redeem(
         uint256 amount,
         uint256 minAmount,
         bytes memory incomingData,
@@ -91,10 +91,10 @@ contract ERC20xDWrapper is BaseERC20xDWrapper, IStakingVaultCallbacks {
         uint256 fee,
         bytes memory options
     ) internal virtual override {
-        try IStakingVault(vault).withdraw{ value: fee }(
+        try IStakingVault(vault).redeem{ value: fee }(
             underlying, address(this), amount, minAmount, incomingData, incomingFee, incomingOptions, options
         ) { } catch (bytes memory reason) {
-            _onFailedWithdrawal(amount, minAmount, incomingData, incomingFee, incomingOptions, fee, reason);
+            _onFailedRedemption(amount, minAmount, incomingData, incomingFee, incomingOptions, fee, reason);
         }
     }
 
@@ -103,14 +103,14 @@ contract ERC20xDWrapper is BaseERC20xDWrapper, IStakingVaultCallbacks {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Callback function invoked by the vault when a withdrawal is executed.
+     * @notice Callback function invoked by the vault when a redemption is executed.
      * @dev This function is called as part of the incoming cross-chain message that finalizes
-     *      a withdrawal. It verifies the caller, decodes the sender and recipient, updates balances,
+     *      a redemption. It verifies the caller, decodes the sender and recipient, updates balances,
      *      and transfers the underlying tokens to the recipient.
-     * @param amount The amount of tokens that have been withdrawn.
+     * @param amount The amount of tokens that have been redeemed.
      * @param data Encoded data containing the original sender and recipient addresses.
      */
-    function onWithdraw(address, uint256 amount, bytes calldata data) external nonReentrant {
+    function onRedeem(address, uint256 amount, bytes calldata data) external nonReentrant {
         if (msg.sender != vault) revert Forbidden();
 
         (address from, address to) = abi.decode(data, (address, address));

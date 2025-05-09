@@ -128,7 +128,7 @@ contract ERC20xDWrapperTest is BaseLiquidityMatrixTest {
         uint256 incomingFee;
         (minAmount, incomingFee) = vault.quoteDeposit(address(underlyings[0]), shares, GAS_LIMIT);
         bytes memory incomingData = abi.encode(alice, alice); // from, to
-        uint256 outgoingFee = vault.quoteWithdraw(
+        uint256 outgoingFee = vault.quoteRedeem(
             address(underlyings[0]), alice, shares, minAmount, incomingData, uint128(incomingFee), options, GAS_LIMIT
         );
         uint256 readFee = local.quoteUnwrap(alice, GAS_LIMIT);
@@ -136,7 +136,7 @@ contract ERC20xDWrapperTest is BaseLiquidityMatrixTest {
             alice, shares, minAmount, uint128(incomingFee), options, uint128(outgoingFee), options, options
         );
 
-        // TODO: verifyPackets();
+        // verifyPackets();
 
         assertEq(local.balanceOf(alice), 0);
         assertEq(vault.sharesOf(alice), 0);

@@ -29,7 +29,7 @@ contract StakingVaultMock is IStakingVault {
         fee = gasLimit * 1e9;
     }
 
-    function quoteWithdraw(address, address, uint256, uint256, bytes memory, uint128, bytes memory, uint128 gasLimit)
+    function quoteRedeem(address, address, uint256, uint256, bytes memory, uint128, bytes memory, uint128 gasLimit)
         public
         pure
         returns (uint256 fee)
@@ -37,7 +37,7 @@ contract StakingVaultMock is IStakingVault {
         fee = gasLimit * 1e9;
     }
 
-    function quoteWithdrawNative(address, uint256, uint256, bytes memory, uint128, bytes memory, uint128 gasLimit)
+    function quoteRedeemNative(address, uint256, uint256, bytes memory, uint128, bytes memory, uint128 gasLimit)
         public
         pure
         returns (uint256 fee)
@@ -75,7 +75,7 @@ contract StakingVaultMock is IStakingVault {
         if (msg.value < amount) revert("INSUFFICIENT_VALUE");
     }
 
-    function withdraw(
+    function redeem(
         address asset,
         address to,
         uint256 amount,
@@ -86,20 +86,20 @@ contract StakingVaultMock is IStakingVault {
         bytes calldata options
     ) external payable {
         (uint128 gasLimit,) = LzLib.decodeOptions(options);
-        uint256 fee = quoteWithdraw(asset, to, amount, minAmount, incomingData, incomingFee, incomingOptions, gasLimit);
+        uint256 fee = quoteRedeem(asset, to, amount, minAmount, incomingData, incomingFee, incomingOptions, gasLimit);
         if (msg.value < amount + fee) revert("INSUFFICIENT_FEE");
 
         if (amount > sharesOf[msg.sender]) revert("INSUFFICIENT_SHARES");
 
         ERC20(asset).safeApprove(to, 0);
         ERC20(asset).safeApprove(to, minAmount);
-        try IStakingVaultCallbacks(to).onWithdraw(asset, minAmount, incomingData) { }
+        try IStakingVaultCallbacks(to).onRedeem(asset, minAmount, incomingData) { }
         catch {
             ERC20(asset).safeTransfer(to, minAmount);
         }
     }
 
-    function withdrawNative(
+    function redeemNative(
         address to,
         uint256 amount,
         uint256 minAmount,
@@ -110,7 +110,7 @@ contract StakingVaultMock is IStakingVault {
     ) external payable {
         if (amount > sharesOf[msg.sender]) revert("INSUFFICIENT_SHARES");
 
-        try IStakingVaultNativeCallbacks(to).onWithdrawNative{ value: minAmount }(incomingData) { }
+        try IStakingVaultNativeCallbacks(to).onRedeemNative{ value: minAmount }(incomingData) { }
         catch {
             AddressLib.transferNative(to, minAmount);
         }
