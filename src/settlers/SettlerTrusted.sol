@@ -99,8 +99,8 @@ contract SettlerTrusted is BaseSettler {
         State storage state = _states[app][eid];
 
         address[] memory accounts = new address[](liquidity.length);
-        uint256 offset;
         for (uint256 i; i < liquidity.length; ++i) {
+            uint256 offset;
             // first bit indicates whether an account follows after index and the rest 31 bits represent index
             uint32 _index = uint32(bytes4(accountsData[offset:offset + 4]));
             offset += 4;
@@ -115,8 +115,13 @@ contract SettlerTrusted is BaseSettler {
             }
         }
 
-        bytes32 mainTreeRoot = ILiquidityMatrix(liquidityMatrix).getLiquidityRootAt(eid, timestamp);
-        _verifyMainTreeRoot(_getRemoteAppOrRevert(app, eid), appRoot, mainTreeIndex, mainTreeProof, mainTreeRoot);
+        _verifyMainTreeRoot(
+            _getRemoteAppOrRevert(app, eid),
+            appRoot,
+            mainTreeIndex,
+            mainTreeProof,
+            ILiquidityMatrix(liquidityMatrix).getLiquidityRootAt(eid, timestamp)
+        );
 
         ILiquidityMatrix(liquidityMatrix).settleLiquidity(
             ILiquidityMatrix.SettleLiquidityParams(app, eid, timestamp, accounts, liquidity)
@@ -150,8 +155,8 @@ contract SettlerTrusted is BaseSettler {
         State storage state = _states[app][eid];
 
         bytes32[] memory keys = new bytes32[](values.length);
-        uint256 offset;
         for (uint256 i; i < values.length; ++i) {
+            uint256 offset;
             // first bit indicates whether a key follows after index and the rest 31 bits represent index
             uint32 _index = uint32(bytes4(keysData[offset:offset + 4]));
             offset += 4;
@@ -166,8 +171,13 @@ contract SettlerTrusted is BaseSettler {
             }
         }
 
-        bytes32 mainTreeRoot = ILiquidityMatrix(liquidityMatrix).getDataRootAt(eid, timestamp);
-        _verifyMainTreeRoot(_getRemoteAppOrRevert(app, eid), appRoot, mainTreeIndex, mainTreeProof, mainTreeRoot);
+        _verifyMainTreeRoot(
+            _getRemoteAppOrRevert(app, eid),
+            appRoot,
+            mainTreeIndex,
+            mainTreeProof,
+            ILiquidityMatrix(liquidityMatrix).getDataRootAt(eid, timestamp)
+        );
 
         ILiquidityMatrix(liquidityMatrix).settleData(
             ILiquidityMatrix.SettleDataParams(app, eid, timestamp, keys, values)
