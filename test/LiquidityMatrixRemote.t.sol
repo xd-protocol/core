@@ -5,11 +5,11 @@ import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { ArrayLib } from "src/libraries/ArrayLib.sol";
 import { MerkleTreeLib } from "src/libraries/MerkleTreeLib.sol";
-import { Settler } from "src/settlers/Settler.sol";
 import { Test, console } from "forge-std/Test.sol";
 import { AppMock } from "./mocks/AppMock.sol";
 import { IAppMock } from "./mocks/IAppMock.sol";
 import { LiquidityMatrixTestHelper } from "./helpers/LiquidityMatrixTestHelper.sol";
+import { SettlerMock } from "./mocks/SettlerMock.sol";
 
 contract LiquidityMatrixRemoteTest is LiquidityMatrixTestHelper {
     using MerkleTreeLib for MerkleTreeLib.Tree;
@@ -26,8 +26,8 @@ contract LiquidityMatrixRemoteTest is LiquidityMatrixTestHelper {
         remote = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[EID_REMOTE], owner);
         localApp = address(new AppMock(address(local)));
         remoteApp = address(new AppMock(address(remote)));
-        localSettler = address(new Settler(address(local)));
-        remoteSettler = address(new Settler(address(remote)));
+        localSettler = address(new SettlerMock(address(local)));
+        remoteSettler = address(new SettlerMock(address(remote)));
         address[] memory oapps = new address[](2);
         oapps[0] = address(local);
         oapps[1] = address(remote);

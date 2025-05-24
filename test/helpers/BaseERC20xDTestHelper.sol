@@ -8,11 +8,11 @@ import {
     EVMCallComputeV1
 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
 import { Test, Vm, console } from "forge-std/Test.sol";
-import { Settler } from "src/settlers/Settler.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { LiquidityMatrixTestHelper } from "./LiquidityMatrixTestHelper.sol";
+import { SettlerMock } from "../mocks/SettlerMock.sol";
 
 abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
     uint8 public constant CHAINS = 8;
@@ -40,7 +40,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
         for (uint32 i; i < CHAINS; ++i) {
             eids[i] = i + 1;
             liquidityMatrices[i] = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[eids[i]], owner);
-            settlers[i] = address(new Settler(address(liquidityMatrices[i])));
+            settlers[i] = address(new SettlerMock(address(liquidityMatrices[i])));
             oapps[i] = address(liquidityMatrices[i]);
             erc20s[i] = _newBaseERC20xD(i);
             _erc20s[i] = address(erc20s[i]);

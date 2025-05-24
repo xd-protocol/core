@@ -8,7 +8,6 @@ import {
     EVMCallComputeV1
 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
 import { Test, Vm, console } from "forge-std/Test.sol";
-import { Settler } from "src/settlers/Settler.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
 import { NativexD } from "src/NativexD.sol";
 import { BaseERC20xDWrapper } from "src/mixins/BaseERC20xDWrapper.sol";
