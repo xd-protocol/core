@@ -40,11 +40,13 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
     uint32 constant EID_REMOTE = 2;
     uint16 constant CMD_SYNC = 1;
 
+    address localSyncer = makeAddr("localSyncer");
     ILiquidityMatrix local;
     address localApp;
     Storage localStorage;
     address localSettler;
 
+    address remoteSyncer = makeAddr("remoteSyncer");
     ILiquidityMatrix remote;
     address remoteApp;
     Storage remoteStorage;
@@ -164,21 +166,24 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
         }
     }
 
-    function _sync(ILiquidityMatrix _local)
+    function _sync(address _syncer, ILiquidityMatrix _local)
         internal
         returns (bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp)
     {
         ILiquidityMatrix[] memory _remotes = new ILiquidityMatrix[](1);
         _remotes[0] = address(_local) == address(local) ? remote : local;
         (bytes32[] memory liquidityRoots, bytes32[] memory dataRoots, uint256[] memory timestamps) =
-            _sync(_local, _remotes);
+            _sync(_syncer, _local, _remotes);
         return (liquidityRoots[0], dataRoots[0], timestamps[0]);
     }
 
-    function _sync(ILiquidityMatrix _local, ILiquidityMatrix[] memory _remotes)
+    function _sync(address _syncer, ILiquidityMatrix _local, ILiquidityMatrix[] memory _remotes)
         internal
         returns (bytes32[] memory liquidityRoots, bytes32[] memory dataRoots, uint256[] memory timestamps)
     {
+        (, address txOrigin, address msgSender) = vm.readCallers();
+        changePrank(_syncer, _syncer);
+
         liquidityRoots = new bytes32[](_remotes.length);
         dataRoots = new bytes32[](_remotes.length);
         timestamps = new uint256[](_remotes.length);
@@ -207,6 +212,7 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
             assertEq(_dataRoot, dataRoots[i]);
             assertEq(_dataTimestamp, timestamps[i]);
         }
+        changePrank(txOrigin, msgSender);
     }
 
     function _requestMapRemoteAccounts(

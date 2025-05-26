@@ -17,6 +17,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
     uint8 public constant CHAINS = 16;
 
     uint32[CHAINS] eids;
+    address[CHAINS] syncers;
     ILiquidityMatrix[CHAINS] liquidityMatrices;
     address[CHAINS] apps;
     Storage[CHAINS] storages;
@@ -32,7 +33,8 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         address[] memory oapps = new address[](CHAINS);
         for (uint32 i; i < CHAINS; ++i) {
             eids[i] = i + 1;
-            liquidityMatrices[i] = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[eids[i]], owner);
+            syncers[i] = makeAddr(string.concat("syncer", vm.toString(i)));
+            liquidityMatrices[i] = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[eids[i]], syncers[i], owner);
             oapps[i] = address(liquidityMatrices[i]);
             apps[i] = address(new AppMock(address(liquidityMatrices[i])));
         }
@@ -60,8 +62,13 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         for (uint256 i; i < 100; ++i) {
             users.push(makeAddr(string.concat("account", vm.toString(i))));
         }
+        for (uint256 i; i < syncers.length; ++i) {
+            vm.deal(syncers[i], 10_000e18);
+        }
+        for (uint256 i; i < users.length; ++i) {
+            vm.deal(users[i], 10_000e18);
+        }
 
-        vm.deal(users[0], 10_000e18);
         changePrank(users[0], users[0]);
     }
 
@@ -72,7 +79,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
             remotes[i - 1] = liquidityMatrices[i];
             seed = keccak256(abi.encodePacked(seed, i));
         }
-        _sync(liquidityMatrices[0], remotes);
+        _sync(syncers[0], liquidityMatrices[0], remotes);
     }
 
     function test_requestMapRemoteAccounts() public {

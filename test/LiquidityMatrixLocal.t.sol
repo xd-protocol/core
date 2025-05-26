@@ -22,10 +22,11 @@ contract LiquidityMatrixLocalTest is LiquidityMatrixTestHelper {
         super.setUp();
         setUpEndpoints(1, LibraryType.UltraLightNode);
 
-        local = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[1], owner);
+        local = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[1], localSyncer, owner);
         localApp = address(new AppMock(address(local)));
         initialize(localStorage);
 
+        vm.deal(localSyncer, 10_000e18);
         vm.deal(localApp, 10_000e18);
     }
 

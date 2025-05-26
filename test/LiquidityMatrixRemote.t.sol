@@ -22,8 +22,8 @@ contract LiquidityMatrixRemoteTest is LiquidityMatrixTestHelper {
         setUpEndpoints(2, LibraryType.UltraLightNode);
 
         changePrank(owner, owner);
-        local = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[EID_LOCAL], owner);
-        remote = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[EID_REMOTE], owner);
+        local = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[EID_LOCAL], localSyncer, owner);
+        remote = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[EID_REMOTE], remoteSyncer, owner);
         localApp = address(new AppMock(address(local)));
         remoteApp = address(new AppMock(address(remote)));
         localSettler = address(new SettlerMock(address(local)));
@@ -60,6 +60,8 @@ contract LiquidityMatrixRemoteTest is LiquidityMatrixTestHelper {
             users.push(makeAddr(string.concat("account", vm.toString(i))));
         }
 
+        vm.deal(localSyncer, 10_000e18);
+        vm.deal(remoteSyncer, 10_000e18);
         vm.deal(users[0], 10_000e18);
         changePrank(users[0], users[0]);
     }
@@ -77,7 +79,7 @@ contract LiquidityMatrixRemoteTest is LiquidityMatrixTestHelper {
 
         (, address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
             _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
-        (bytes32 liquidityRoot,, uint256 timestamp) = _sync(local);
+        (bytes32 liquidityRoot,, uint256 timestamp) = _sync(localSyncer, local);
 
         changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
@@ -115,7 +117,7 @@ contract LiquidityMatrixRemoteTest is LiquidityMatrixTestHelper {
         (, address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
             _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
         (, bytes32[] memory keys, bytes[] memory values) = _updateLocalData(remote, remoteApp, remoteStorage, seed);
-        (bytes32 liquidityRoot,, uint256 timestamp) = _sync(local);
+        (bytes32 liquidityRoot,, uint256 timestamp) = _sync(localSyncer, local);
 
         changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
@@ -160,7 +162,7 @@ contract LiquidityMatrixRemoteTest is LiquidityMatrixTestHelper {
         initialize(remoteStorage);
         (, address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
             _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
-        _sync(local);
+        _sync(localSyncer, local);
 
         changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
@@ -185,7 +187,7 @@ contract LiquidityMatrixRemoteTest is LiquidityMatrixTestHelper {
 
         (, address[] memory accounts, int256[] memory liquidity,) =
             _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
-        _sync(local);
+        _sync(localSyncer, local);
 
         changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
@@ -209,7 +211,7 @@ contract LiquidityMatrixRemoteTest is LiquidityMatrixTestHelper {
         initialize(remoteStorage);
         (, address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
             _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
-        _sync(local);
+        _sync(localSyncer, local);
 
         changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
@@ -235,7 +237,7 @@ contract LiquidityMatrixRemoteTest is LiquidityMatrixTestHelper {
 
         (, address[] memory accounts, int256[] memory liquidity, int256 totalLiquidity) =
             _updateLocalLiquidity(remote, remoteApp, remoteStorage, users, seed);
-        _sync(local);
+        _sync(localSyncer, local);
 
         changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);
@@ -256,7 +258,7 @@ contract LiquidityMatrixRemoteTest is LiquidityMatrixTestHelper {
 
     function test_settleData(bytes32 seed) public {
         (, bytes32[] memory keys, bytes[] memory values) = _updateLocalData(remote, remoteApp, remoteStorage, seed);
-        _sync(local);
+        _sync(localSyncer, local);
 
         changePrank(localSettler, localSettler);
         (, uint256 rootTimestamp) = local.getLastSyncedLiquidityRoot(EID_REMOTE);

@@ -20,6 +20,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
     uint96 public constant GAS_LIMIT = 500_000;
 
     uint32[CHAINS] eids;
+    address[CHAINS] syncers;
     ILiquidityMatrix[CHAINS] liquidityMatrices;
     address[CHAINS] settlers;
     BaseERC20xD[CHAINS] erc20s;
@@ -39,7 +40,8 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
         address[] memory _erc20s = new address[](CHAINS);
         for (uint32 i; i < CHAINS; ++i) {
             eids[i] = i + 1;
-            liquidityMatrices[i] = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[eids[i]], owner);
+            syncers[i] = makeAddr(string.concat("syncer", vm.toString(i)));
+            liquidityMatrices[i] = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[eids[i]], syncers[i], owner);
             settlers[i] = address(new SettlerMock(address(liquidityMatrices[i])));
             oapps[i] = address(liquidityMatrices[i]);
             erc20s[i] = _newBaseERC20xD(i);
@@ -71,6 +73,9 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             liquidityMatrices[i].configChains(configs);
         }
 
+        for (uint256 i; i < syncers.length; ++i) {
+            vm.deal(syncers[i], 10_000e18);
+        }
         for (uint256 i; i < users.length; ++i) {
             vm.deal(users[i], 10_000e18);
         }
@@ -88,7 +93,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
         for (uint256 i; i < remotes.length; ++i) {
             remotes[i] = liquidityMatrices[i + 1];
         }
-        _sync(local, remotes);
+        _sync(syncers[0], local, remotes);
 
         for (uint256 i = 1; i < CHAINS; ++i) {
             ILiquidityMatrix remote = liquidityMatrices[i];

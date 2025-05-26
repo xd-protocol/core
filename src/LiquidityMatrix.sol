@@ -40,6 +40,8 @@ contract LiquidityMatrix is LiquidityMatrixRemote, OAppRead {
 
     uint32 public immutable READ_CHANNEL;
 
+    address public syncer;
+
     ChainConfig[] internal _chainConfigs;
 
     uint256 internal _lastSyncRequestTimestamp;
@@ -47,6 +49,8 @@ contract LiquidityMatrix is LiquidityMatrixRemote, OAppRead {
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
+    event UpdateSyncer(address indexed syncer);
+    event UpdateSettlerWhitelisted(address indexed account, bool whitelisted);
     event Sync(address indexed caller);
     event RequestMapRemoteAccounts(
         address indexed app, uint32 indexed eid, address indexed remoteApp, address[] locals, address[] remotes
@@ -67,8 +71,12 @@ contract LiquidityMatrix is LiquidityMatrixRemote, OAppRead {
                              CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    constructor(uint32 _readChannel, address _endpoint, address _owner) OAppRead(_endpoint, _owner) Ownable(_owner) {
+    constructor(uint32 _readChannel, address _endpoint, address _syncer, address _owner)
+        OAppRead(_endpoint, _owner)
+        Ownable(_owner)
+    {
         READ_CHANNEL = _readChannel;
+        syncer = _syncer;
 
         _setPeer(_readChannel, AddressCast.toBytes32(address(this)));
     }
@@ -208,8 +216,16 @@ contract LiquidityMatrix is LiquidityMatrixRemote, OAppRead {
         _chainConfigs = configs;
     }
 
+    function updateSyncer(address _syncer) external onlyOwner {
+        syncer = _syncer;
+
+        emit UpdateSyncer(_syncer);
+    }
+
     function updateSettlerWhitelisted(address account, bool whitelisted) external onlyOwner {
-        _updateSettlerWhitelisted(account, whitelisted);
+        _isSettlerWhitelisted[account] = whitelisted;
+
+        emit UpdateSettlerWhitelisted(account, whitelisted);
     }
 
     /**
@@ -222,6 +238,7 @@ contract LiquidityMatrix is LiquidityMatrixRemote, OAppRead {
      *         Includes the `guid` and `block` parameters for tracking.
      */
     function sync(uint128 gasLimit, uint32 calldataSize) external payable returns (MessagingReceipt memory receipt) {
+        if (msg.sender != syncer) revert Forbidden();
         if (block.timestamp <= _lastSyncRequestTimestamp) revert AlreadyRequested();
         _lastSyncRequestTimestamp = block.timestamp;
 
@@ -286,7 +303,7 @@ contract LiquidityMatrix is LiquidityMatrixRemote, OAppRead {
                     abi.decode(_message, (uint16, address, address, address[], address[]));
                 if (_remoteStates[app][eid].app != remoteApp) revert Forbidden();
 
-                _mapRemoteAccounts(app, eid, remotes, locals);
+                _onMapRemoteAccounts(app, eid, remotes, locals);
             } else {
                 revert InvalidMsgType();
             }

@@ -99,7 +99,6 @@ abstract contract LiquidityMatrixRemote is LiquidityMatrixLocal {
     );
     event SettleLiquidity(uint32 indexed eid, address indexed app, bytes32 indexed root, uint256 timestamp);
     event SettleData(uint32 indexed eid, address indexed app, bytes32 indexed root, uint256 timestamp);
-    event UpdaetSettlerWhitelisted(address indexed account, bool whitelisted);
     event OnReceiveStaleRoots(
         uint32 indexed eid, bytes32 indexed liquidityRoot, bytes32 indexed dataRoot, uint256 timestamp
     );
@@ -617,12 +616,6 @@ abstract contract LiquidityMatrixRemote is LiquidityMatrixLocal {
         emit SettleData(params.eid, params.app, _dataRoots[params.eid][params.timestamp], params.timestamp);
     }
 
-    function _updateSettlerWhitelisted(address account, bool whitelisted) internal {
-        _isSettlerWhitelisted[account] = whitelisted;
-
-        emit UpdaetSettlerWhitelisted(account, whitelisted);
-    }
-
     /**
      * @notice Processes incoming liquidity and data roots for a specific chain.
      * @param eid The endpoint ID of the remote chain.
@@ -644,7 +637,9 @@ abstract contract LiquidityMatrixRemote is LiquidityMatrixLocal {
         emit OnReceiveRoots(eid, liquidityRoot, dataRoot, timestamp);
     }
 
-    function _mapRemoteAccounts(address app, uint32 eid, address[] memory remotes, address[] memory locals) internal {
+    function _onMapRemoteAccounts(address app, uint32 eid, address[] memory remotes, address[] memory locals)
+        internal
+    {
         // guaranteed that remotes and locals have same lengths
         // see `requestMapRemoteAccounts()`
         bool useCallbacks = _appStates[app].useCallbacks;
