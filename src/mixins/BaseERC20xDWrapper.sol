@@ -96,7 +96,6 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
     error TimeNotPassed();
     error InvalidTimeLockType();
     error InvalidId();
-    error Forbidden();
 
     /*//////////////////////////////////////////////////////////////
                                CONSTRUCTOR
@@ -110,7 +109,8 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
      * @param _name The token name.
      * @param _symbol The token symbol.
      * @param _decimals The token decimals.
-     * @param _liquidityMatrix The address used for synchronization.
+     * @param _liquidityMatrix The address of the LiquidityMatrix contract.
+     * @param _gateway The address of the ERC20xDGateway contract.
      * @param _owner The owner of the contract.
      */
     constructor(
@@ -121,8 +121,9 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
         string memory _symbol,
         uint8 _decimals,
         address _liquidityMatrix,
+        address _gateway,
         address _owner
-    ) BaseERC20xD(_name, _symbol, _decimals, _liquidityMatrix, _owner) {
+    ) BaseERC20xD(_name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner) {
         underlying = _underlying;
         timeLockPeriod = _timeLockPeriod;
         vault = _vault;

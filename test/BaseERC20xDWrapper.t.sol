@@ -30,7 +30,15 @@ contract BaseERC20xDWrapperTest is BaseERC20xDTestHelper {
         }
         vaults[i] = makeAddr(string.concat("vault", vm.toString(i)));
         return new ERC20xDWrapper(
-            address(underlyings[i]), TIMELOCK_PERIOD, vaults[i], "xD", "xD", 18, address(liquidityMatrices[i]), owner
+            address(underlyings[i]),
+            TIMELOCK_PERIOD,
+            vaults[i],
+            "xD",
+            "xD",
+            18,
+            address(liquidityMatrices[i]),
+            address(gateways[i]),
+            owner
         );
     }
 

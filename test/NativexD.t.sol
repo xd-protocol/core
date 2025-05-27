@@ -24,7 +24,9 @@ contract NativexDTest is BaseERC20xDTestHelper {
     StakingVaultMock vault;
 
     function _newBaseERC20xD(uint256 i) internal override returns (BaseERC20xD) {
-        return new NativexD(TIMELOCK_PERIOD, address(vault), "xD", "xD", 18, address(liquidityMatrices[i]), owner);
+        return new NativexD(
+            TIMELOCK_PERIOD, address(vault), "xD", "xD", 18, address(liquidityMatrices[i]), address(gateways[i]), owner
+        );
     }
 
     function setUp() public override {

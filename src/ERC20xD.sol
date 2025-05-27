@@ -3,15 +3,30 @@ pragma solidity ^0.8.28;
 
 import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { BaseERC20xD } from "./mixins/BaseERC20xD.sol";
+import { IERC20xDGateway } from "./interfaces/IERC20xDGateway.sol";
 
 contract ERC20xD is BaseERC20xD {
     /*//////////////////////////////////////////////////////////////
                                CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    constructor(string memory _name, string memory _symbol, uint8 _decimals, address _liquidityMatrix, address _owner)
-        BaseERC20xD(_name, _symbol, _decimals, _liquidityMatrix, _owner)
-    { }
+    /**
+     * @notice Initializes the ERC20xDWrapper contract.
+     * @param _name The token name.
+     * @param _symbol The token symbol.
+     * @param _decimals The token decimals.
+     * @param _liquidityMatrix The address of the LiquidityMatrix contract.
+     * @param _gateway The address of the ERC20xDGateway contract.
+     * @param _owner The owner of this contract.
+     */
+    constructor(
+        string memory _name,
+        string memory _symbol,
+        uint8 _decimals,
+        address _liquidityMatrix,
+        address _gateway,
+        address _owner
+    ) BaseERC20xD(_name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner) { }
 
     /*//////////////////////////////////////////////////////////////
                              VIEW FUNCTIONS

@@ -40,22 +40,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
     }
 
     function _newBaseERC20xD(uint256 i) internal override returns (BaseERC20xD) {
-        return new ERC20xD("xD", "xD", 18, address(liquidityMatrices[i]), owner);
-    }
-
-    function test_updateTransferDelays() public {
-        changePrank(owner, owner);
-        uint32[] memory _eids = new uint32[](CHAINS - 1);
-        uint64[] memory delays = new uint64[](CHAINS - 1);
-        for (uint64 i = 1; i < CHAINS; ++i) {
-            _eids[i - 1] = eids[i];
-            delays[i - 1] = i;
-        }
-        erc20s[0].updateTransferDelays(_eids, delays);
-
-        for (uint64 i = 1; i < CHAINS; ++i) {
-            assertEq(erc20s[0].transferDelay(eids[i]), i);
-        }
+        return new ERC20xD("xD", "xD", 18, address(liquidityMatrices[i]), address(gateways[i]), owner);
     }
 
     function test_transfer() public {

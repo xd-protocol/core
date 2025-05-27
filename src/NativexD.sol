@@ -36,7 +36,8 @@ contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
      * @param _name The name of the wrapped native token.
      * @param _symbol The symbol of the wrapped native token.
      * @param _decimals The number of decimals for the wrapped native token.
-     * @param _liquidityMatrix The address of the liquidityMatrix contract.
+     * @param _liquidityMatrix The address of the LiquidityMatrix contract.
+     * @param _gateway The address of the ERC20xDGateway contract.
      * @param _owner The address that will be granted ownership privileges.
      */
     constructor(
@@ -46,8 +47,11 @@ contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
         string memory _symbol,
         uint8 _decimals,
         address _liquidityMatrix,
+        address _gateway,
         address _owner
-    ) BaseERC20xDWrapper(NATIVE, _timeLockPeriod, _vault, _name, _symbol, _decimals, _liquidityMatrix, _owner) { }
+    )
+        BaseERC20xDWrapper(NATIVE, _timeLockPeriod, _vault, _name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner)
+    { }
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC

@@ -37,6 +37,7 @@ contract ERC20xDWrapperTest is BaseERC20xDTestHelper {
             "xD",
             18,
             address(liquidityMatrices[i]),
+            address(gateways[i]),
             owner
         );
     }

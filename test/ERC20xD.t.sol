@@ -18,7 +18,7 @@ import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
 
 contract ERC20xDTest is BaseERC20xDTestHelper {
     function _newBaseERC20xD(uint256 i) internal override returns (BaseERC20xD) {
-        return new ERC20xD("xD", "xD", 18, address(liquidityMatrices[i]), owner);
+        return new ERC20xD("xD", "xD", 18, address(liquidityMatrices[i]), address(gateways[i]), owner);
     }
 
     function test_mint(bytes32 seed) public {

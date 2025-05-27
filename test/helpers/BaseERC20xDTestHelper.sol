@@ -9,6 +9,7 @@ import {
 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
 import { Test, Vm, console } from "forge-std/Test.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
+import { ERC20xDGateway } from "src/gateways/ERC20xDGateway.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { LiquidityMatrixTestHelper } from "./LiquidityMatrixTestHelper.sol";
@@ -16,12 +17,13 @@ import { SettlerMock } from "../mocks/SettlerMock.sol";
 
 abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
     uint8 public constant CHAINS = 8;
-    uint16 public constant CMD_XD_TRANSFER = 1;
+    uint16 public constant CMD_TRANSFER = 1;
     uint96 public constant GAS_LIMIT = 500_000;
 
     uint32[CHAINS] eids;
     address[CHAINS] syncers;
     ILiquidityMatrix[CHAINS] liquidityMatrices;
+    ERC20xDGateway[CHAINS] gateways;
     address[CHAINS] settlers;
     BaseERC20xD[CHAINS] erc20s;
 
@@ -36,14 +38,17 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
         setUpEndpoints(CHAINS, LibraryType.UltraLightNode);
 
         changePrank(owner, owner);
-        address[] memory oapps = new address[](CHAINS);
+        address[] memory _liquidityMatrices = new address[](CHAINS);
+        address[] memory _gateways = new address[](CHAINS);
         address[] memory _erc20s = new address[](CHAINS);
         for (uint32 i; i < CHAINS; ++i) {
             eids[i] = i + 1;
             syncers[i] = makeAddr(string.concat("syncer", vm.toString(i)));
             liquidityMatrices[i] = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[eids[i]], syncers[i], owner);
+            _liquidityMatrices[i] = address(liquidityMatrices[i]);
+            gateways[i] = new ERC20xDGateway(DEFAULT_CHANNEL_ID, address(liquidityMatrices[i]), owner);
+            _gateways[i] = address(gateways[i]);
             settlers[i] = address(new SettlerMock(address(liquidityMatrices[i])));
-            oapps[i] = address(liquidityMatrices[i]);
             erc20s[i] = _newBaseERC20xD(i);
             _erc20s[i] = address(erc20s[i]);
 
@@ -53,7 +58,8 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             vm.deal(settlers[i], 1000e18);
         }
 
-        wireOApps(address[](oapps));
+        wireOApps(address[](_liquidityMatrices));
+        wireOApps(address[](_gateways));
         wireOApps(address[](_erc20s));
 
         for (uint32 i; i < CHAINS; ++i) {
@@ -115,10 +121,12 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
     function _executeTransfer(BaseERC20xD erc20, address from, uint256 nonce, bytes memory error) internal {
         bytes[] memory responses = new bytes[](CHAINS - 1);
         uint32 eid;
+        address gateway;
         uint256 count;
         for (uint256 i; i < CHAINS; ++i) {
             if (erc20s[i] == erc20) {
                 eid = eids[i];
+                gateway = address(gateways[i]);
                 continue;
             }
             responses[count++] = abi.encode(erc20s[i].availableLocalBalanceOf(from, nonce));
@@ -127,6 +135,6 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
         if (error.length > 0) {
             vm.expectRevert(error);
         }
-        this.verifyPackets(eid, addressToBytes32(address(erc20)), 0, address(0), payload);
+        this.verifyPackets(eid, addressToBytes32(address(gateway)), 0, address(0), payload);
     }
 }

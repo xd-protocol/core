@@ -1,26 +1,17 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { OAppRead } from "@layerzerolabs/oapp-evm/contracts/oapp/OAppRead.sol";
-import { Origin } from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
-import {
-    ReadCodecV1,
-    EVMCallRequestV1,
-    EVMCallComputeV1
-} from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
-import { OptionsBuilder } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
+import { ReadCodecV1, EVMCallRequestV1 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
 import {
     MessagingReceipt,
-    MessagingFee,
-    MessagingParams,
     ILayerZeroEndpointV2
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
-import { AddressCast } from "@layerzerolabs/lz-evm-protocol-v2/contracts/libs/AddressCast.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { BytesLib } from "solidity-bytes-utils/contracts/BytesLib.sol";
 import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
 import { BaseERC20 } from "./BaseERC20.sol";
 import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
+import { IERC20xDGateway } from "../interfaces/IERC20xDGateway.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
 import { LzLib } from "../libraries/LzLib.sol";
 
@@ -47,9 +38,8 @@ import { LzLib } from "../libraries/LzLib.sol";
  *      Note: This contract is abstract and requires derived implementations to provide specific logic
  *      for functions such as _compose() and _transferFrom() as well as other operational details.
  */
-abstract contract BaseERC20xD is BaseERC20, OAppRead, ReentrancyGuard {
+abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard {
     using AddressLib for address;
-    using OptionsBuilder for bytes;
     using BytesLib for bytes;
 
     /**
@@ -74,12 +64,11 @@ abstract contract BaseERC20xD is BaseERC20, OAppRead, ReentrancyGuard {
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
     uint16 public constant CMD_TRANSFER = 1;
-    uint32 public immutable READ_CHANNEL;
 
     address public liquidityMatrix;
-    uint32 public transferCalldataSize = 32;
+    address public gateway;
 
-    mapping(uint32 eid => uint64) internal _transferDelays;
+    mapping(uint32 eid => bytes32 peer) public peers;
 
     bool internal _composing;
     PendingTransfer[] internal _pendingTransfers;
@@ -88,9 +77,10 @@ abstract contract BaseERC20xD is BaseERC20, OAppRead, ReentrancyGuard {
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
+
+    event PeerSet(uint32 eid, bytes32 peer);
     event UpdateLiquidityMatrix(address indexed liquidityMatrix);
-    event UpdateTransferCalldataSize(uint128 size);
-    event UpdateTransferDelay(uint32 indexed eid, uint64 delay);
+    event UpdateGateway(address indexed gateway);
     event Transfer(address indexed from, address indexed to, uint256 amount, uint256 indexed nonce);
     event CancelPendingTransfer(uint256 indexed nonce);
 
@@ -100,8 +90,9 @@ abstract contract BaseERC20xD is BaseERC20, OAppRead, ReentrancyGuard {
 
     error InvalidRequests();
     error InvalidCmd();
-    error InvalidLengths();
+    error NoPeer(uint32 eid);
     error Unsupported();
+    error Forbidden();
     error TransferNotPending(uint256 nonce);
     error InvalidAmount();
     error InvalidAddress();
@@ -120,27 +111,32 @@ abstract contract BaseERC20xD is BaseERC20, OAppRead, ReentrancyGuard {
 
     /**
      * @notice Initializes the ERC20xD contract with the necessary configurations.
+     * @param _name The token name.
+     * @param _symbol The token symbol.
+     * @param _decimals The token decimals.
      * @param _liquidityMatrix The address of the LiquidityMatrix contract.
+     * @param _gateway The address of the ERC20xDGateway contract.
      * @param _owner The address that will be granted ownership privileges.
      */
-    constructor(string memory _name, string memory _symbol, uint8 _decimals, address _liquidityMatrix, address _owner)
-        BaseERC20(_name, _symbol, _decimals)
-        OAppRead(address(ILiquidityMatrix(_liquidityMatrix).endpoint()), _owner)
-        Ownable(_owner)
-    {
+    constructor(
+        string memory _name,
+        string memory _symbol,
+        uint8 _decimals,
+        address _liquidityMatrix,
+        address _gateway,
+        address _owner
+    ) BaseERC20(_name, _symbol, _decimals) Ownable(_owner) {
         liquidityMatrix = _liquidityMatrix;
-        READ_CHANNEL = ILiquidityMatrix(_liquidityMatrix).READ_CHANNEL();
+        gateway = _gateway;
         _pendingTransfers.push();
-
-        _setPeer(READ_CHANNEL, AddressCast.toBytes32(address(this)));
     }
 
     /*//////////////////////////////////////////////////////////////
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function transferDelay(uint32 eid) external view returns (uint256) {
-        return _transferDelays[eid];
+    function endpoint() external view returns (ILayerZeroEndpointV2) {
+        return ILiquidityMatrix(liquidityMatrix).endpoint();
     }
 
     function pendingNonce(address account) external view returns (uint256) {
@@ -202,16 +198,8 @@ abstract contract BaseERC20xD is BaseERC20, OAppRead, ReentrancyGuard {
      * @return fee The estimated messaging fee for the request.
      */
     function quoteTransfer(address from, uint128 gasLimit) public view returns (uint256 fee) {
-        ILiquidityMatrix.ChainConfig[] memory _chainConfigs = ILiquidityMatrix(liquidityMatrix).chainConfigs();
-        MessagingFee memory _fee = _quote(
-            READ_CHANNEL,
-            getTransferCmd(from, _pendingTransfers.length),
-            OptionsBuilder.newOptions().addExecutorLzReadOption(
-                gasLimit, transferCalldataSize * uint32(_chainConfigs.length), 0
-            ),
-            false
-        );
-        return _fee.nativeFee;
+        bytes memory cmd = getTransferCmd(from, _pendingTransfers.length);
+        return IERC20xDGateway(gateway).quoteRead(cmd, gasLimit);
     }
 
     /**
@@ -258,43 +246,32 @@ abstract contract BaseERC20xD is BaseERC20, OAppRead, ReentrancyGuard {
      * @dev Constructs read requests for each configured chain in the LiquidityMatrix.
      */
     function getTransferCmd(address from, uint256 nonce) public view returns (bytes memory) {
-        ILiquidityMatrix.ChainConfig[] memory _chainConfigs = ILiquidityMatrix(liquidityMatrix).chainConfigs();
-        uint256 length = _chainConfigs.length;
-        EVMCallRequestV1[] memory readRequests = new EVMCallRequestV1[](length);
-
-        uint64 timestamp = uint64(block.timestamp);
-        for (uint256 i; i < length; i++) {
-            ILiquidityMatrix.ChainConfig memory chainConfig = _chainConfigs[i];
-            uint32 eid = chainConfig.targetEid;
-            address to = AddressCast.toAddress(_getPeerOrRevert(eid));
-            readRequests[i] = EVMCallRequestV1({
-                appRequestLabel: uint16(i + 1),
-                targetEid: eid,
-                isBlockNum: false,
-                blockNumOrTimestamp: timestamp + _transferDelays[eid],
-                confirmations: chainConfig.confirmations,
-                to: to,
-                callData: abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from, nonce)
-            });
+        ILiquidityMatrix.ChainConfig[] memory chainConfigs = IERC20xDGateway(gateway).chainConfigs();
+        address[] memory targets = new address[](chainConfigs.length);
+        for (uint256 i; i < chainConfigs.length; ++i) {
+            bytes32 peer = _getPeerOrRevert(chainConfigs[i].targetEid);
+            targets[i] = AddressLib.fromBytes32(peer);
         }
 
-        return ReadCodecV1.encode(CMD_TRANSFER, readRequests, _computeSettings());
+        return IERC20xDGateway(gateway).getCmd(
+            CMD_TRANSFER, targets, abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from, nonce)
+        );
     }
 
-    function _computeSettings() internal view virtual returns (EVMCallComputeV1 memory) {
-        return EVMCallComputeV1({
-            computeSetting: 1, // lzReduce()
-            targetEid: ILayerZeroEndpointV2(endpoint).eid(),
-            isBlockNum: false,
-            blockNumOrTimestamp: uint64(block.timestamp),
-            confirmations: 0,
-            to: address(this)
-        });
+    function _getPeerOrRevert(uint32 _eid) internal view virtual returns (bytes32) {
+        bytes32 peer = peers[_eid];
+        if (peer == bytes32(0)) revert NoPeer(_eid);
+        return peer;
     }
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
+
+    function setPeer(uint32 _eid, bytes32 _peer) public virtual onlyOwner {
+        peers[_eid] = _peer;
+        emit PeerSet(_eid, _peer);
+    }
 
     function updateLiquidityMatrix(address _liquidityMatrix) external onlyOwner {
         liquidityMatrix = _liquidityMatrix;
@@ -302,30 +279,10 @@ abstract contract BaseERC20xD is BaseERC20, OAppRead, ReentrancyGuard {
         emit UpdateLiquidityMatrix(_liquidityMatrix);
     }
 
-    function updateTransferCalldataSize(uint32 size) external onlyOwner {
-        transferCalldataSize = size;
+    function updateGateway(address _gateway) external onlyOwner {
+        gateway = _gateway;
 
-        emit UpdateTransferCalldataSize(size);
-    }
-
-    /**
-     * @notice Updates the cross-chain transfer delays for specified endpoint IDs.
-     * @dev Only callable by the contract owner.
-     * @param eids An array of endpoint IDs whose delays are to be updated.
-     * @param delays An array of delay values corresponding to each endpoint ID.
-     * @dev Both arrays must be of the same length.
-     */
-    function updateTransferDelays(uint32[] memory eids, uint64[] memory delays) external onlyOwner {
-        if (eids.length != delays.length) revert InvalidLengths();
-
-        for (uint256 i; i < eids.length; ++i) {
-            uint32 eid = eids[i];
-            uint64 delay = delays[i];
-
-            _transferDelays[eid] = delay;
-
-            emit UpdateTransferDelay(eid, delay);
-        }
+        emit UpdateGateway(_gateway);
     }
 
     /**
@@ -418,21 +375,7 @@ abstract contract BaseERC20xD is BaseERC20, OAppRead, ReentrancyGuard {
         _pendingNonce[from] = nonce;
 
         bytes memory cmd = getTransferCmd(from, nonce);
-        ILiquidityMatrix.ChainConfig[] memory _chainConfigs = ILiquidityMatrix(liquidityMatrix).chainConfigs();
-        // directly use endpoint.send() to bypass _payNative() check in _lzSend()
-        (uint128 gasLimit, address refundTo) = LzLib.decodeOptions(options);
-        receipt = endpoint.send{ value: msg.value - value }(
-            MessagingParams(
-                READ_CHANNEL,
-                _getPeerOrRevert(READ_CHANNEL),
-                cmd,
-                OptionsBuilder.newOptions().addExecutorLzReadOption(
-                    gasLimit, transferCalldataSize * uint32(_chainConfigs.length), 0
-                ),
-                false
-            ),
-            payable(refundTo)
-        );
+        receipt = IERC20xDGateway(gateway).read{ value: msg.value - value }(cmd, options);
 
         emit Transfer(from, to, amount, nonce);
     }
@@ -475,21 +418,15 @@ abstract contract BaseERC20xD is BaseERC20, OAppRead, ReentrancyGuard {
         return true;
     }
 
-    function _lzReceive(
-        Origin calldata _origin,
-        bytes32, /* _guid */
-        bytes calldata _message,
-        address, /* _executor */
-        bytes calldata /* _extraData */
-    ) internal virtual override nonReentrant {
-        if (_origin.srcEid == READ_CHANNEL) {
-            uint16 appCmdLabel = abi.decode(_message, (uint16));
-            if (appCmdLabel == CMD_TRANSFER) {
-                (, uint256 nonce, int256 globalAvailability) = abi.decode(_message, (uint16, uint256, int256));
-                _onTransfer(nonce, globalAvailability);
-            } else {
-                revert InvalidCmd();
-            }
+    function onRead(bytes calldata _message) external {
+        if (msg.sender != gateway) revert Forbidden();
+
+        uint16 appCmdLabel = abi.decode(_message, (uint16));
+        if (appCmdLabel == CMD_TRANSFER) {
+            (, uint256 nonce, int256 globalAvailability) = abi.decode(_message, (uint16, uint256, int256));
+            _onTransfer(nonce, globalAvailability);
+        } else {
+            revert InvalidCmd();
         }
     }
 
