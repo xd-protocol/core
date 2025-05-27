@@ -14,7 +14,6 @@ import { BaseERC20 } from "./BaseERC20.sol";
 import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
 import { IERC20xDGateway } from "../interfaces/IERC20xDGateway.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
-import { LzLib } from "../libraries/LzLib.sol";
 
 /**
  * @title BaseERC20xD

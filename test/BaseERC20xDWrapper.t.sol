@@ -13,7 +13,6 @@ import { ERC20xDWrapper } from "src/ERC20xDWrapper.sol";
 import { BaseERC20xDWrapper } from "src/mixins/BaseERC20xDWrapper.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
-import { LzLib } from "src/libraries/LzLib.sol";
 import { ERC20Mock } from "./mocks/ERC20Mock.sol";
 import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
 

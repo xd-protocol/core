@@ -22,7 +22,6 @@ import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
 import { IERC20xDGateway } from "../interfaces/IERC20xDGateway.sol";
 import { IERC20xDGatewayCallbacks } from "../interfaces/IERC20xDGatewayCallbacks.sol";
 import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
-import { LzLib } from "../libraries/LzLib.sol";
 
 contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
     using OptionsBuilder for bytes;
@@ -174,7 +173,7 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
 
     function read(bytes memory cmd, bytes memory options) external payable returns (MessagingReceipt memory receipt) {
         // directly use endpoint.send() to bypass _payNative() check in _lzSend()
-        (uint128 gasLimit, address refundTo) = LzLib.decodeOptions(options);
+        (uint128 gasLimit, address refundTo) = abi.decode(options, (uint128, address));
         receipt = endpoint.send{ value: msg.value }(
             MessagingParams(
                 READ_CHANNEL,

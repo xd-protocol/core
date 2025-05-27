@@ -13,7 +13,6 @@ import { NativexD } from "src/NativexD.sol";
 import { BaseERC20xDWrapper } from "src/mixins/BaseERC20xDWrapper.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
-import { LzLib } from "src/libraries/LzLib.sol";
 import { ERC20Mock } from "./mocks/ERC20Mock.sol";
 import { StakingVaultMock } from "./mocks/StakingVaultMock.sol";
 import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
@@ -43,8 +42,7 @@ contract NativexDTest is BaseERC20xDTestHelper {
         (uint256 minAmount, uint256 fee) = vault.quoteDepositNative(amount, GAS_LIMIT);
 
         uint256 balance = address(vault).balance;
-        uint256 shares =
-            local.wrap{ value: amount + fee }(alice, amount, minAmount, fee, LzLib.encodeOptions(GAS_LIMIT, alice));
+        uint256 shares = local.wrap{ value: amount + fee }(alice, amount, minAmount, fee, abi.encode(GAS_LIMIT, alice));
 
         assertEq(local.balanceOf(alice), shares);
         assertEq(vault.sharesOf(address(local)), shares);
@@ -59,7 +57,7 @@ contract NativexDTest is BaseERC20xDTestHelper {
         uint256 amount = 1e18;
         (uint256 minAmount, uint256 fee) = vault.quoteDepositNative(amount, GAS_LIMIT);
 
-        bytes memory options = LzLib.encodeOptions(GAS_LIMIT, alice);
+        bytes memory options = abi.encode(GAS_LIMIT, alice);
         uint256 shares = local.wrap{ value: amount + fee }(alice, amount, minAmount, fee, options);
 
         uint256 incomingFee;

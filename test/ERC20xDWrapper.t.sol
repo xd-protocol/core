@@ -13,7 +13,6 @@ import { ERC20xDWrapper } from "src/ERC20xDWrapper.sol";
 import { BaseERC20xDWrapper } from "src/mixins/BaseERC20xDWrapper.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
-import { LzLib } from "src/libraries/LzLib.sol";
 import { ERC20Mock } from "./mocks/ERC20Mock.sol";
 import { StakingVaultMock } from "./mocks/StakingVaultMock.sol";
 import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
@@ -56,7 +55,7 @@ contract ERC20xDWrapperTest is BaseERC20xDTestHelper {
         (uint256 minAmount, uint256 fee) = vault.quoteDeposit(address(underlyings[0]), amount, GAS_LIMIT);
 
         underlyings[0].approve(address(local), amount);
-        uint256 shares = local.wrap(alice, amount, minAmount, fee, LzLib.encodeOptions(GAS_LIMIT, alice));
+        uint256 shares = local.wrap(alice, amount, minAmount, fee, abi.encode(GAS_LIMIT, alice));
 
         assertEq(local.balanceOf(alice), shares);
         assertEq(vault.sharesOf(address(local)), shares);
@@ -72,7 +71,7 @@ contract ERC20xDWrapperTest is BaseERC20xDTestHelper {
         (uint256 minAmount, uint256 fee) = vault.quoteDeposit(address(underlyings[0]), amount, GAS_LIMIT);
 
         underlyings[0].approve(address(local), amount);
-        bytes memory options = LzLib.encodeOptions(GAS_LIMIT, alice);
+        bytes memory options = abi.encode(GAS_LIMIT, alice);
         uint256 shares = local.wrap(alice, amount, minAmount, fee, options);
 
         uint256 incomingFee;

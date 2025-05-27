@@ -3,7 +3,6 @@ pragma solidity ^0.8.28;
 
 import { ERC20, SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 import { AddressLib } from "src/libraries/AddressLib.sol";
-import { LzLib } from "src/libraries/LzLib.sol";
 import { IStakingVault, IStakingVaultCallbacks, IStakingVaultNativeCallbacks } from "src/interfaces/IStakingVault.sol";
 
 contract StakingVaultMock is IStakingVault {
@@ -54,7 +53,7 @@ contract StakingVaultMock is IStakingVault {
         payable
         returns (uint256 shares)
     {
-        (uint128 gasLimit,) = LzLib.decodeOptions(options);
+        (uint128 gasLimit,) = abi.decode(options, (uint128, address));
         (, uint256 fee) = quoteDeposit(asset, amount, gasLimit);
         if (msg.value < fee) revert("INSUFFICIENT_FEE");
 
@@ -69,7 +68,7 @@ contract StakingVaultMock is IStakingVault {
         payable
         returns (uint256 shares)
     {
-        (uint128 gasLimit,) = LzLib.decodeOptions(options);
+        (uint128 gasLimit,) = abi.decode(options, (uint128, address));
         (, uint256 fee) = quoteDepositNative(amount, gasLimit);
         if (msg.value < amount + fee) revert("INSUFFICIENT_FEE");
 
@@ -87,7 +86,7 @@ contract StakingVaultMock is IStakingVault {
         bytes calldata incomingOptions,
         bytes calldata options
     ) external payable {
-        (uint128 gasLimit,) = LzLib.decodeOptions(options);
+        (uint128 gasLimit,) = abi.decode(options, (uint128, address));
         uint256 fee = quoteRedeem(asset, to, shares, minAmount, incomingData, incomingFee, incomingOptions, gasLimit);
         if (msg.value < fee) revert("INSUFFICIENT_FEE");
         if (shares > sharesOf[msg.sender]) revert("INSUFFICIENT_SHARES");
@@ -109,7 +108,7 @@ contract StakingVaultMock is IStakingVault {
         bytes calldata incomingOptions,
         bytes calldata options
     ) external payable {
-        (uint128 gasLimit,) = LzLib.decodeOptions(options);
+        (uint128 gasLimit,) = abi.decode(options, (uint128, address));
         uint256 fee = quoteRedeemNative(to, shares, minAmount, incomingData, incomingFee, incomingOptions, gasLimit);
         if (msg.value < fee) revert("INSUFFICIENT_FEE");
         if (shares > sharesOf[msg.sender]) revert("INSUFFICIENT_SHARES");

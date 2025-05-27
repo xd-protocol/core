@@ -4,7 +4,6 @@ pragma solidity ^0.8.28;
 import { BaseERC20xDWrapper } from "./mixins/BaseERC20xDWrapper.sol";
 import { IStakingVault, IStakingVaultNativeCallbacks } from "./interfaces/IStakingVault.sol";
 import { AddressLib } from "./libraries/AddressLib.sol";
-import { LzLib } from "./libraries/LzLib.sol";
 
 /**
  * @title NativexD
@@ -77,7 +76,7 @@ contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
         uint256 balance = address(this).balance;
         uint256 value = amount + fee;
         shares = IStakingVault(vault).depositNative{ value: value }(address(this), amount, minAmount, options);
-        (, address refundTo) = LzLib.decodeOptions(options);
+        (, address refundTo) = abi.decode(options, (uint128, address));
         if (refundTo != address(0) && address(this).balance > balance - value) {
             AddressLib.transferNative(refundTo, address(this).balance + value - balance);
         }

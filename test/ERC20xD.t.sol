@@ -13,7 +13,6 @@ import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
 import { ERC20xD } from "src/ERC20xD.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
-import { LzLib } from "src/libraries/LzLib.sol";
 import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
 
 contract ERC20xDTest is BaseERC20xDTestHelper {
@@ -42,7 +41,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
 
         changePrank(alice, alice);
         uint256 fee = erc20s[0].quoteTransfer(alice, GAS_LIMIT);
-        ERC20xD(address(erc20s[0])).burn{ value: fee }(100e18, LzLib.encodeOptions(GAS_LIMIT, alice));
+        ERC20xD(address(erc20s[0])).burn{ value: fee }(100e18, abi.encode(GAS_LIMIT, alice));
         _executeTransfer(erc20s[0], alice, 1, "");
 
         assertEq(erc20s[0].localBalanceOf(alice), 0);

@@ -12,7 +12,6 @@ import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
 import { ERC20xD } from "src/ERC20xD.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
-import { LzLib } from "src/libraries/LzLib.sol";
 import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
 
 contract Composable {
@@ -57,7 +56,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         changePrank(alice, alice);
         uint256 amount = 101e18;
         uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
-        local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
+        local.transfer{ value: fee }(bob, amount, abi.encode(GAS_LIMIT, bob));
 
         uint256 nonce = 1;
         BaseERC20xD.PendingTransfer memory pending = local.pendingTransfer(alice);
@@ -91,7 +90,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         uint96 gasLimit = 1_000_000;
         uint256 fee = local.quoteTransfer(bob, gasLimit);
         local.transfer{ value: fee + native }(
-            address(composable), amount, callData, native, LzLib.encodeOptions(gasLimit, address(composable))
+            address(composable), amount, callData, native, abi.encode(gasLimit, address(composable))
         );
 
         vm.expectEmit();
@@ -111,13 +110,13 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         uint256 amount = 101e18;
         uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
         vm.expectRevert(BaseERC20xD.InsufficientBalance.selector);
-        local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
+        local.transfer{ value: fee }(bob, amount, abi.encode(GAS_LIMIT, bob));
 
         _syncAndSettleLiquidity();
         assertEq(local.balanceOf(alice), 100e18 * CHAINS);
 
         changePrank(alice, alice);
-        local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
+        local.transfer{ value: fee }(bob, amount, abi.encode(GAS_LIMIT, bob));
     }
 
     function test_transfer_revertTransferPending() public {
@@ -128,10 +127,10 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         changePrank(alice, alice);
         uint256 amount = 1e18;
         uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
-        local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
+        local.transfer{ value: fee }(bob, amount, abi.encode(GAS_LIMIT, bob));
 
         vm.expectRevert(BaseERC20xD.TransferPending.selector);
-        local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
+        local.transfer{ value: fee }(bob, amount, abi.encode(GAS_LIMIT, bob));
     }
 
     function test_transfer_revertInsufficientAvailability() public {
@@ -145,7 +144,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         changePrank(alice, alice);
         uint256 amount = CHAINS * 100e18;
         uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
-        local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
+        local.transfer{ value: fee }(bob, amount, abi.encode(GAS_LIMIT, bob));
 
         _executeTransfer(local, alice, 1, "");
         assertEq(local.localBalanceOf(alice), -(int256(int8(CHAINS) - 1)) * 100e18);
@@ -157,7 +156,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
 
         amount = 100e18;
         fee = remote.quoteTransfer(bob, GAS_LIMIT);
-        remote.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
+        remote.transfer{ value: fee }(bob, amount, abi.encode(GAS_LIMIT, bob));
         assertEq(remote.availableLocalBalanceOf(alice, 0), 0);
 
         uint256 nonce = 1;
@@ -175,7 +174,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         changePrank(alice, alice);
         uint256 amount = 101e18;
         uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
-        local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
+        local.transfer{ value: fee }(bob, amount, abi.encode(GAS_LIMIT, bob));
 
         uint256 nonce = 1;
         assertEq(local.pendingNonce(alice), nonce);
@@ -195,7 +194,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
 
         uint256 amount = 1e18;
         uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
-        local.transfer{ value: fee }(bob, amount, LzLib.encodeOptions(GAS_LIMIT, bob));
+        local.transfer{ value: fee }(bob, amount, abi.encode(GAS_LIMIT, bob));
 
         local.cancelPendingTransfer();
         assertEq(local.pendingNonce(alice), 0);

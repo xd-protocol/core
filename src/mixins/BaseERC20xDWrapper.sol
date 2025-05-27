@@ -6,7 +6,6 @@ import { ERC20, SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 import { BaseERC20xD } from "./BaseERC20xD.sol";
 import { IStakingVault } from "../interfaces/IStakingVault.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
-import { LzLib } from "../libraries/LzLib.sol";
 
 /**
  * @title BaseERC20xDWrapper
