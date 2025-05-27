@@ -30,7 +30,6 @@ contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
     /**
      * @notice Initializes the NativexD contract.
      * @dev Forwards parameters to the BaseERC20xDWrapper constructor using NATIVE as the underlying asset.
-     * @param _timeLockPeriod The timelock period used for configuration updates.
      * @param _vault The vault contract's address.
      * @param _name The name of the wrapped native token.
      * @param _symbol The symbol of the wrapped native token.
@@ -40,7 +39,6 @@ contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
      * @param _owner The address that will be granted ownership privileges.
      */
     constructor(
-        uint64 _timeLockPeriod,
         address _vault,
         string memory _name,
         string memory _symbol,
@@ -48,9 +46,7 @@ contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
         address _liquidityMatrix,
         address _gateway,
         address _owner
-    )
-        BaseERC20xDWrapper(NATIVE, _timeLockPeriod, _vault, _name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner)
-    { }
+    ) BaseERC20xDWrapper(NATIVE, _vault, _name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner) { }
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC

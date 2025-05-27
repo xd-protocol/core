@@ -20,9 +20,6 @@ import { AddressLib } from "../libraries/AddressLib.sol";
  *        availability check across chains. This triggers an outgoing cross-chain message to request a redemption.
  *        Once the outgoing message is processed (via incoming cross-chain response), tokens are sent back to
  *        the original chain.
- *      - **Timelock-Based Configuration Updates:** Supports queuing and executing timelock operations to update
- *        configuration parameters (e.g., timelock period, vault address). This delayed execution mechanism
- *        enhances security by allowing governance to review pending updates.
  *      - **Failed Redemption Management:** Records details of failed redemption attempts and allows for their
  *        retry via a designated vault interface.
  *      - **Pending Transfer Management:** Maintains a queue of pending transfers along with nonces to coordinate
@@ -38,19 +35,6 @@ import { AddressLib } from "../libraries/AddressLib.sol";
  */
 abstract contract BaseERC20xDWrapper is BaseERC20xD {
     using SafeTransferLib for ERC20;
-
-    enum TimeLockType {
-        Invalid,
-        UpdateTimeLockPeriod,
-        UpdateVault
-    }
-
-    struct TimeLock {
-        TimeLockType _type;
-        bytes params;
-        uint64 startedAt;
-        bool executed;
-    }
 
     struct FailedRedemption {
         bool resolved;
@@ -68,9 +52,6 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
 
     address public immutable underlying;
 
-    uint64 public timeLockPeriod;
-    TimeLock[] public timeLocks;
-
     address public vault;
 
     FailedRedemption[] public failedRedemptions;
@@ -79,9 +60,6 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    event QueueTimeLock(uint256 indexed id, TimeLockType _type, uint64 timestamp);
-    event ExecuteTimeLock(uint256 indexed id);
-    event UpdateTimeLockPeriod(uint64 timeLockPeriod);
     event UpdateVault(address indexed vault);
     event Wrap(address to, uint256 amount);
     event RedeemFail(uint256 id, bytes reason);
@@ -91,9 +69,6 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
-    error TimeLockExecuted();
-    error TimeNotPassed();
-    error InvalidTimeLockType();
     error InvalidId();
 
     /*//////////////////////////////////////////////////////////////
@@ -101,9 +76,8 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Initializes the BaseERC20xDWrapper with the underlying token, timelock period, and token parameters.
+     * @notice Initializes the BaseERC20xDWrapper with the underlying token, and token parameters.
      * @param _underlying The address of the underlying token.
-     * @param _timeLockPeriod The initial timelock period (in seconds) for executing queued operations.
      * @param _vault The vault contract's address.
      * @param _name The token name.
      * @param _symbol The token symbol.
@@ -114,7 +88,6 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
      */
     constructor(
         address _underlying,
-        uint64 _timeLockPeriod,
         address _vault,
         string memory _name,
         string memory _symbol,
@@ -124,7 +97,6 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
         address _owner
     ) BaseERC20xD(_name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner) {
         underlying = _underlying;
-        timeLockPeriod = _timeLockPeriod;
         vault = _vault;
     }
 
@@ -144,69 +116,10 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
 
     receive() external payable virtual { }
 
-    /**
-     * @notice Queues a timelock operation to update the timelock period.
-     * @dev Only callable by the owner. This schedules an outgoing configuration update.
-     * @param _timeLockPeriod The new timelock period (in seconds).
-     */
-    function queueUpdateTimeLockPeriod(uint64 _timeLockPeriod) external virtual onlyOwner {
-        _queueTimeLock(TimeLockType.UpdateTimeLockPeriod, abi.encode(_timeLockPeriod));
-    }
+    function updateVault(address _vault) external onlyOwner {
+        vault = _vault;
 
-    /**
-     * @notice Queues a timelock operation to update the vault address.
-     * @dev Only callable by the owner. This schedules an outgoing configuration update.
-     * @param _vault The new vault address.
-     */
-    function queueUpdateVault(address _vault) external virtual onlyOwner {
-        _queueTimeLock(TimeLockType.UpdateVault, abi.encode(_vault));
-    }
-
-    /**
-     * @notice Internal function to queue a timelock operation.
-     * @dev Validates the timelock type and records the operation with the current timestamp.
-     * @param _type The type of timelock operation (UpdateTimeLockPeriod or UpdateVault).
-     * @param params The ABI-encoded parameters for the operation.
-     */
-    function _queueTimeLock(TimeLockType _type, bytes memory params) internal virtual {
-        if (_type != TimeLockType.UpdateTimeLockPeriod && _type != TimeLockType.UpdateVault) {
-            revert InvalidTimeLockType();
-        }
-
-        uint256 id = timeLocks.length;
-        timeLocks.push(TimeLock(_type, params, uint64(block.timestamp), false));
-
-        emit QueueTimeLock(id, _type, uint64(block.timestamp));
-    }
-
-    /**
-     * @notice Executes a queued timelock operation once the timelock period has elapsed.
-     * @dev Verifies that the timelock has not been executed and that the required time has passed.
-     *      Depending on the operation type, updates the timelock period or vault address.
-     * @param id The identifier of the timelock operation.
-     */
-    function executeTimeLock(uint256 id) external payable virtual nonReentrant {
-        TimeLock storage timeLock = timeLocks[id];
-        if (timeLock.executed) revert TimeLockExecuted();
-        if (block.timestamp < timeLock.startedAt + timeLockPeriod) revert TimeNotPassed();
-
-        timeLock.executed = true;
-
-        emit ExecuteTimeLock(id);
-
-        if (timeLock._type == TimeLockType.UpdateTimeLockPeriod) {
-            uint64 _timeLockPeriod = abi.decode(timeLock.params, (uint64));
-            timeLockPeriod = _timeLockPeriod;
-
-            emit UpdateTimeLockPeriod(timeLockPeriod);
-        } else if (timeLock._type == TimeLockType.UpdateVault) {
-            address _vault = abi.decode(timeLock.params, (address));
-            vault = _vault;
-
-            emit UpdateVault(_vault);
-        } else {
-            revert InvalidTimeLockType();
-        }
+        emit UpdateVault(_vault);
     }
 
     /**

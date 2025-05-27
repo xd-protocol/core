@@ -25,7 +25,6 @@ contract ERC20xDWrapper is BaseERC20xDWrapper, IStakingVaultCallbacks {
      * @notice Initializes the ERC20xDWrapper contract.
      * @dev Forwards the provided parameters to the BaseERC20xDWrapper constructor.
      * @param _underlying The address of the underlying token.
-     * @param _timeLockPeriod The timelock period for configuration updates.
      * @param _vault The vault contract's address.
      * @param _name The token name.
      * @param _symbol The token symbol.
@@ -36,7 +35,6 @@ contract ERC20xDWrapper is BaseERC20xDWrapper, IStakingVaultCallbacks {
      */
     constructor(
         address _underlying,
-        uint64 _timeLockPeriod,
         address _vault,
         string memory _name,
         string memory _symbol,
@@ -44,19 +42,7 @@ contract ERC20xDWrapper is BaseERC20xDWrapper, IStakingVaultCallbacks {
         address _liquidityMatrix,
         address _gateway,
         address _owner
-    )
-        BaseERC20xDWrapper(
-            _underlying,
-            _timeLockPeriod,
-            _vault,
-            _name,
-            _symbol,
-            _decimals,
-            _liquidityMatrix,
-            _gateway,
-            _owner
-        )
-    { }
+    ) BaseERC20xDWrapper(_underlying, _vault, _name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner) { }
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC

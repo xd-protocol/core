@@ -17,8 +17,6 @@ import { ERC20Mock } from "./mocks/ERC20Mock.sol";
 import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
 
 contract BaseERC20xDWrapperTest is BaseERC20xDTestHelper {
-    uint64 public constant TIMELOCK_PERIOD = 1 days;
-
     ERC20Mock[CHAINS] underlyings;
     address[CHAINS] vaults;
 
@@ -30,7 +28,6 @@ contract BaseERC20xDWrapperTest is BaseERC20xDTestHelper {
         vaults[i] = makeAddr(string.concat("vault", vm.toString(i)));
         return new ERC20xDWrapper(
             address(underlyings[i]),
-            TIMELOCK_PERIOD,
             vaults[i],
             "xD",
             "xD",
@@ -39,65 +36,5 @@ contract BaseERC20xDWrapperTest is BaseERC20xDTestHelper {
             address(gateways[i]),
             owner
         );
-    }
-
-    function test_queueUpdateTimeLockPeriod() public {
-        ERC20xDWrapper local = ERC20xDWrapper(payable(address(erc20s[0])));
-
-        uint64 timestamp = uint64(vm.getBlockTimestamp());
-        local.queueUpdateTimeLockPeriod(1 weeks);
-
-        (BaseERC20xDWrapper.TimeLockType _type, bytes memory params, uint64 startedAt, bool executed) =
-            local.timeLocks(0);
-        assertEq(uint8(_type), uint8(BaseERC20xDWrapper.TimeLockType.UpdateTimeLockPeriod));
-        assertEq(params, abi.encode(uint64(1 weeks)));
-        assertEq(startedAt, timestamp);
-        assertEq(executed, false);
-    }
-
-    function test_queueUpdateVault() public {
-        ERC20xDWrapper local = ERC20xDWrapper(payable(address(erc20s[0])));
-
-        address vault = makeAddr("vault");
-        uint64 timestamp = uint64(vm.getBlockTimestamp());
-        local.queueUpdateVault(vault);
-
-        (BaseERC20xDWrapper.TimeLockType _type, bytes memory params, uint64 startedAt, bool executed) =
-            local.timeLocks(0);
-        assertEq(uint8(_type), uint8(BaseERC20xDWrapper.TimeLockType.UpdateVault));
-        assertEq(params, abi.encode(vault));
-        assertEq(startedAt, timestamp);
-        assertEq(executed, false);
-    }
-
-    function test_executeTimeLock() public {
-        ERC20xDWrapper local = ERC20xDWrapper(payable(address(erc20s[0])));
-
-        local.queueUpdateTimeLockPeriod(1 weeks);
-
-        vm.expectRevert(BaseERC20xDWrapper.TimeNotPassed.selector);
-        local.executeTimeLock(0);
-
-        skip(TIMELOCK_PERIOD);
-        local.executeTimeLock(0);
-
-        assertEq(local.timeLockPeriod(), 1 weeks);
-
-        vm.expectRevert(BaseERC20xDWrapper.TimeLockExecuted.selector);
-        local.executeTimeLock(0);
-
-        address vault = makeAddr("vault");
-        local.queueUpdateVault(vault);
-
-        vm.expectRevert(BaseERC20xDWrapper.TimeNotPassed.selector);
-        local.executeTimeLock(1);
-
-        skip(1 weeks);
-        local.executeTimeLock(1);
-
-        assertEq(local.vault(), vault);
-
-        vm.expectRevert(BaseERC20xDWrapper.TimeLockExecuted.selector);
-        local.executeTimeLock(1);
     }
 }

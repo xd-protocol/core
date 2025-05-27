@@ -18,14 +18,10 @@ import { StakingVaultMock } from "./mocks/StakingVaultMock.sol";
 import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
 
 contract NativexDTest is BaseERC20xDTestHelper {
-    uint64 public constant TIMELOCK_PERIOD = 1 days;
-
     StakingVaultMock vault;
 
     function _newBaseERC20xD(uint256 i) internal override returns (BaseERC20xD) {
-        return new NativexD(
-            TIMELOCK_PERIOD, address(vault), "xD", "xD", 18, address(liquidityMatrices[i]), address(gateways[i]), owner
-        );
+        return new NativexD(address(vault), "xD", "xD", 18, address(liquidityMatrices[i]), address(gateways[i]), owner);
     }
 
     function setUp() public override {

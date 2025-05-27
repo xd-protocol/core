@@ -18,8 +18,6 @@ import { StakingVaultMock } from "./mocks/StakingVaultMock.sol";
 import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
 
 contract ERC20xDWrapperTest is BaseERC20xDTestHelper {
-    uint64 public constant TIMELOCK_PERIOD = 1 days;
-
     ERC20Mock[CHAINS] underlyings;
     StakingVaultMock vault;
 
@@ -30,7 +28,6 @@ contract ERC20xDWrapperTest is BaseERC20xDTestHelper {
         }
         return new ERC20xDWrapper(
             address(underlyings[i]),
-            TIMELOCK_PERIOD,
             address(vault),
             "xD",
             "xD",
