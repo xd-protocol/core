@@ -13,9 +13,9 @@ import {
 import { IOAppComposer } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppComposer.sol";
 import { ILayerZeroEndpointV2 } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/interfaces/IOAppCore.sol";
 import { OFTComposeMsgCodec } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oft/libs/OFTComposeMsgCodec.sol";
+import { AddressCast } from "@layerzerolabs/lz-evm-protocol-v2/contracts/libs/AddressCast.sol";
 import { ERC20, SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 import { Ticket } from "stargate/interfaces/IStargate.sol";
-import { AddressLib } from "src/libraries/AddressLib.sol";
 
 contract StargatePoolMock {
     using SafeTransferLib for ERC20;
@@ -56,7 +56,7 @@ contract StargatePoolMock {
         payable
         returns (MessagingReceipt memory msgReceipt, OFTReceipt memory oftReceipt, Ticket memory ticket)
     {
-        address peer = AddressLib.fromBytes32(peers[_sendParam.dstEid]);
+        address peer = AddressCast.toAddress(peers[_sendParam.dstEid]);
         require(peer != address(0), "REMOTE_NOT_SET");
 
         uint256 amount = _sendParam.amountLD;
@@ -65,7 +65,7 @@ contract StargatePoolMock {
         oftReceipt.amountSentLD = amount;
         oftReceipt.amountReceivedLD = amount * 99 / 100;
 
-        address to = AddressLib.fromBytes32(_sendParam.to);
+        address to = AddressCast.toAddress(_sendParam.to);
         StargatePoolMock(peer).onReceive(eid, to, oftReceipt.amountReceivedLD, _sendParam.composeMsg);
 
         return (msgReceipt, oftReceipt, ticket);

@@ -22,7 +22,6 @@ import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
 import { IERC20xDGateway } from "../interfaces/IERC20xDGateway.sol";
 import { IERC20xDGatewayCallbacks } from "../interfaces/IERC20xDGatewayCallbacks.sol";
 import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
-import { AddressLib } from "../libraries/AddressLib.sol";
 import { LzLib } from "../libraries/LzLib.sol";
 
 contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {

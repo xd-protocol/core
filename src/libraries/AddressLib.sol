@@ -13,14 +13,6 @@ library AddressLib {
         return account.code.length > 0;
     }
 
-    function toBytes32(address addr) internal pure returns (bytes32) {
-        return bytes32(uint256(uint160(addr)));
-    }
-
-    function fromBytes32(bytes32 b32) internal pure returns (address) {
-        return address(uint160(uint256(b32)));
-    }
-
     function transferNative(address to, uint256 amount) internal {
         (bool ok, bytes memory data) = to.call{ value: amount }("");
         if (!ok) revert TransferFailure(data);

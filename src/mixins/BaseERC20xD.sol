@@ -6,6 +6,7 @@ import {
     MessagingReceipt,
     ILayerZeroEndpointV2
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
+import { AddressCast } from "@layerzerolabs/lz-evm-protocol-v2/contracts/libs/AddressCast.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { BytesLib } from "solidity-bytes-utils/contracts/BytesLib.sol";
 import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
@@ -250,7 +251,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard {
         address[] memory targets = new address[](chainConfigs.length);
         for (uint256 i; i < chainConfigs.length; ++i) {
             bytes32 peer = _getPeerOrRevert(chainConfigs[i].targetEid);
-            targets[i] = AddressLib.fromBytes32(peer);
+            targets[i] = AddressCast.toAddress(peer);
         }
 
         return IERC20xDGateway(gateway).getCmd(
