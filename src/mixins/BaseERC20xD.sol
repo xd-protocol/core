@@ -73,9 +73,10 @@ abstract contract BaseERC20xD is BaseERC20, OAppRead, ReentrancyGuard {
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
+    uint16 public constant CMD_TRANSFER = 1;
     uint32 public immutable READ_CHANNEL;
-    address public immutable liquidityMatrix;
 
+    address public liquidityMatrix;
     uint32 public transferCalldataSize = 32;
 
     mapping(uint32 eid => uint64) internal _transferDelays;
@@ -84,11 +85,10 @@ abstract contract BaseERC20xD is BaseERC20, OAppRead, ReentrancyGuard {
     PendingTransfer[] internal _pendingTransfers;
     mapping(address acount => uint256) internal _pendingNonce;
 
-    uint16 public constant CMD_TRANSFER = 1;
-
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
+    event UpdateLiquidityMatrix(address indexed liquidityMatrix);
     event UpdateTransferCalldataSize(uint128 size);
     event UpdateTransferDelay(uint32 indexed eid, uint64 delay);
     event Transfer(address indexed from, address indexed to, uint256 amount, uint256 indexed nonce);
@@ -295,6 +295,12 @@ abstract contract BaseERC20xD is BaseERC20, OAppRead, ReentrancyGuard {
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
+
+    function updateLiquidityMatrix(address _liquidityMatrix) external onlyOwner {
+        liquidityMatrix = _liquidityMatrix;
+
+        emit UpdateLiquidityMatrix(_liquidityMatrix);
+    }
 
     function updateTransferCalldataSize(uint32 size) external onlyOwner {
         transferCalldataSize = size;
