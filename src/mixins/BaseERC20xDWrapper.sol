@@ -4,7 +4,6 @@ pragma solidity ^0.8.28;
 import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { ERC20, SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 import { BaseERC20xD } from "./BaseERC20xD.sol";
-import { IStakingVault } from "../interfaces/IStakingVault.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
 
 /**
@@ -38,12 +37,11 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
 
     struct FailedRedemption {
         bool resolved;
-        uint256 amount;
-        uint256 minAmount;
-        bytes incomingData;
-        uint128 incomingFee;
-        bytes incomingOptions;
-        uint256 value;
+        uint256 shares;
+        bytes callbackData;
+        bytes receivingData;
+        uint128 receivingFee;
+        uint256 redeemFee;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -104,9 +102,19 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function quoteUnwrap(address from, uint128 gasLimit) public view returns (uint256 fee) {
-        return quoteTransfer(from, gasLimit);
+    function quoteUnwrap(address from, uint256 redeemFee, uint128 gasLimit) public view returns (uint256 fee) {
+        return quoteTransfer(from, gasLimit) + redeemFee;
     }
+
+    function quoteRedeem(
+        address from,
+        address to,
+        uint256 shares,
+        bytes memory receivingData,
+        uint128 receivingFee,
+        uint256 minAmount,
+        uint128 gasLimit
+    ) public view virtual returns (uint256 fee);
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
@@ -128,11 +136,10 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
      *      Emits a Wrap event upon success.
      * @param to The destination address to receive the wrapped tokens.
      * @param amount The amount of underlying tokens to wrap.
-     * @param minAmount The minimum acceptable deposit amount (after cross-chain transfer).
      * @param depositFee The fee to be applied during deposit.
-     * @param depositOptions Additional options for the deposit call.
+     * @param depositData Additional data for the deposit call.
      */
-    function wrap(address to, uint256 amount, uint256 minAmount, uint256 depositFee, bytes memory depositOptions)
+    function wrap(address to, uint256 amount, uint256 depositFee, bytes memory depositData)
         external
         payable
         virtual
@@ -142,17 +149,14 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
         if (to == address(0)) revert InvalidAddress();
         if (amount == 0) revert InvalidAmount();
 
-        shares = _deposit(amount, minAmount, depositFee, depositOptions);
+        shares = _deposit(amount, depositFee, depositData);
 
         _transferFrom(address(0), to, shares);
 
         emit Wrap(to, amount);
     }
 
-    function _deposit(uint256 amount, uint256 minAmount, uint256 fee, bytes memory options)
-        internal
-        virtual
-        returns (uint256 shares);
+    function _deposit(uint256 amount, uint256 fee, bytes memory data) internal virtual returns (uint256 shares);
 
     /**
      * @notice Initiates an unwrap operation to retrieve underlying tokens from a cross-chain context.
@@ -163,35 +167,21 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
      *      should complete the process by sending the tokens back to the original chain.
      * @param to The destination address to receive the unwrapped tokens.
      * @param shares The amount of the wrapped token.
-     * @param minAmount The minimum acceptable amount on the destination side.
-     * @param redeemIncomingFee The fee for processing the incoming cross-chain message.
-     * @param redeemIncomingOptions Options for handling the incoming message.
-     * @param redeemOutgoingFee The fee for the outgoing cross-chain message.
-     * @param redeemOutgoingOptions Options for handling the outgoing message.
-     * @param readOptions Options for the reading global availability before unwrapping.
      * @return receipt A MessagingReceipt confirming the outgoing message initiation.
      */
     function unwrap(
         address to,
         uint256 shares,
-        uint256 minAmount,
-        uint128 redeemIncomingFee,
-        bytes memory redeemIncomingOptions,
-        uint128 redeemOutgoingFee,
-        bytes memory redeemOutgoingOptions,
-        bytes memory readOptions
+        bytes memory receivingData,
+        uint128 receivingFee,
+        bytes memory redeemData,
+        uint256 redeemFee,
+        bytes memory readData
     ) external payable virtual nonReentrant returns (MessagingReceipt memory receipt) {
         if (to == address(0)) revert InvalidAddress();
 
         receipt = _transfer(
-            msg.sender,
-            address(0),
-            shares,
-            abi.encode(
-                to, minAmount, redeemIncomingFee, redeemIncomingOptions, redeemOutgoingFee, redeemOutgoingOptions
-            ),
-            redeemOutgoingFee,
-            readOptions
+            msg.sender, address(0), shares, abi.encode(to, receivingData, receivingFee, redeemData), redeemFee, readData
         );
 
         emit Unwrap(to, shares);
@@ -207,87 +197,66 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD {
     function _executePendingTransfer(PendingTransfer memory pending) internal virtual override {
         // only when transferred by unwrap()
         if (pending.from != address(0) && pending.to == address(0)) {
-            (
-                address to,
-                uint256 minAmount,
-                uint128 incomingFee,
-                bytes memory incomingOptions,
-                uint128 outgoingFee,
-                bytes memory outgoingOptions
-            ) = abi.decode(pending.callData, (address, uint256, uint128, bytes, uint128, bytes));
-            _redeem(
-                pending.amount,
-                minAmount,
-                abi.encode(pending.from, to),
-                incomingFee,
-                incomingOptions,
-                outgoingFee,
-                outgoingOptions
-            );
+            (address to, bytes memory receivingData, uint128 receivingFee, bytes memory redeemData) =
+                abi.decode(pending.callData, (address, bytes, uint128, bytes));
+            uint256 shares = pending.amount;
+            uint256 redeemFee = pending.value;
+            bytes memory callbackData = abi.encode(pending.from, to);
+            try this.redeemRestricted(shares, callbackData, receivingData, receivingFee, redeemData, redeemFee) { }
+            catch (bytes memory reason) {
+                uint256 id = failedRedemptions.length;
+                failedRedemptions.push(
+                    FailedRedemption(false, shares, callbackData, receivingData, receivingFee, redeemFee)
+                );
+                emit RedeemFail(id, reason);
+            }
         } else {
             super._executePendingTransfer(pending);
         }
     }
 
-    function _redeem(
-        uint256 amount,
-        uint256 minAmount,
-        bytes memory incomingData,
-        uint128 incomingFee,
-        bytes memory incomingOptions,
-        uint256 fee,
-        bytes memory options
-    ) internal virtual;
+    function redeemRestricted(
+        uint256 shares,
+        bytes memory callbackData,
+        bytes memory receivingData,
+        uint128 receivingFee,
+        bytes memory redeemData,
+        uint256 redeemFee
+    ) public virtual {
+        if (msg.sender != address(this)) revert Forbidden();
 
-    /**
-     * @notice Records a failed redemption attempt from an incoming cross-chain message.
-     * @dev This function stores the failure details and emits an event so that the operation may be retried.
-     * @param amount The attempted redemption amount.
-     * @param minAmount The minimum acceptable amount.
-     * @param incomingData Encoded data from the incoming cross-chain message.
-     * @param incomingFee The fee for the incoming message.
-     * @param incomingOptions Options associated with the incoming message.
-     * @param value The native value sent with the redemption attempt.
-     * @param reason The reason for the failure.
-     */
-    function _onFailedRedemption(
-        uint256 amount,
-        uint256 minAmount,
-        bytes memory incomingData,
-        uint128 incomingFee,
-        bytes memory incomingOptions,
-        uint256 value,
-        bytes memory reason
-    ) internal virtual {
-        uint256 id = failedRedemptions.length;
-        failedRedemptions.push(
-            FailedRedemption(false, amount, minAmount, incomingData, incomingFee, incomingOptions, value)
-        );
-        emit RedeemFail(id, reason);
+        _redeem(shares, callbackData, receivingData, receivingFee, redeemData, redeemFee);
     }
+
+    function _redeem(
+        uint256 shares,
+        bytes memory callbackData,
+        bytes memory receivingData,
+        uint128 receivingFee,
+        bytes memory redeemData,
+        uint256 redeemFen
+    ) internal virtual;
 
     /**
      * @notice Retries a previously failed redemption.
      * @dev Marks the failed redemption as resolved and re-initiates the redemption via the vault contract.
      *      This function requires additional fees (if any) to be provided via msg.value.
      * @param id The identifier of the failed redemption.
-     * @param options Additional options for the redemption retry.
+     * @param data Additional data for the redemption retry.
      */
-    function retryRedeem(uint256 id, bytes memory options) external payable virtual {
+    function retryRedeem(uint256 id, bytes memory data) external payable virtual {
         FailedRedemption storage redemption = failedRedemptions[id];
         if (redemption.resolved) revert InvalidId();
 
         redemption.resolved = true;
 
-        IStakingVault(vault).redeem{ value: redemption.value + msg.value }(
-            underlying,
-            address(this),
-            redemption.amount,
-            redemption.minAmount,
-            redemption.incomingData,
-            redemption.incomingFee,
-            redemption.incomingOptions,
-            options
+        _redeem(
+            redemption.shares,
+            redemption.callbackData,
+            redemption.receivingData,
+            redemption.receivingFee,
+            data,
+            redemption.redeemFee + msg.value
         );
     }
 }

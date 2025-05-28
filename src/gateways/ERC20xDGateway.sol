@@ -200,6 +200,8 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
             address to = _readers[_guid];
             if (to == address(0)) revert InvalidGuid();
 
+            delete _readers[_guid];
+
             IERC20xDGatewayCallbacks(to).onRead(_message);
         }
     }

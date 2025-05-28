@@ -298,17 +298,17 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard {
      *      The user must provide sufficient fees via `msg.value`.
      * @param to The recipient address on the target chain.
      * @param amount The amount of tokens to transfer.
-     * @param options Extra options.
+     * @param data Extra data.
      * @return receipt The messaging receipt from LayerZero, confirming the request details.
      *         Includes the `guid` and `block` parameters for tracking.
      * @dev Emits a `Transfer` event upon successful initiation.
      */
-    function transfer(address to, uint256 amount, bytes memory options)
+    function transfer(address to, uint256 amount, bytes memory data)
         public
         payable
         returns (MessagingReceipt memory receipt)
     {
-        return transfer(to, amount, "", 0, options);
+        return transfer(to, amount, "", 0, data);
     }
 
     /**
@@ -318,17 +318,17 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard {
      * @param to The recipient address on the target chain.
      * @param amount The amount of tokens to transfer.
      * @param callData Optional calldata for executing a function on the recipient contract.
-     * @param options Extra options.
+     * @param data Extra data.
      * @return receipt The messaging receipt from LayerZero, confirming the request details.
      *         Includes the `guid` and `block` parameters for tracking.
      * @dev Emits a `Transfer` event upon successful initiation.
      */
-    function transfer(address to, uint256 amount, bytes memory callData, bytes memory options)
+    function transfer(address to, uint256 amount, bytes memory callData, bytes memory data)
         public
         payable
         returns (MessagingReceipt memory receipt)
     {
-        return transfer(to, amount, callData, 0, options);
+        return transfer(to, amount, callData, 0, data);
     }
 
     /**
@@ -339,19 +339,19 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard {
      * @param amount The amount of tokens to transfer.
      * @param callData Optional calldata for executing a function on the recipient contract.
      * @param value Native cryptocurrency to be sent when calling the recipient with `callData`.
-     * @param options Extra options.
+     * @param data Extra data.
      * @return receipt The messaging receipt from LayerZero, confirming the request details.
      *         Includes the `guid` and `block` parameters for tracking.
      * @dev Emits a `Transfer` event upon successful initiation.
      */
-    function transfer(address to, uint256 amount, bytes memory callData, uint256 value, bytes memory options)
+    function transfer(address to, uint256 amount, bytes memory callData, uint256 value, bytes memory data)
         public
         payable
         returns (MessagingReceipt memory receipt)
     {
         if (to == address(0)) revert InvalidAddress();
 
-        return _transfer(msg.sender, to, amount, callData, value, options);
+        return _transfer(msg.sender, to, amount, callData, value, data);
     }
 
     function _transfer(
@@ -360,7 +360,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard {
         uint256 amount,
         bytes memory callData,
         uint256 value,
-        bytes memory options
+        bytes memory data
     ) internal virtual returns (MessagingReceipt memory receipt) {
         if (amount == 0) revert InvalidAmount();
         if (amount > uint256(type(int256).max)) revert Overflow();
@@ -375,7 +375,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard {
         _pendingNonce[from] = nonce;
 
         bytes memory cmd = getTransferCmd(from, nonce);
-        receipt = IERC20xDGateway(gateway).read{ value: msg.value - value }(cmd, options);
+        receipt = IERC20xDGateway(gateway).read{ value: msg.value - value }(cmd, data);
 
         emit Transfer(from, to, amount, nonce);
     }

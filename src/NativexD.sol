@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import { BaseERC20xDWrapper } from "./mixins/BaseERC20xDWrapper.sol";
 import { IStakingVault, IStakingVaultNativeCallbacks } from "./interfaces/IStakingVault.sol";
+import { IStakingVaultQuotable } from "./interfaces/IStakingVaultQuotable.sol";
 import { AddressLib } from "./libraries/AddressLib.sol";
 
 /**
@@ -49,6 +50,24 @@ contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
     ) BaseERC20xDWrapper(NATIVE, _vault, _name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner) { }
 
     /*//////////////////////////////////////////////////////////////
+                             VIEW FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    function quoteRedeem(
+        address from,
+        address to,
+        uint256 shares,
+        bytes memory receivingData,
+        uint128 receivingFee,
+        uint256 minAmount,
+        uint128 gasLimit
+    ) public view override returns (uint256 fee) {
+        return IStakingVaultQuotable(vault).quoteRedeemNative(
+            to, shares, abi.encode(from, to), receivingData, receivingFee, minAmount, gasLimit
+        );
+    }
+
+    /*//////////////////////////////////////////////////////////////
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
@@ -58,52 +77,26 @@ contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
      *      Then it calls the depositNative function on the vault with the provided fee.
      *      This function represents an outgoing operation that wraps native tokens.
      * @param amount The amount of native tokens to deposit.
-     * @param minAmount The minimum amount expected to be deposited.
      * @param fee The fee to forward with the deposit call.
-     * @param options Additional options to pass to the vault's deposit function.
+     * @param data Additional data to pass to the vault's deposit function.
      */
-    function _deposit(uint256 amount, uint256 minAmount, uint256 fee, bytes memory options)
-        internal
-        override
-        returns (uint256 shares)
-    {
+    function _deposit(uint256 amount, uint256 fee, bytes memory data) internal override returns (uint256 shares) {
         if (msg.value < amount + fee) revert InsufficientValue();
 
-        uint256 balance = address(this).balance;
-        uint256 value = amount + fee;
-        shares = IStakingVault(vault).depositNative{ value: value }(address(this), amount, minAmount, options);
-        (, address refundTo) = abi.decode(options, (uint128, address));
-        if (refundTo != address(0) && address(this).balance > balance - value) {
-            AddressLib.transferNative(refundTo, address(this).balance + value - balance);
-        }
+        return IStakingVault(vault).depositNative{ value: amount + fee }(address(this), amount, data);
     }
 
-    /**
-     * @notice Executes a redemption (unwrap) operation for the native asset.
-     * @dev Initiates an outgoing redemption request by calling the vault's redeemNative function.
-     *      If the redemption call fails, the failure is recorded via _onFailedRedemption.
-     * @param amount The amount of native tokens to redeem.
-     * @param minAmount The minimum amount expected to be received.
-     * @param incomingData Encoded data for processing the incoming cross-chain redemption message.
-     * @param incomingFee The fee for processing the incoming redemption message.
-     * @param incomingOptions Options associated with the incoming redemption message.
-     * @param fee The fee to be forwarded with the redemption call.
-     * @param options Additional options to pass to the vault's redemption function.
-     */
     function _redeem(
-        uint256 amount,
-        uint256 minAmount,
-        bytes memory incomingData,
-        uint128 incomingFee,
-        bytes memory incomingOptions,
-        uint256 fee,
-        bytes memory options
-    ) internal virtual override {
-        try IStakingVault(vault).redeemNative{ value: fee }(
-            address(this), amount, minAmount, incomingData, incomingFee, incomingOptions, options
-        ) { } catch (bytes memory reason) {
-            _onFailedRedemption(amount, minAmount, incomingData, incomingFee, incomingOptions, fee, reason);
-        }
+        uint256 shares,
+        bytes memory callbackData,
+        bytes memory receivingData,
+        uint128 receivingFee,
+        bytes memory redeemData,
+        uint256 redeemFee
+    ) internal override {
+        IStakingVault(vault).redeemNative{ value: redeemFee }(
+            address(this), shares, callbackData, receivingData, receivingFee, redeemData
+        );
     }
 
     /*//////////////////////////////////////////////////////////////

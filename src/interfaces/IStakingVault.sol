@@ -27,50 +27,48 @@ interface IStakingVault {
     event Deposit(address indexed asset, uint256 amount, uint256 shares);
     event Redeem(address indexed asset, uint256 amount);
 
+    function sharesOf(address asset, address owner) external view returns (uint256);
+
     /**
      * @notice Deposits an asset.
      * @param asset The asset to deposit.
      * @param to The recipient.
      * @param amount The amount to deposit.
-     * @param minAmount The minimum acceptable deposit.
-     * @param options Extra options.
-     * @return dstAmount The resulting share amount.
+     * @param data Extra data.
+     * @return shares The resulting share amount.
      */
-    function deposit(address asset, address to, uint256 amount, uint256 minAmount, bytes calldata options)
+    function deposit(address asset, address to, uint256 amount, bytes calldata data)
         external
         payable
-        returns (uint256 dstAmount);
+        returns (uint256 shares);
 
     /**
      * @notice Deposits native currency.
      * @param to The recipient.
      * @param amount The native amount to deposit.
-     * @param minAmount The minimum acceptable deposit.
-     * @param options Extra options.
-     * @return dstAmount The resulting share amount.
+     * @param data Extra data.
+     * @return shares The resulting share amount.
      */
-    function depositNative(address to, uint256 amount, uint256 minAmount, bytes calldata options)
-        external
-        payable
-        returns (uint256 dstAmount);
+    function depositNative(address to, uint256 amount, bytes calldata data) external payable returns (uint256 shares);
 
     /**
      * @notice Redeems tokens from the vault.
      * @dev Checks balance and processes local or cross-chain redemptions.
-     * @param to The recipient.
      * @param asset The asset to redeem.
+     * @param to The recipient.
      * @param shares The amount of shares to redeem.
-     * @param options Extra options.
+     * @param callbackData Data to be used for IStakingVaultNativeCallbacks
+     * @param receivingData Extra data for receiving tokens.
+     * @param data Extra data.
      */
     function redeem(
         address asset,
         address to,
         uint256 shares,
-        uint256 minAmount,
-        bytes memory incomingData,
-        uint128 incomingFee,
-        bytes calldata incomingOptions,
-        bytes calldata options
+        bytes calldata callbackData,
+        bytes calldata receivingData,
+        uint128 receivingFee,
+        bytes calldata data
     ) external payable;
 
     /**
@@ -78,15 +76,16 @@ interface IStakingVault {
      * @dev Checks balance and processes local or cross-chain redemptions.
      * @param to The recipient.
      * @param shares The amount of shares to redeem.
-     * @param options Extra options.
+     * @param callbackData Data to be used for IStakingVaultNativeCallbacks
+     * @param receivingData Extra data for receiving tokens.
+     * @param data Extra data.
      */
     function redeemNative(
         address to,
         uint256 shares,
-        uint256 minAmount,
-        bytes memory incomingData,
-        uint128 incomingFee,
-        bytes calldata incomingOptions,
-        bytes calldata options
+        bytes calldata callbackData,
+        bytes calldata receivingData,
+        uint128 receivingFee,
+        bytes calldata data
     ) external payable;
 }

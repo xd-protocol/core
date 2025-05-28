@@ -18,6 +18,8 @@ import { StakingVaultMock } from "./mocks/StakingVaultMock.sol";
 import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
 
 contract NativexDTest is BaseERC20xDTestHelper {
+    address constant NATIVE = address(0);
+
     StakingVaultMock vault;
 
     function _newBaseERC20xD(uint256 i) internal override returns (BaseERC20xD) {
@@ -38,10 +40,10 @@ contract NativexDTest is BaseERC20xDTestHelper {
         (uint256 minAmount, uint256 fee) = vault.quoteDepositNative(amount, GAS_LIMIT);
 
         uint256 balance = address(vault).balance;
-        uint256 shares = local.wrap{ value: amount + fee }(alice, amount, minAmount, fee, abi.encode(GAS_LIMIT, alice));
+        uint256 shares = local.wrap{ value: amount + fee }(alice, amount, fee, abi.encode(minAmount, GAS_LIMIT, alice));
 
         assertEq(local.balanceOf(alice), shares);
-        assertEq(vault.sharesOf(address(local)), shares);
+        assertEq(vault.sharesOf(NATIVE, address(local)), shares);
         assertEq(address(vault).balance - balance - fee, amount);
     }
 
@@ -53,23 +55,25 @@ contract NativexDTest is BaseERC20xDTestHelper {
         uint256 amount = 1e18;
         (uint256 minAmount, uint256 fee) = vault.quoteDepositNative(amount, GAS_LIMIT);
 
-        bytes memory options = abi.encode(GAS_LIMIT, alice);
-        uint256 shares = local.wrap{ value: amount + fee }(alice, amount, minAmount, fee, options);
+        bytes memory data = abi.encode(minAmount, GAS_LIMIT, alice);
+        uint256 shares = local.wrap{ value: amount + fee }(alice, amount, fee, data);
 
-        uint256 incomingFee;
-        (minAmount, incomingFee) = vault.quoteDepositNative(shares, GAS_LIMIT);
-        bytes memory incomingData = abi.encode(alice, alice); // from, to
-        fee = vault.quoteRedeemNative(alice, shares, minAmount, incomingData, uint128(incomingFee), options, GAS_LIMIT);
-        uint256 readFee = local.quoteUnwrap(alice, GAS_LIMIT);
-        local.unwrap{ value: fee + readFee }(
-            alice, shares, minAmount, uint128(incomingFee), options, uint128(fee), options, options
-        );
+        bytes memory callbackData = abi.encode(alice, alice); // from, to
+        uint256 receivingFee;
+        (minAmount, receivingFee) = vault.quoteSendTokenNative(shares, callbackData, GAS_LIMIT);
+        bytes memory redeemData = abi.encode(minAmount, GAS_LIMIT, alice);
+        bytes memory receivingData = abi.encode(GAS_LIMIT, alice);
+        uint256 redeemFee =
+            local.quoteRedeem(alice, alice, shares, receivingData, uint128(receivingFee), minAmount, GAS_LIMIT);
+        fee = local.quoteUnwrap(alice, redeemFee, GAS_LIMIT);
+        bytes memory readData = abi.encode(GAS_LIMIT, alice);
+        local.unwrap{ value: fee }(alice, shares, receivingData, uint128(receivingFee), redeemData, redeemFee, readData);
 
         uint256 balance = alice.balance;
         _executeTransfer(local, alice, 1, "");
 
         assertEq(local.balanceOf(alice), 0);
-        assertEq(vault.sharesOf(alice), 0);
+        assertEq(vault.sharesOf(NATIVE, alice), 0);
         assertEq(alice.balance - balance, minAmount);
     }
 }

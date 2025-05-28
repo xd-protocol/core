@@ -52,10 +52,10 @@ contract ERC20xDWrapperTest is BaseERC20xDTestHelper {
         (uint256 minAmount, uint256 fee) = vault.quoteDeposit(address(underlyings[0]), amount, GAS_LIMIT);
 
         underlyings[0].approve(address(local), amount);
-        uint256 shares = local.wrap(alice, amount, minAmount, fee, abi.encode(GAS_LIMIT, alice));
+        uint256 shares = local.wrap{ value: fee }(alice, amount, fee, abi.encode(minAmount, GAS_LIMIT, alice));
 
         assertEq(local.balanceOf(alice), shares);
-        assertEq(vault.sharesOf(address(local)), shares);
+        assertEq(vault.sharesOf(address(underlyings[0]), address(local)), shares);
         assertEq(underlyings[0].balanceOf(address(vault)), amount);
     }
 
@@ -64,29 +64,30 @@ contract ERC20xDWrapperTest is BaseERC20xDTestHelper {
 
         changePrank(alice, alice);
 
+        address asset = address(underlyings[0]);
         uint256 amount = 1e18;
-        (uint256 minAmount, uint256 fee) = vault.quoteDeposit(address(underlyings[0]), amount, GAS_LIMIT);
+        (uint256 minAmount, uint256 fee) = vault.quoteDeposit(asset, amount, GAS_LIMIT);
 
         underlyings[0].approve(address(local), amount);
-        bytes memory options = abi.encode(GAS_LIMIT, alice);
-        uint256 shares = local.wrap(alice, amount, minAmount, fee, options);
+        bytes memory data = abi.encode(minAmount, GAS_LIMIT, alice);
+        uint256 shares = local.wrap(alice, amount, fee, data);
 
-        uint256 incomingFee;
-        (minAmount, incomingFee) = vault.quoteDeposit(address(underlyings[0]), shares, GAS_LIMIT);
-        bytes memory incomingData = abi.encode(alice, alice); // from, to
-        uint256 outgoingFee = vault.quoteRedeem(
-            address(underlyings[0]), alice, shares, minAmount, incomingData, uint128(incomingFee), options, GAS_LIMIT
-        );
-        uint256 readFee = local.quoteUnwrap(alice, GAS_LIMIT);
-        local.unwrap{ value: incomingFee + outgoingFee + readFee }(
-            alice, shares, minAmount, uint128(incomingFee), options, uint128(outgoingFee), options, options
-        );
+        bytes memory callbackData = abi.encode(alice, alice); // from, to
+        uint256 receivingFee;
+        (minAmount, receivingFee) = vault.quoteSendToken(asset, shares, callbackData, GAS_LIMIT);
+        bytes memory redeemData = abi.encode(minAmount, GAS_LIMIT, alice);
+        bytes memory receivingData = abi.encode(GAS_LIMIT, alice);
+        uint256 redeemFee =
+            local.quoteRedeem(alice, alice, shares, receivingData, uint128(receivingFee), minAmount, GAS_LIMIT);
+        fee = local.quoteUnwrap(alice, redeemFee, GAS_LIMIT);
+        bytes memory readData = abi.encode(GAS_LIMIT, alice);
+        local.unwrap{ value: fee }(alice, shares, receivingData, uint128(receivingFee), redeemData, redeemFee, readData);
 
         uint256 balance = underlyings[0].balanceOf(alice);
         _executeTransfer(local, alice, 1, "");
 
         assertEq(local.balanceOf(alice), 0);
-        assertEq(vault.sharesOf(alice), 0);
+        assertEq(vault.sharesOf(asset, alice), 0);
         assertEq(underlyings[0].balanceOf(alice) - balance, minAmount);
     }
 }
