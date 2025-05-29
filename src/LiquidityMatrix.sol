@@ -34,9 +34,9 @@ contract LiquidityMatrix is LiquidityMatrixRemote, OAppRead {
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
-    uint32 constant READ_CHANNEL_EID_THRESHOLD = 4_294_965_694;
-    uint16 public constant CMD_SYNC = 1;
-    uint16 public constant MAP_REMOTE_ACCOUNTS = 1;
+    uint32 internal constant READ_CHANNEL_EID_THRESHOLD = 4_294_965_694;
+    uint16 internal constant CMD_SYNC = 1;
+    uint16 internal constant MAP_REMOTE_ACCOUNTS = 1;
 
     uint32 public immutable READ_CHANNEL;
 

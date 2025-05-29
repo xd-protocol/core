@@ -9,8 +9,10 @@ import {
 import { AddressCast } from "@layerzerolabs/lz-evm-protocol-v2/contracts/libs/AddressCast.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { BytesLib } from "solidity-bytes-utils/contracts/BytesLib.sol";
+import { IERC20 } from "forge-std/interfaces/IERC20.sol";
 import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
 import { BaseERC20 } from "./BaseERC20.sol";
+import { IBaseERC20xD } from "../interfaces/IBaseERC20xD.sol";
 import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
 import { IERC20xDGateway } from "../interfaces/IERC20xDGateway.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
@@ -38,32 +40,14 @@ import { AddressLib } from "../libraries/AddressLib.sol";
  *      Note: This contract is abstract and requires derived implementations to provide specific logic
  *      for functions such as _compose() and _transferFrom() as well as other operational details.
  */
-abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard {
+abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20xD {
     using AddressLib for address;
     using BytesLib for bytes;
-
-    /**
-     * @notice Represents a pending cross-chain transfer.
-     * @param pending Indicates if the transfer is still pending.
-     * @param from The address initiating the transfer.
-     * @param to The recipient address on the target chain.
-     * @param amount The amount of tokens to transfer.
-     * @param callData Optional calldata for executing a function on the recipient contract.
-     * @param value The native cryptocurrency value to send with the callData, if any.
-     */
-    struct PendingTransfer {
-        bool pending;
-        address from;
-        address to;
-        uint256 amount;
-        bytes callData;
-        uint256 value;
-    }
 
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
-    uint16 public constant CMD_TRANSFER = 1;
+    uint16 internal constant CMD_TRANSFER = 1;
 
     address public liquidityMatrix;
     address public gateway;
@@ -152,7 +136,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard {
      * @notice Returns the total supply of the token across all chains.
      * @return The total supply of the token as a `uint256`.
      */
-    function totalSupply() public view override returns (uint256) {
+    function totalSupply() public view override(BaseERC20, IERC20) returns (uint256) {
         return _toUint(ILiquidityMatrix(liquidityMatrix).getSettledTotalLiquidity(address(this)));
     }
 
@@ -161,7 +145,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard {
      * @param account The address of the account to query.
      * @return The synced balance of the account as a `uint256`.
      */
-    function balanceOf(address account) public view override returns (uint256) {
+    function balanceOf(address account) public view override(BaseERC20, IERC20) returns (uint256) {
         return _toUint(ILiquidityMatrix(liquidityMatrix).getSettledLiquidity(address(this), account));
     }
 
@@ -288,7 +272,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard {
     /**
      * @dev Plain transfer isn't supported. Use payable transfer() instead.
      */
-    function transfer(address, uint256) public pure override returns (bool) {
+    function transfer(address, uint256) public pure override(BaseERC20, IERC20) returns (bool) {
         revert Unsupported();
     }
 
@@ -407,7 +391,12 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard {
      * @param amount The amount of tokens to transfer.
      * @return true if the transfer is successful.
      */
-    function transferFrom(address from, address to, uint256 amount) public virtual override returns (bool) {
+    function transferFrom(address from, address to, uint256 amount)
+        public
+        virtual
+        override(BaseERC20, IERC20)
+        returns (bool)
+    {
         if (!_composing) revert NotComposing();
 
         uint256 allowed = allowance[from][msg.sender];

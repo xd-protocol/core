@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { ERC20, SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 import { BaseERC20xD } from "./BaseERC20xD.sol";
-import { AddressLib } from "../libraries/AddressLib.sol";
+import { IBaseERC20xDWrapper } from "../interfaces/IBaseERC20xDWrapper.sol";
 
 /**
  * @title BaseERC20xDWrapper
@@ -32,7 +32,7 @@ import { AddressLib } from "../libraries/AddressLib.sol";
  *      Derived contracts must implement abstract functions such as _deposit() and _redeem() to provide the
  *      specific logic for handling the deposit and redemption processes associated with wrapping and unwrapping.
  */
-abstract contract BaseERC20xDWrapper is BaseERC20xD {
+abstract contract BaseERC20xDWrapper is BaseERC20xD, IBaseERC20xDWrapper {
     using SafeTransferLib for ERC20;
 
     struct FailedRedemption {

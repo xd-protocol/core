@@ -32,8 +32,6 @@ interface ILiquidityMatrix is ILayerZeroReceiver, IOAppCore, IOAppReducer {
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function READ_CHANNEL() external view returns (uint32);
-
     function chainConfigs() external view returns (ChainConfig[] memory);
 
     function quoteSync(uint128 gasLimit, uint32 calldataSize) external view returns (uint256 fee);

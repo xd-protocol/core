@@ -3,6 +3,8 @@ pragma solidity ^0.8.28;
 
 import { ERC20, SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 import { BaseERC20xDWrapper } from "./mixins/BaseERC20xDWrapper.sol";
+import { IERC20xDWrapper } from "./interfaces/IERC20xDWrapper.sol";
+import { IBaseERC20xDWrapper } from "./interfaces/IBaseERC20xDWrapper.sol";
 import { IStakingVault, IStakingVaultCallbacks } from "./interfaces/IStakingVault.sol";
 import { IStakingVaultQuotable } from "./interfaces/IStakingVaultQuotable.sol";
 
@@ -15,7 +17,7 @@ import { IStakingVaultQuotable } from "./interfaces/IStakingVaultQuotable.sol";
  *      while incoming operations (unwrap) call _redeem() to trigger a vault redemption.
  *      The onRedeem() callback finalizes redemptions by transferring tokens to the recipient.
  */
-contract ERC20xDWrapper is BaseERC20xDWrapper, IStakingVaultCallbacks {
+contract ERC20xDWrapper is BaseERC20xDWrapper, IERC20xDWrapper {
     using SafeTransferLib for ERC20;
 
     /*//////////////////////////////////////////////////////////////
@@ -57,7 +59,7 @@ contract ERC20xDWrapper is BaseERC20xDWrapper, IStakingVaultCallbacks {
         uint128 receivingFee,
         uint256 minAmount,
         uint128 gasLimit
-    ) public view override returns (uint256 fee) {
+    ) public view override(BaseERC20xDWrapper, IBaseERC20xDWrapper) returns (uint256 fee) {
         return IStakingVaultQuotable(vault).quoteRedeem(
             underlying, to, shares, abi.encode(from, to), receivingData, receivingFee, minAmount, gasLimit
         );

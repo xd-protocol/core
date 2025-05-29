@@ -2,6 +2,8 @@
 pragma solidity ^0.8.28;
 
 import { BaseERC20xDWrapper } from "./mixins/BaseERC20xDWrapper.sol";
+import { INativexD } from "./interfaces/INativexD.sol";
+import { IBaseERC20xDWrapper } from "./interfaces/IBaseERC20xDWrapper.sol";
 import { IStakingVault, IStakingVaultNativeCallbacks } from "./interfaces/IStakingVault.sol";
 import { IStakingVaultQuotable } from "./interfaces/IStakingVaultQuotable.sol";
 import { AddressLib } from "./libraries/AddressLib.sol";
@@ -16,13 +18,13 @@ import { AddressLib } from "./libraries/AddressLib.sol";
  *      while outgoing unwrapping (redeem) operations are executed via _redeem(). The contract also implements
  *      the IStakingVaultNativeCallbacks interface to handle incoming cross-chain messages confirming redemptions.
  */
-contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
+contract NativexD is BaseERC20xDWrapper, INativexD {
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Constant representing the native asset (e.g., ETH). In this context, native is denoted by address(0).
-    address public constant NATIVE = address(0);
+    address internal constant NATIVE = address(0);
 
     /*//////////////////////////////////////////////////////////////
                                CONSTRUCTOR
@@ -61,7 +63,7 @@ contract NativexD is BaseERC20xDWrapper, IStakingVaultNativeCallbacks {
         uint128 receivingFee,
         uint256 minAmount,
         uint128 gasLimit
-    ) public view override returns (uint256 fee) {
+    ) public view override(BaseERC20xDWrapper, IBaseERC20xDWrapper) returns (uint256 fee) {
         return IStakingVaultQuotable(vault).quoteRedeemNative(
             to, shares, abi.encode(from, to), receivingData, receivingFee, minAmount, gasLimit
         );

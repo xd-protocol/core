@@ -73,7 +73,7 @@ abstract contract LiquidityMatrixRemote is LiquidityMatrixLocal {
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
-    uint256 public constant MAX_LOOP = 4096;
+    uint256 internal constant MAX_LOOP = 4096;
 
     mapping(address => bool) internal _isSettlerWhitelisted;
 

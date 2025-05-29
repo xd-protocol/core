@@ -171,9 +171,9 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
         emit UpdateTransferCalldataSize(size);
     }
 
-    function read(bytes memory cmd, bytes memory options) external payable returns (MessagingReceipt memory receipt) {
+    function read(bytes memory cmd, bytes memory data) external payable returns (MessagingReceipt memory receipt) {
         // directly use endpoint.send() to bypass _payNative() check in _lzSend()
-        (uint128 gasLimit, address refundTo) = abi.decode(options, (uint128, address));
+        (uint128 gasLimit, address refundTo) = abi.decode(data, (uint128, address));
         receipt = endpoint.send{ value: msg.value }(
             MessagingParams(
                 READ_CHANNEL,

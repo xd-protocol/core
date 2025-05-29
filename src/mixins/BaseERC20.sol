@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
+import { IERC20Permit } from "../interfaces/IERC20Permit.sol";
+
 /**
  * @title BaseERC20
  * @notice An abstract ERC20 contract providing foundational functionality and storage.
  */
-abstract contract BaseERC20 {
+abstract contract BaseERC20 is IERC20Permit {
     /*//////////////////////////////////////////////////////////////
                             METADATA STORAGE
     //////////////////////////////////////////////////////////////*/
@@ -28,13 +30,6 @@ abstract contract BaseERC20 {
     bytes32 internal immutable INITIAL_DOMAIN_SEPARATOR;
 
     mapping(address => uint256) public nonces;
-
-    /*//////////////////////////////////////////////////////////////
-                                 EVENTS
-    //////////////////////////////////////////////////////////////*/
-
-    event Transfer(address indexed from, address indexed to, uint256 amount);
-    event Approval(address indexed owner, address indexed spender, uint256 amount);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
