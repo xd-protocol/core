@@ -4,10 +4,10 @@ pragma solidity ^0.8.28;
 import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { ERC20, SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 import { BaseERC20xD } from "./BaseERC20xD.sol";
-import { IBaseERC20xDWrapper } from "../interfaces/IBaseERC20xDWrapper.sol";
+import { IBaseWrappedERC20xD } from "../interfaces/IBaseWrappedERC20xD.sol";
 
 /**
- * @title BaseERC20xDWrapper
+ * @title BaseWrappedERC20xD
  * @notice An abstract extension of BaseERC20xD that adds cross-chain wrapping and unwrapping capabilities.
  * @dev This contract builds upon the core cross-chain liquidity and transfer management provided by
  *      BaseERC20xD by implementing wrapper-specific logic. It introduces additional functionality such as:
@@ -32,7 +32,7 @@ import { IBaseERC20xDWrapper } from "../interfaces/IBaseERC20xDWrapper.sol";
  *      Derived contracts must implement abstract functions such as _deposit() and _redeem() to provide the
  *      specific logic for handling the deposit and redemption processes associated with wrapping and unwrapping.
  */
-abstract contract BaseERC20xDWrapper is BaseERC20xD, IBaseERC20xDWrapper {
+abstract contract BaseWrappedERC20xD is BaseERC20xD, IBaseWrappedERC20xD {
     using SafeTransferLib for ERC20;
 
     struct FailedRedemption {
@@ -74,7 +74,7 @@ abstract contract BaseERC20xDWrapper is BaseERC20xD, IBaseERC20xDWrapper {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Initializes the BaseERC20xDWrapper with the underlying token, and token parameters.
+     * @notice Initializes the BaseWrappedERC20xD with the underlying token, and token parameters.
      * @param _underlying The address of the underlying token.
      * @param _vault The vault contract's address.
      * @param _name The token name.

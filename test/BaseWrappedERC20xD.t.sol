@@ -9,14 +9,14 @@ import {
 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
 import { Test, Vm, console } from "forge-std/Test.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
-import { ERC20xDWrapper } from "src/ERC20xDWrapper.sol";
-import { BaseERC20xDWrapper } from "src/mixins/BaseERC20xDWrapper.sol";
+import { WrappedERC20xD } from "src/WrappedERC20xD.sol";
+import { BaseWrappedERC20xD } from "src/mixins/BaseWrappedERC20xD.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { ERC20Mock } from "./mocks/ERC20Mock.sol";
 import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
 
-contract BaseERC20xDWrapperTest is BaseERC20xDTestHelper {
+contract BaseWrappedERC20xDTest is BaseERC20xDTestHelper {
     ERC20Mock[CHAINS] underlyings;
     address[CHAINS] vaults;
 
@@ -26,7 +26,7 @@ contract BaseERC20xDWrapperTest is BaseERC20xDTestHelper {
             underlyings[i].mint(users[j], 100e18);
         }
         vaults[i] = makeAddr(string.concat("vault", vm.toString(i)));
-        return new ERC20xDWrapper(
+        return new WrappedERC20xD(
             address(underlyings[i]),
             vaults[i],
             "xD",

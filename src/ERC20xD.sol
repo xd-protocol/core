@@ -11,7 +11,7 @@ contract ERC20xD is BaseERC20xD, IERC20xD {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Initializes the ERC20xDWrapper contract.
+     * @notice Initializes the WrappedERC20xD contract.
      * @param _name The token name.
      * @param _symbol The token symbol.
      * @param _decimals The token decimals.

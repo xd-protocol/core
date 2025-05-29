@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import { IBaseERC20xDWrapper } from "./IBaseERC20xDWrapper.sol";
+import { IBaseWrappedERC20xD } from "./IBaseWrappedERC20xD.sol";
 import { IStakingVaultNativeCallbacks } from "./IStakingVault.sol";
 
-interface INativexD is IBaseERC20xDWrapper, IStakingVaultNativeCallbacks { }
+interface INativexD is IBaseWrappedERC20xD, IStakingVaultNativeCallbacks { }

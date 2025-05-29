@@ -10,7 +10,7 @@ import {
 import { Test, Vm, console } from "forge-std/Test.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
 import { NativexD } from "src/NativexD.sol";
-import { BaseERC20xDWrapper } from "src/mixins/BaseERC20xDWrapper.sol";
+import { BaseWrappedERC20xD } from "src/mixins/BaseWrappedERC20xD.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { ERC20Mock } from "./mocks/ERC20Mock.sol";

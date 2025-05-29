@@ -2,22 +2,22 @@
 pragma solidity ^0.8.28;
 
 import { ERC20, SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
-import { BaseERC20xDWrapper } from "./mixins/BaseERC20xDWrapper.sol";
-import { IERC20xDWrapper } from "./interfaces/IERC20xDWrapper.sol";
-import { IBaseERC20xDWrapper } from "./interfaces/IBaseERC20xDWrapper.sol";
+import { BaseWrappedERC20xD } from "./mixins/BaseWrappedERC20xD.sol";
+import { IWrappedERC20xD } from "./interfaces/IWrappedERC20xD.sol";
+import { IBaseWrappedERC20xD } from "./interfaces/IBaseWrappedERC20xD.sol";
 import { IStakingVault, IStakingVaultCallbacks } from "./interfaces/IStakingVault.sol";
 import { IStakingVaultQuotable } from "./interfaces/IStakingVaultQuotable.sol";
 
 /**
- * @title ERC20xDWrapper
+ * @title WrappedERC20xD
  * @notice Implements cross-chain wrapping and unwrapping for an underlying ERC20 token.
- *         This contract extends BaseERC20xDWrapper to provide wrapper-specific logic and integrates
+ *         This contract extends BaseWrappedERC20xD to provide wrapper-specific logic and integrates
  *         with a staking vault to perform deposit and redemption operations.
  * @dev Outgoing operations (wrap) call _deposit() to transfer tokens to the vault,
  *      while incoming operations (unwrap) call _redeem() to trigger a vault redemption.
  *      The onRedeem() callback finalizes redemptions by transferring tokens to the recipient.
  */
-contract ERC20xDWrapper is BaseERC20xDWrapper, IERC20xDWrapper {
+contract WrappedERC20xD is BaseWrappedERC20xD, IWrappedERC20xD {
     using SafeTransferLib for ERC20;
 
     /*//////////////////////////////////////////////////////////////
@@ -25,8 +25,8 @@ contract ERC20xDWrapper is BaseERC20xDWrapper, IERC20xDWrapper {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Initializes the ERC20xDWrapper contract.
-     * @dev Forwards the provided parameters to the BaseERC20xDWrapper constructor.
+     * @notice Initializes the WrappedERC20xD contract.
+     * @dev Forwards the provided parameters to the BaseWrappedERC20xD constructor.
      * @param _underlying The address of the underlying token.
      * @param _vault The vault contract's address.
      * @param _name The token name.
@@ -45,7 +45,7 @@ contract ERC20xDWrapper is BaseERC20xDWrapper, IERC20xDWrapper {
         address _liquidityMatrix,
         address _gateway,
         address _owner
-    ) BaseERC20xDWrapper(_underlying, _vault, _name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner) { }
+    ) BaseWrappedERC20xD(_underlying, _vault, _name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner) { }
 
     /*//////////////////////////////////////////////////////////////
                              VIEW FUNCTIONS
@@ -59,7 +59,7 @@ contract ERC20xDWrapper is BaseERC20xDWrapper, IERC20xDWrapper {
         uint128 receivingFee,
         uint256 minAmount,
         uint128 gasLimit
-    ) public view override(BaseERC20xDWrapper, IBaseERC20xDWrapper) returns (uint256 fee) {
+    ) public view override(BaseWrappedERC20xD, IBaseWrappedERC20xD) returns (uint256 fee) {
         return IStakingVaultQuotable(vault).quoteRedeem(
             underlying, to, shares, abi.encode(from, to), receivingData, receivingFee, minAmount, gasLimit
         );

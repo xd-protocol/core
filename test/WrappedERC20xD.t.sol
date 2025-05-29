@@ -9,15 +9,15 @@ import {
 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
 import { Test, Vm, console } from "forge-std/Test.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
-import { ERC20xDWrapper } from "src/ERC20xDWrapper.sol";
-import { BaseERC20xDWrapper } from "src/mixins/BaseERC20xDWrapper.sol";
+import { WrappedERC20xD } from "src/WrappedERC20xD.sol";
+import { BaseWrappedERC20xD } from "src/mixins/BaseWrappedERC20xD.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { ERC20Mock } from "./mocks/ERC20Mock.sol";
 import { StakingVaultMock } from "./mocks/StakingVaultMock.sol";
 import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
 
-contract ERC20xDWrapperTest is BaseERC20xDTestHelper {
+contract WrappedERC20xDTest is BaseERC20xDTestHelper {
     ERC20Mock[CHAINS] underlyings;
     StakingVaultMock vault;
 
@@ -26,7 +26,7 @@ contract ERC20xDWrapperTest is BaseERC20xDTestHelper {
         for (uint256 j; j < users.length; ++j) {
             underlyings[i].mint(users[j], 100e18);
         }
-        return new ERC20xDWrapper(
+        return new WrappedERC20xD(
             address(underlyings[i]),
             address(vault),
             "xD",
@@ -44,7 +44,7 @@ contract ERC20xDWrapperTest is BaseERC20xDTestHelper {
     }
 
     function test_wrap() public {
-        ERC20xDWrapper local = ERC20xDWrapper(payable(address(erc20s[0])));
+        WrappedERC20xD local = WrappedERC20xD(payable(address(erc20s[0])));
 
         changePrank(alice, alice);
 
@@ -60,7 +60,7 @@ contract ERC20xDWrapperTest is BaseERC20xDTestHelper {
     }
 
     function test_unwrap() public {
-        ERC20xDWrapper local = ERC20xDWrapper(payable(address(erc20s[0])));
+        WrappedERC20xD local = WrappedERC20xD(payable(address(erc20s[0])));
 
         changePrank(alice, alice);
 
