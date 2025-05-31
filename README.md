@@ -1,66 +1,35 @@
-## Foundry
+# xDLOL Core Contracts
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+xDLOL is a universal staking layer that enables users to stake, earn, and interact with major LST (Liquid Staking Token), LRT (Liquid Restaking Token), and vault protocols from any supported chain, without bridging or waiting for slow cross-chain messages. This repository contains the core smart contracts powering xDLOL’s cross-chain staking, yield synchronization, and protocol accounting.
 
-Foundry consists of:
+## Overview
 
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+Traditional staking and yield protocols are siloed on their origin chain. Users must bridge assets and deal with complex workflows just to access opportunities on another network. xDLOL solves this.
 
-## Documentation
+xDLOL mirrors LST, LRT, and major vault protocols on all supported chains.
+Users can stake and earn as if the protocol natively exists on their current chain. Rewards and liquidity are synchronized automatically and securely—no manual bridging, no fragmented UX.
 
-https://book.getfoundry.sh/
 
-## Usage
+## Key Features
+	•	Omni-Chain Staking: Stake into major protocols (Lido, Ether.fi, Renzo, Morpho, etc.) from any supported chain in one click.
+	•	Reward Synchronization: Yield and rewards are automatically synced cross-chain.
+	•	No Bridges, No Delays: Underlying protocol logic abstracts away all bridging and messaging from the user.
+	•	Unified Liquidity: Protocol and asset liquidity is virtually aggregated and available from any chain.
+	•	Composable Layer: All staking/vaults are available to both users and smart contracts on all chains.
 
-### Build
 
-```shell
-$ forge build
-```
+## Key Design Principles
+	•	Security: All critical sync operations are permissionless, minimizing trust assumptions.
+	•	Extensibility: New protocols and cross-chain routers can be integrated with minimal changes.
+	•	Gas Efficiency: Core accounting and root updates are optimized for batch updates and minimized state writes.
+	•	Transparency: All root synchronizations and user state changes are on-chain and auditable.
 
-### Test
 
-```shell
-$ forge test
-```
+## Security & Audits
 
-### Format
+All core contracts are written to minimize cross-chain trust.
+Security reviews are ongoing. For bug reports or responsible disclosures, please reach out via team@levx.io 
 
-```shell
-$ forge fmt
-```
+## License
 
-### Gas Snapshots
-
-```shell
-$ forge snapshot
-```
-
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+BUSL
