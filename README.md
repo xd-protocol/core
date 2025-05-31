@@ -11,18 +11,18 @@ Users can stake and earn as if the protocol natively exists on their current cha
 
 
 ## Key Features
-	•	Omni-Chain Staking: Stake into major protocols (Lido, Ether.fi, Renzo, Morpho, etc.) from any supported chain in one click.
-	•	Reward Synchronization: Yield and rewards are automatically synced cross-chain.
-	•	No Bridges, No Delays: Underlying protocol logic abstracts away all bridging and messaging from the user.
-	•	Unified Liquidity: Protocol and asset liquidity is virtually aggregated and available from any chain.
-	•	Composable Layer: All staking/vaults are available to both users and smart contracts on all chains.
+* Omni-Chain Staking: Stake into major protocols (Lido, Ether.fi, Renzo, Morpho, etc.) from any supported chain in one click.
+* Reward Synchronization: Yield and rewards are automatically synced cross-chain.
+* No Bridges, No Delays: Underlying protocol logic abstracts away all bridging and messaging from the user.
+* Unified Liquidity: Protocol and asset liquidity is virtually aggregated and available from any chain.
+* Composable Layer: All staking/vaults are available to both users and smart contracts on all chains.
 
 
 ## Key Design Principles
-	•	Security: All critical sync operations are permissionless, minimizing trust assumptions.
-	•	Extensibility: New protocols and cross-chain routers can be integrated with minimal changes.
-	•	Gas Efficiency: Core accounting and root updates are optimized for batch updates and minimized state writes.
-	•	Transparency: All root synchronizations and user state changes are on-chain and auditable.
+* Security: All critical sync operations are permissionless, minimizing trust assumptions.
+* Extensibility: New protocols and cross-chain routers can be integrated with minimal changes.
+* Gas Efficiency: Core accounting and root updates are optimized for batch updates and minimized state writes.
+* Transparency: All root synchronizations and user state changes are on-chain and auditable.
 
 
 ## Security & Audits
