@@ -270,10 +270,25 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     }
 
     /**
-     * @dev Plain transfer isn't supported. Use payable transfer() instead.
+     * @notice Transfers tokens locally on the current chain.
+     * @dev The transfer is limited by availableLocalBalanceOf() to ensure it doesn't
+     *      interfere with pending cross-chain transfers.
+     * @param to The recipient address.
+     * @param amount The amount of tokens to transfer.
+     * @return success True if the transfer was successful.
      */
-    function transfer(address, uint256) public pure override(BaseERC20, IERC20) returns (bool) {
-        revert Unsupported();
+    function transfer(address to, uint256 amount) public override(BaseERC20, IERC20) returns (bool) {
+        if (to == address(0)) revert InvalidAddress();
+        if (amount == 0) revert InvalidAmount();
+        
+        // Check available balance (local balance minus pending transfers)
+        int256 available = availableLocalBalanceOf(msg.sender, 0);
+        if (available < int256(amount)) revert InsufficientBalance();
+        
+        // Perform the transfer
+        _transferFrom(msg.sender, to, amount);
+        
+        return true;
     }
 
     /**
