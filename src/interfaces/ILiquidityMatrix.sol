@@ -7,11 +7,6 @@ import { IOAppCore } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOA
 import { IOAppReducer } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppReducer.sol";
 
 interface ILiquidityMatrix is ILayerZeroReceiver, IOAppCore, IOAppReducer {
-    struct ChainConfig {
-        uint32 targetEid;
-        uint16 confirmations;
-    }
-
     struct SettleLiquidityParams {
         address app;
         uint32 eid;
@@ -32,9 +27,11 @@ interface ILiquidityMatrix is ILayerZeroReceiver, IOAppCore, IOAppReducer {
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function chainConfigs() external view returns (ChainConfig[] memory);
+    function chainConfigs() external view returns (uint32[] memory eids, uint16[] memory confirmations);
 
     function quoteSync(uint128 gasLimit, uint32 calldataSize) external view returns (uint256 fee);
+
+    function quoteSync(uint32[] memory eids, uint128 gasLimit, uint32 calldataSize) external view returns (uint256 fee);
 
     function quoteRequestMapRemoteAccounts(
         uint32 eid,
@@ -46,6 +43,8 @@ interface ILiquidityMatrix is ILayerZeroReceiver, IOAppCore, IOAppReducer {
     ) external view returns (uint256 fee);
 
     function getSyncCmd() external view returns (bytes memory);
+
+    function getSyncCmd(uint32[] memory eids) external view returns (bytes memory);
 
     function getAppSetting(address app)
         external
@@ -190,11 +189,13 @@ interface ILiquidityMatrix is ILayerZeroReceiver, IOAppCore, IOAppReducer {
 
     function settleData(SettleDataParams memory params) external;
 
-    function configChains(ChainConfig[] memory configs) external;
+    function configChains(uint32[] memory eids, uint16[] memory confirmations) external;
 
     function updateSettlerWhitelisted(address account, bool whitelisted) external;
 
     function sync(uint128 gasLimit, uint32 calldataSize) external payable returns (MessagingReceipt memory fee);
+
+    function sync(uint32[] memory eids, uint128 gasLimit, uint32 calldataSize) external payable returns (MessagingReceipt memory fee);
 
     function requestMapRemoteAccounts(
         uint32 eid,

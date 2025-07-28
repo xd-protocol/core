@@ -230,10 +230,10 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @dev Constructs read requests for each configured chain in the LiquidityMatrix.
      */
     function getTransferCmd(address from, uint256 nonce) public view returns (bytes memory) {
-        ILiquidityMatrix.ChainConfig[] memory chainConfigs = IERC20xDGateway(gateway).chainConfigs();
-        address[] memory targets = new address[](chainConfigs.length);
-        for (uint256 i; i < chainConfigs.length; ++i) {
-            bytes32 peer = _getPeerOrRevert(chainConfigs[i].targetEid);
+        (uint32[] memory eids, ) = IERC20xDGateway(gateway).chainConfigs();
+        address[] memory targets = new address[](eids.length);
+        for (uint256 i; i < eids.length; ++i) {
+            bytes32 peer = _getPeerOrRevert(eids[i]);
             targets[i] = AddressCast.toAddress(peer);
         }
 

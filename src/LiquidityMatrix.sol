@@ -42,7 +42,8 @@ contract LiquidityMatrix is LiquidityMatrixRemote, OAppRead {
 
     address public syncer;
 
-    ChainConfig[] internal _chainConfigs;
+    uint32[] internal _targetEids;
+    mapping(uint32 => uint16) internal _chainConfigConfirmations;
 
     uint256 internal _lastSyncRequestTimestamp;
 
@@ -85,8 +86,13 @@ contract LiquidityMatrix is LiquidityMatrixRemote, OAppRead {
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function chainConfigs() external view returns (ChainConfig[] memory) {
-        return _chainConfigs;
+    function chainConfigs() external view returns (uint32[] memory eids, uint16[] memory confirmations) {
+        uint256 length = _targetEids.length;
+        eids = _targetEids;
+        confirmations = new uint16[](length);
+        for (uint256 i; i < length; i++) {
+            confirmations[i] = _chainConfigConfirmations[_targetEids[i]];
+        }
     }
 
     /**
@@ -130,6 +136,23 @@ contract LiquidityMatrix is LiquidityMatrixRemote, OAppRead {
     }
 
     /**
+     * @notice Quotes the messaging fee for sending a read request to specific endpoints.
+     * @param eids Array of endpoint IDs to synchronize.
+     * @param gasLimit The amount of gas to allocate for the executor.
+     * @param calldataSize The size of the calldata in bytes.
+     * @return fee The estimated messaging fee for the request.
+     */
+    function quoteSync(uint32[] memory eids, uint128 gasLimit, uint32 calldataSize) public view returns (uint256 fee) {
+        MessagingFee memory _fee = _quote(
+            READ_CHANNEL,
+            getSyncCmd(eids),
+            OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0),
+            false
+        );
+        return _fee.nativeFee;
+    }
+
+    /**
      * @notice Quotes the messaging fee for sending a write request with specific gas and calldata size.
      * @param gasLimit The amount of gas to allocate for the executor.
      * @return fee The estimated messaging fee for the request.
@@ -157,20 +180,51 @@ contract LiquidityMatrix is LiquidityMatrixRemote, OAppRead {
      * @return The encoded command with all configured chain requests.
      */
     function getSyncCmd() public view returns (bytes memory) {
-        uint256 length = _chainConfigs.length;
+        uint256 length = _targetEids.length;
         EVMCallRequestV1[] memory readRequests = new EVMCallRequestV1[](length);
 
         uint64 timestamp = uint64(block.timestamp);
         for (uint256 i; i < length; i++) {
-            ChainConfig memory chainConfig = _chainConfigs[i];
-            uint32 eid = chainConfig.targetEid;
+            uint32 eid = _targetEids[i];
             address to = AddressCast.toAddress(_getPeerOrRevert(eid));
+            uint16 confirmations = _chainConfigConfirmations[eid];
             readRequests[i] = EVMCallRequestV1({
                 appRequestLabel: uint16(i + 1),
                 targetEid: eid,
                 isBlockNum: false,
                 blockNumOrTimestamp: timestamp,
-                confirmations: chainConfig.confirmations,
+                confirmations: confirmations,
+                to: to,
+                callData: abi.encodeWithSelector(LiquidityMatrixLocal.getMainRoots.selector)
+            });
+        }
+
+        return ReadCodecV1.encode(CMD_SYNC, readRequests, _computeSettings());
+    }
+
+    /**
+     * @notice Constructs and encodes the read command for specific chains.
+     * @dev Uses `_computeSettings` to determine the compute settings for the command.
+     *      Only includes the specified endpoint IDs in the sync request.
+     * @param eids Array of endpoint IDs to include in the sync command.
+     * @return The encoded command with the specified chain requests.
+     */
+    function getSyncCmd(uint32[] memory eids) public view returns (bytes memory) {
+        uint256 length = eids.length;
+        EVMCallRequestV1[] memory readRequests = new EVMCallRequestV1[](length);
+
+        uint64 timestamp = uint64(block.timestamp);
+        for (uint256 i; i < length; i++) {
+            uint32 eid = eids[i];
+            address to = AddressCast.toAddress(_getPeerOrRevert(eid));
+            uint16 confirmations = _chainConfigConfirmations[eid];
+            
+            readRequests[i] = EVMCallRequestV1({
+                appRequestLabel: uint16(i + 1),
+                targetEid: eid,
+                isBlockNum: false,
+                blockNumOrTimestamp: timestamp,
+                confirmations: confirmations,
                 to: to,
                 callData: abi.encodeWithSelector(LiquidityMatrixLocal.getMainRoots.selector)
             });
@@ -191,11 +245,11 @@ contract LiquidityMatrix is LiquidityMatrixRemote, OAppRead {
     }
 
     function eidsLength() public view override returns (uint256) {
-        return _chainConfigs.length;
+        return _targetEids.length;
     }
 
     function eidAt(uint256 index) public view override returns (uint32) {
-        return _chainConfigs[index].targetEid;
+        return _targetEids[index];
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -204,16 +258,26 @@ contract LiquidityMatrix is LiquidityMatrixRemote, OAppRead {
 
     /**
      * @notice Updates the configuration for target chains used in LayerZero read requests.
-     * @param configs An array of new `ChainConfig` objects defining the target chains.
+     * @param eids Array of endpoint IDs.
+     * @param confirmations Array of confirmation requirements for each endpoint.
      */
-    function configChains(ChainConfig[] memory configs) external onlyOwner {
-        for (uint256 i; i < configs.length; i++) {
-            for (uint256 j = i + 1; j < configs.length; j++) {
-                if (configs[i].targetEid == configs[j].targetEid) revert DuplicateTargetEid();
+    function configChains(uint32[] memory eids, uint16[] memory confirmations) external onlyOwner {
+        if (eids.length != confirmations.length) revert InvalidLengths();
+        
+        // Clear existing mappings
+        for (uint256 i; i < _targetEids.length; i++) {
+            delete _chainConfigConfirmations[_targetEids[i]];
+        }
+        
+        // Validate and populate new mappings
+        for (uint256 i; i < eids.length; i++) {
+            for (uint256 j = i + 1; j < eids.length; j++) {
+                if (eids[i] == eids[j]) revert DuplicateTargetEid();
             }
+            _chainConfigConfirmations[eids[i]] = confirmations[i];
         }
 
-        _chainConfigs = configs;
+        _targetEids = eids;
     }
 
     function updateSyncer(address _syncer) external onlyOwner {
@@ -243,6 +307,28 @@ contract LiquidityMatrix is LiquidityMatrixRemote, OAppRead {
         _lastSyncRequestTimestamp = block.timestamp;
 
         bytes memory cmd = getSyncCmd();
+        bytes memory options = OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0);
+        receipt = _lzSend(READ_CHANNEL, cmd, options, MessagingFee(msg.value, 0), payable(msg.sender));
+
+        emit Sync(msg.sender);
+    }
+
+    /**
+     * @notice Initiates a sync operation for specific chains using lzRead.
+     * @dev Sends a read request for the specified endpoint IDs with gas and calldata size.
+     *      The user must provide sufficient fees via `msg.value`.
+     * @param eids Array of endpoint IDs to synchronize.
+     * @param gasLimit The gas limit to allocate for the executor.
+     * @param calldataSize The size of the calldata for the request, in bytes.
+     * @return receipt The messaging receipt from LayerZero, confirming the request details.
+     *         Includes the `guid` and `block` parameters for tracking.
+     */
+    function sync(uint32[] memory eids, uint128 gasLimit, uint32 calldataSize) external payable returns (MessagingReceipt memory receipt) {
+        if (msg.sender != syncer) revert Forbidden();
+        if (block.timestamp <= _lastSyncRequestTimestamp) revert AlreadyRequested();
+        _lastSyncRequestTimestamp = block.timestamp;
+
+        bytes memory cmd = getSyncCmd(eids);
         bytes memory options = OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0);
         receipt = _lzSend(READ_CHANNEL, cmd, options, MessagingFee(msg.value, 0), payable(msg.sender));
 

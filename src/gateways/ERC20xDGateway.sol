@@ -74,7 +74,7 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function chainConfigs() public view returns (ILiquidityMatrix.ChainConfig[] memory) {
+    function chainConfigs() public view returns (uint32[] memory eids, uint16[] memory confirmations) {
         return ILiquidityMatrix(liquidityMatrix).chainConfigs();
     }
 
@@ -88,11 +88,12 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
      * @return fee The estimated messaging fee for the request.
      */
     function quoteRead(bytes memory cmd, uint128 gasLimit) public view returns (uint256 fee) {
+        (uint32[] memory eids, ) = chainConfigs();
         MessagingFee memory _fee = _quote(
             READ_CHANNEL,
             cmd,
             OptionsBuilder.newOptions().addExecutorLzReadOption(
-                gasLimit, uint32(transferCalldataSize * chainConfigs().length), 0
+                gasLimit, uint32(transferCalldataSize * eids.length), 0
             ),
             false
         );
@@ -109,19 +110,18 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
         view
         returns (bytes memory)
     {
-        ILiquidityMatrix.ChainConfig[] memory _chainConfigs = chainConfigs();
-        EVMCallRequestV1[] memory readRequests = new EVMCallRequestV1[](_chainConfigs.length);
+        (uint32[] memory _eids, uint16[] memory _confirmations) = chainConfigs();
+        EVMCallRequestV1[] memory readRequests = new EVMCallRequestV1[](_eids.length);
 
         uint64 timestamp = uint64(block.timestamp);
-        for (uint256 i; i < _chainConfigs.length; i++) {
-            ILiquidityMatrix.ChainConfig memory chainConfig = _chainConfigs[i];
-            uint32 eid = chainConfig.targetEid;
+        for (uint256 i; i < _eids.length; i++) {
+            uint32 eid = _eids[i];
             readRequests[i] = EVMCallRequestV1({
                 appRequestLabel: uint16(i + 1),
                 targetEid: eid,
                 isBlockNum: false,
                 blockNumOrTimestamp: timestamp + _transferDelays[eid],
-                confirmations: chainConfig.confirmations,
+                confirmations: _confirmations[i],
                 to: targets[i],
                 callData: callData
             });
@@ -174,13 +174,14 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
     function read(bytes memory cmd, bytes memory data) external payable returns (MessagingReceipt memory receipt) {
         // directly use endpoint.send() to bypass _payNative() check in _lzSend()
         (uint128 gasLimit, address refundTo) = abi.decode(data, (uint128, address));
+        (uint32[] memory eids, ) = chainConfigs();
         receipt = endpoint.send{ value: msg.value }(
             MessagingParams(
                 READ_CHANNEL,
                 _getPeerOrRevert(READ_CHANNEL),
                 cmd,
                 OptionsBuilder.newOptions().addExecutorLzReadOption(
-                    gasLimit, transferCalldataSize * uint32(chainConfigs().length), 0
+                    gasLimit, transferCalldataSize * uint32(eids.length), 0
                 ),
                 false
             ),
