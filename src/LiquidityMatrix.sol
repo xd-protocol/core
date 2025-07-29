@@ -218,7 +218,7 @@ contract LiquidityMatrix is LiquidityMatrixRemote, OAppRead {
             uint32 eid = eids[i];
             address to = AddressCast.toAddress(_getPeerOrRevert(eid));
             uint16 confirmations = _chainConfigConfirmations[eid];
-            
+
             readRequests[i] = EVMCallRequestV1({
                 appRequestLabel: uint16(i + 1),
                 targetEid: eid,
@@ -263,12 +263,12 @@ contract LiquidityMatrix is LiquidityMatrixRemote, OAppRead {
      */
     function configChains(uint32[] memory eids, uint16[] memory confirmations) external onlyOwner {
         if (eids.length != confirmations.length) revert InvalidLengths();
-        
+
         // Clear existing mappings
         for (uint256 i; i < _targetEids.length; i++) {
             delete _chainConfigConfirmations[_targetEids[i]];
         }
-        
+
         // Validate and populate new mappings
         for (uint256 i; i < eids.length; i++) {
             for (uint256 j = i + 1; j < eids.length; j++) {
@@ -323,7 +323,11 @@ contract LiquidityMatrix is LiquidityMatrixRemote, OAppRead {
      * @return receipt The messaging receipt from LayerZero, confirming the request details.
      *         Includes the `guid` and `block` parameters for tracking.
      */
-    function sync(uint32[] memory eids, uint128 gasLimit, uint32 calldataSize) external payable returns (MessagingReceipt memory receipt) {
+    function sync(uint32[] memory eids, uint128 gasLimit, uint32 calldataSize)
+        external
+        payable
+        returns (MessagingReceipt memory receipt)
+    {
         if (msg.sender != syncer) revert Forbidden();
         if (block.timestamp <= _lastSyncRequestTimestamp) revert AlreadyRequested();
         _lastSyncRequestTimestamp = block.timestamp;

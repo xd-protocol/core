@@ -41,11 +41,11 @@ contract LiquidityMatrixRemoteTest is LiquidityMatrixTestHelper {
 
         uint32[] memory configEids = new uint32[](1);
         uint16[] memory configConfirmations = new uint16[](1);
-        
+
         configEids[0] = EID_REMOTE;
         configConfirmations[0] = 0;
         local.configChains(configEids, configConfirmations);
-        
+
         configEids[0] = EID_LOCAL;
         configConfirmations[0] = 0;
         remote.configChains(configEids, configConfirmations);

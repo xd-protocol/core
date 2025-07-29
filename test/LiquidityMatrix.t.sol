@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { MessagingFee, MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
+import {
+    MessagingFee,
+    MessagingReceipt
+} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { ArrayLib } from "src/libraries/ArrayLib.sol";
@@ -97,7 +100,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
     function test_sync_withSpecificEids() public {
         bytes32 seed = keccak256("test_sync_withSpecificEids");
-        
+
         // Update liquidity on all chains
         ILiquidityMatrix[] memory allRemotes = new ILiquidityMatrix[](CHAINS - 1);
         for (uint32 i = 0; i < CHAINS; ++i) {
@@ -107,99 +110,99 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
             }
             seed = keccak256(abi.encodePacked(seed, i));
         }
-        
+
         // Test syncing with specific endpoint IDs
         uint32[] memory targetEids = new uint32[](3);
         targetEids[0] = eids[1];
         targetEids[1] = eids[3];
         targetEids[2] = eids[5];
-        
+
         // Use helper to properly simulate cross-chain sync with specific eids
         _syncWithEids(syncers[0], liquidityMatrices[0], targetEids, allRemotes);
     }
-    
+
     function test_sync_withSpecificEids_forbiddenCaller() public {
         uint32[] memory targetEids = new uint32[](2);
         targetEids[0] = eids[1];
         targetEids[1] = eids[2];
-        
+
         changePrank(users[0], users[0]); // Not the syncer
         uint128 gasLimit = 400_000;
         uint32 calldataSize = 256;
-        
+
         vm.expectRevert(LiquidityMatrix.Forbidden.selector);
-        liquidityMatrices[0].sync{value: 1 ether}(targetEids, gasLimit, calldataSize);
+        liquidityMatrices[0].sync{ value: 1 ether }(targetEids, gasLimit, calldataSize);
     }
-    
+
     function test_sync_withSpecificEids_alreadyRequested() public {
         uint32[] memory targetEids = new uint32[](2);
         targetEids[0] = eids[1];
         targetEids[1] = eids[2];
-        
+
         changePrank(syncers[0], syncers[0]);
         uint128 gasLimit = 400_000;
         uint32 calldataSize = 256;
         uint256 fee = liquidityMatrices[0].quoteSync(targetEids, gasLimit, calldataSize);
-        
+
         // First sync should succeed
-        liquidityMatrices[0].sync{value: fee}(targetEids, gasLimit, calldataSize);
-        
+        liquidityMatrices[0].sync{ value: fee }(targetEids, gasLimit, calldataSize);
+
         // Second sync in same block should fail
         vm.expectRevert(LiquidityMatrix.AlreadyRequested.selector);
-        liquidityMatrices[0].sync{value: fee}(targetEids, gasLimit, calldataSize);
-        
+        liquidityMatrices[0].sync{ value: fee }(targetEids, gasLimit, calldataSize);
+
         // After time passes, sync should succeed again
         skip(1);
-        liquidityMatrices[0].sync{value: fee}(targetEids, gasLimit, calldataSize);
+        liquidityMatrices[0].sync{ value: fee }(targetEids, gasLimit, calldataSize);
     }
-    
+
     function test_sync_withSpecificEids_insufficientFee() public {
         uint32[] memory targetEids = new uint32[](3);
         targetEids[0] = eids[2];
         targetEids[1] = eids[4];
         targetEids[2] = eids[6];
-        
+
         changePrank(syncers[0], syncers[0]);
         uint128 gasLimit = 600_000;
         uint32 calldataSize = 384;
         uint256 fee = liquidityMatrices[0].quoteSync(targetEids, gasLimit, calldataSize);
-        
+
         // Try to sync with insufficient fee
         vm.expectRevert();
-        liquidityMatrices[0].sync{value: fee - 1}(targetEids, gasLimit, calldataSize);
+        liquidityMatrices[0].sync{ value: fee - 1 }(targetEids, gasLimit, calldataSize);
     }
-    
+
     function test_sync_withSpecificEids_emptyArray() public {
         uint32[] memory targetEids = new uint32[](0);
-        
+
         changePrank(syncers[0], syncers[0]);
         uint128 gasLimit = 200_000;
         uint32 calldataSize = 128;
-        
+
         // Empty array might be rejected by LayerZero codec, expecting InvalidCmd
         vm.expectRevert(LiquidityMatrix.InvalidCmd.selector);
-        liquidityMatrices[0].sync{value: 1 ether}(targetEids, gasLimit, calldataSize);
+        liquidityMatrices[0].sync{ value: 1 ether }(targetEids, gasLimit, calldataSize);
     }
-    
+
     function test_sync_withSpecificEids_singleEid() public {
         bytes32 seed = keccak256("test_sync_withSpecificEids_singleEid");
-        
+
         // Update liquidity on a single remote chain
         _updateLocalLiquidity(liquidityMatrices[2], apps[2], storages[2], users, seed);
-        
+
         uint32[] memory targetEids = new uint32[](1);
         targetEids[0] = eids[2];
-        
+
         ILiquidityMatrix[] memory allRemotes = new ILiquidityMatrix[](1);
         allRemotes[0] = liquidityMatrices[2];
-        
+
         // Use helper to properly simulate cross-chain sync with single eid
         _syncWithEids(syncers[0], liquidityMatrices[0], targetEids, allRemotes);
     }
-    
+
     function test_sync_withSpecificEids_allChains() public {
         bytes32 seed = keccak256("test_sync_withSpecificEids_allChains");
-        
+
         // Update liquidity on all chains and prepare remotes
         ILiquidityMatrix[] memory allRemotes = new ILiquidityMatrix[](CHAINS - 1);
         for (uint32 i = 0; i < CHAINS; ++i) {
@@ -209,20 +212,20 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
             }
             seed = keccak256(abi.encodePacked(seed, i));
         }
-        
+
         // Create array with all endpoint IDs except the local one
         uint32[] memory targetEids = new uint32[](CHAINS - 1);
         for (uint32 i = 0; i < CHAINS - 1; ++i) {
             targetEids[i] = eids[i + 1];
         }
-        
+
         // Use helper to properly simulate cross-chain sync with all chains
         _syncWithEids(syncers[0], liquidityMatrices[0], targetEids, allRemotes);
     }
 
     function test_sync_allChains() public {
         bytes32 seed = keccak256("test_sync_allChains");
-        
+
         // Prepare all remote matrices
         ILiquidityMatrix[] memory remotes = new ILiquidityMatrix[](CHAINS - 1);
         for (uint32 i = 1; i < CHAINS; ++i) {
@@ -230,65 +233,65 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
             remotes[i - 1] = liquidityMatrices[i];
             seed = keccak256(abi.encodePacked(seed, i));
         }
-        
+
         // Use _sync helper to properly simulate cross-chain sync
         _sync(syncers[0], liquidityMatrices[0], remotes);
     }
-    
+
     function test_sync_forbiddenCaller() public {
         changePrank(users[0], users[0]); // Not the syncer
         uint128 gasLimit = 400_000;
         uint32 calldataSize = 256;
-        
+
         vm.expectRevert(LiquidityMatrix.Forbidden.selector);
-        liquidityMatrices[0].sync{value: 1 ether}(gasLimit, calldataSize);
+        liquidityMatrices[0].sync{ value: 1 ether }(gasLimit, calldataSize);
     }
-    
+
     function test_sync_alreadyRequested() public {
         changePrank(syncers[0], syncers[0]);
         uint128 gasLimit = 400_000;
         uint32 calldataSize = 256;
         uint256 fee = liquidityMatrices[0].quoteSync(gasLimit, calldataSize);
-        
+
         // First sync should succeed
-        liquidityMatrices[0].sync{value: fee}(gasLimit, calldataSize);
-        
+        liquidityMatrices[0].sync{ value: fee }(gasLimit, calldataSize);
+
         // Second sync in same block should fail
         vm.expectRevert(LiquidityMatrix.AlreadyRequested.selector);
-        liquidityMatrices[0].sync{value: fee}(gasLimit, calldataSize);
-        
+        liquidityMatrices[0].sync{ value: fee }(gasLimit, calldataSize);
+
         // After time passes, sync should succeed again
         skip(1);
-        liquidityMatrices[0].sync{value: fee}(gasLimit, calldataSize);
+        liquidityMatrices[0].sync{ value: fee }(gasLimit, calldataSize);
     }
-    
+
     function test_sync_insufficientFee() public {
         changePrank(syncers[0], syncers[0]);
         uint128 gasLimit = 600_000;
         uint32 calldataSize = 384;
         uint256 fee = liquidityMatrices[0].quoteSync(gasLimit, calldataSize);
-        
+
         // Try to sync with insufficient fee
         vm.expectRevert();
-        liquidityMatrices[0].sync{value: fee - 1}(gasLimit, calldataSize);
+        liquidityMatrices[0].sync{ value: fee - 1 }(gasLimit, calldataSize);
     }
-    
+
     function test_sync_withNoConfiguredChains() public {
         // Deploy a new LiquidityMatrix without configured chains
         LiquidityMatrix emptyMatrix = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[1], syncers[0], owner);
-        
+
         changePrank(syncers[0], syncers[0]);
         uint128 gasLimit = 200_000;
         uint32 calldataSize = 128;
-        
+
         // Should revert with InvalidCmd because no chains are configured
         vm.expectRevert(LiquidityMatrix.InvalidCmd.selector);
-        emptyMatrix.sync{value: 1 ether}(gasLimit, calldataSize);
+        emptyMatrix.sync{ value: 1 ether }(gasLimit, calldataSize);
     }
-    
+
     function test_sync_withMultipleConfirmations() public {
         bytes32 seed = keccak256("test_sync_withMultipleConfirmations");
-        
+
         // Reconfigure chains with different confirmation requirements
         changePrank(owner, owner);
         uint32[] memory configEids = new uint32[](3);
@@ -300,7 +303,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         configConfirmations[1] = 5;
         configConfirmations[2] = 10;
         liquidityMatrices[0].configChains(configEids, configConfirmations);
-        
+
         // Prepare remote matrices with updated liquidity
         ILiquidityMatrix[] memory remotes = new ILiquidityMatrix[](3);
         for (uint32 i = 1; i <= 3; ++i) {
@@ -308,14 +311,14 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
             remotes[i - 1] = liquidityMatrices[i];
             seed = keccak256(abi.encodePacked(seed, i));
         }
-        
+
         // Use _sync helper to properly simulate cross-chain sync with confirmations
         _sync(syncers[0], liquidityMatrices[0], remotes);
     }
-    
+
     function test_sync_gasLimitVariations() public {
         bytes32 seed = keccak256("test_sync_gasLimitVariations");
-        
+
         // Prepare ALL remote matrices (CHAINS - 1)
         ILiquidityMatrix[] memory remotes = new ILiquidityMatrix[](CHAINS - 1);
         for (uint32 i = 1; i < CHAINS; ++i) {
@@ -323,35 +326,38 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
             remotes[i - 1] = liquidityMatrices[i];
             seed = keccak256(abi.encodePacked(seed, i));
         }
-        
+
         // Test fee scaling with different gas limits
         uint128 minGasLimit = 100_000 * uint128(remotes.length);
         uint128 maxGasLimit = 1_000_000 * uint128(remotes.length);
         uint32 calldataSize = 128 * uint32(remotes.length);
-        
+
         uint256 minFee = liquidityMatrices[0].quoteSync(minGasLimit, calldataSize);
         uint256 maxFee = liquidityMatrices[0].quoteSync(maxGasLimit, calldataSize);
-        
+
         // Verify fees scale with gas limit
         assertGt(maxFee, minFee);
-        
+
         // Actually perform sync with standard gas limit
         _sync(syncers[0], liquidityMatrices[0], remotes);
     }
-    
+
     // Helper function to sync with specific eids
-    function _syncWithEids(address syncer, ILiquidityMatrix local, uint32[] memory targetEids, ILiquidityMatrix[] memory allRemotes)
-        internal
-    {
+    function _syncWithEids(
+        address syncer,
+        ILiquidityMatrix local,
+        uint32[] memory targetEids,
+        ILiquidityMatrix[] memory allRemotes
+    ) internal {
         (, address txOrigin, address msgSender) = vm.readCallers();
         changePrank(syncer, syncer);
-        
+
         uint128 gasLimit = 200_000 * uint128(targetEids.length);
         uint32 calldataSize = 128 * uint32(targetEids.length);
         uint256 fee = local.quoteSync(targetEids, gasLimit, calldataSize);
         local.sync{ value: fee }(targetEids, gasLimit, calldataSize);
         skip(1);
-        
+
         // Prepare responses only for the specified eids
         bytes[] memory responses = new bytes[](targetEids.length);
         for (uint256 i; i < targetEids.length; ++i) {
@@ -364,10 +370,10 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
                 }
             }
         }
-        
+
         bytes memory payload = local.lzReduce(local.getSyncCmd(targetEids), responses);
         verifyPackets(_eid(local), bytes32(uint256(uint160(address(local)))), 0, address(0), payload);
-        
+
         changePrank(txOrigin, msgSender);
     }
 }

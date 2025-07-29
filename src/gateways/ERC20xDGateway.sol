@@ -88,13 +88,11 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
      * @return fee The estimated messaging fee for the request.
      */
     function quoteRead(bytes memory cmd, uint128 gasLimit) public view returns (uint256 fee) {
-        (uint32[] memory eids, ) = chainConfigs();
+        (uint32[] memory eids,) = chainConfigs();
         MessagingFee memory _fee = _quote(
             READ_CHANNEL,
             cmd,
-            OptionsBuilder.newOptions().addExecutorLzReadOption(
-                gasLimit, uint32(transferCalldataSize * eids.length), 0
-            ),
+            OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, uint32(transferCalldataSize * eids.length), 0),
             false
         );
         return _fee.nativeFee;
@@ -174,7 +172,7 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
     function read(bytes memory cmd, bytes memory data) external payable returns (MessagingReceipt memory receipt) {
         // directly use endpoint.send() to bypass _payNative() check in _lzSend()
         (uint128 gasLimit, address refundTo) = abi.decode(data, (uint128, address));
-        (uint32[] memory eids, ) = chainConfigs();
+        (uint32[] memory eids,) = chainConfigs();
         receipt = endpoint.send{ value: msg.value }(
             MessagingParams(
                 READ_CHANNEL,

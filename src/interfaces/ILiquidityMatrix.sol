@@ -31,7 +31,10 @@ interface ILiquidityMatrix is ILayerZeroReceiver, IOAppCore, IOAppReducer {
 
     function quoteSync(uint128 gasLimit, uint32 calldataSize) external view returns (uint256 fee);
 
-    function quoteSync(uint32[] memory eids, uint128 gasLimit, uint32 calldataSize) external view returns (uint256 fee);
+    function quoteSync(uint32[] memory eids, uint128 gasLimit, uint32 calldataSize)
+        external
+        view
+        returns (uint256 fee);
 
     function quoteRequestMapRemoteAccounts(
         uint32 eid,
@@ -195,7 +198,10 @@ interface ILiquidityMatrix is ILayerZeroReceiver, IOAppCore, IOAppReducer {
 
     function sync(uint128 gasLimit, uint32 calldataSize) external payable returns (MessagingReceipt memory fee);
 
-    function sync(uint32[] memory eids, uint128 gasLimit, uint32 calldataSize) external payable returns (MessagingReceipt memory fee);
+    function sync(uint32[] memory eids, uint128 gasLimit, uint32 calldataSize)
+        external
+        payable
+        returns (MessagingReceipt memory fee);
 
     function requestMapRemoteAccounts(
         uint32 eid,
