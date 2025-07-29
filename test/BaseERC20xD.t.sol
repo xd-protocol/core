@@ -199,4 +199,142 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         local.cancelPendingTransfer();
         assertEq(local.pendingNonce(alice), 0);
     }
+
+    function test_localTransfer() public {
+        BaseERC20xD local = erc20s[0];
+        
+        assertEq(local.localBalanceOf(alice), 100e18);
+        assertEq(local.localBalanceOf(bob), 100e18);
+        
+        changePrank(alice, alice);
+        uint256 amount = 50e18;
+        bool success = local.transfer(bob, amount);
+        
+        assertTrue(success);
+        assertEq(local.localBalanceOf(alice), 50e18);
+        assertEq(local.localBalanceOf(bob), 150e18);
+        assertEq(local.localTotalSupply(), 300e18);
+    }
+
+    function test_localTransfer_fullBalance() public {
+        BaseERC20xD local = erc20s[0];
+        
+        changePrank(alice, alice);
+        uint256 amount = 100e18;
+        bool success = local.transfer(bob, amount);
+        
+        assertTrue(success);
+        assertEq(local.localBalanceOf(alice), 0);
+        assertEq(local.localBalanceOf(bob), 200e18);
+    }
+
+    function test_localTransfer_multipleTransfers() public {
+        BaseERC20xD local = erc20s[0];
+        
+        changePrank(alice, alice);
+        local.transfer(bob, 25e18);
+        local.transfer(charlie, 25e18);
+        local.transfer(bob, 25e18);
+        
+        assertEq(local.localBalanceOf(alice), 25e18);
+        assertEq(local.localBalanceOf(bob), 150e18);
+        assertEq(local.localBalanceOf(charlie), 125e18);
+    }
+
+    function test_localTransfer_revertInvalidAddress() public {
+        BaseERC20xD local = erc20s[0];
+        
+        changePrank(alice, alice);
+        vm.expectRevert(BaseERC20xD.InvalidAddress.selector);
+        local.transfer(address(0), 50e18);
+    }
+
+    function test_localTransfer_revertInvalidAmount() public {
+        BaseERC20xD local = erc20s[0];
+        
+        changePrank(alice, alice);
+        vm.expectRevert(BaseERC20xD.InvalidAmount.selector);
+        local.transfer(bob, 0);
+    }
+
+    function test_localTransfer_revertInsufficientBalance() public {
+        BaseERC20xD local = erc20s[0];
+        
+        changePrank(alice, alice);
+        vm.expectRevert(BaseERC20xD.InsufficientBalance.selector);
+        local.transfer(bob, 101e18);
+    }
+
+    function test_localTransfer_withPendingCrossChainTransfer() public {
+        BaseERC20xD local = erc20s[0];
+        
+        _syncAndSettleLiquidity();
+        
+        changePrank(alice, alice);
+        uint256 crossChainAmount = 60e18;
+        uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
+        local.transfer{ value: fee }(bob, crossChainAmount, abi.encode(GAS_LIMIT, bob));
+        
+        assertEq(local.availableLocalBalanceOf(alice, 0), 40e18);
+        
+        uint256 localAmount = 30e18;
+        bool success = local.transfer(charlie, localAmount);
+        
+        assertTrue(success);
+        assertEq(local.localBalanceOf(alice), 70e18);
+        assertEq(local.localBalanceOf(charlie), 130e18);
+        assertEq(local.availableLocalBalanceOf(alice, 0), 10e18);
+    }
+
+    function test_localTransfer_revertInsufficientAvailableBalance() public {
+        BaseERC20xD local = erc20s[0];
+        
+        _syncAndSettleLiquidity();
+        
+        changePrank(alice, alice);
+        uint256 crossChainAmount = 60e18;
+        uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
+        local.transfer{ value: fee }(bob, crossChainAmount, abi.encode(GAS_LIMIT, bob));
+        
+        assertEq(local.availableLocalBalanceOf(alice, 0), 40e18);
+        
+        uint256 localAmount = 50e18;
+        vm.expectRevert(BaseERC20xD.InsufficientBalance.selector);
+        local.transfer(charlie, localAmount);
+    }
+
+    function test_localTransfer_toSelf() public {
+        BaseERC20xD local = erc20s[0];
+        
+        changePrank(alice, alice);
+        uint256 amount = 50e18;
+        bool success = local.transfer(alice, amount);
+        
+        assertTrue(success);
+        assertEq(local.localBalanceOf(alice), 100e18);
+        assertEq(local.localTotalSupply(), 300e18);
+    }
+
+    function test_localTransfer_afterCrossChainTransferCompletes() public {
+        BaseERC20xD local = erc20s[0];
+        
+        _syncAndSettleLiquidity();
+        
+        changePrank(alice, alice);
+        uint256 crossChainAmount = 50e18;
+        uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
+        local.transfer{ value: fee }(bob, crossChainAmount, abi.encode(GAS_LIMIT, bob));
+        
+        _executeTransfer(local, alice, 1, "");
+        
+        assertEq(local.localBalanceOf(alice), 50e18);
+        assertEq(local.pendingNonce(alice), 0);
+        
+        uint256 localAmount = 30e18;
+        bool success = local.transfer(charlie, localAmount);
+        
+        assertTrue(success);
+        assertEq(local.localBalanceOf(alice), 20e18);
+        assertEq(local.localBalanceOf(charlie), 130e18);
+    }
 }
