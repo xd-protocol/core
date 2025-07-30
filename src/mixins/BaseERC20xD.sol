@@ -119,10 +119,6 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function endpoint() external view returns (ILayerZeroEndpointV2) {
-        return ILiquidityMatrix(liquidityMatrix).endpoint();
-    }
-
     function pendingNonce(address account) external view returns (uint256) {
         return _pendingNonce[account];
     }

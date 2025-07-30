@@ -32,8 +32,6 @@ interface IBaseERC20xD is IERC20Permit {
 
     function peers(uint32 eid) external view returns (bytes32);
 
-    function endpoint() external view returns (ILayerZeroEndpointV2);
-
     function pendingNonce(address account) external view returns (uint256);
 
     function pendingTransfer(address account) external view returns (PendingTransfer memory);

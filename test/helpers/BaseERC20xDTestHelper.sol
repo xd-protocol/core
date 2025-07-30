@@ -9,6 +9,7 @@ import {
 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
 import { Test, Vm, console } from "forge-std/Test.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
+import { Synchronizer } from "src/Synchronizer.sol";
 import { ERC20xDGateway } from "src/gateways/ERC20xDGateway.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
@@ -23,6 +24,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
     uint32[CHAINS] eids;
     address[CHAINS] syncers;
     ILiquidityMatrix[CHAINS] liquidityMatrices;
+    Synchronizer[CHAINS] synchronizers;
     ERC20xDGateway[CHAINS] gateways;
     address[CHAINS] settlers;
     BaseERC20xD[CHAINS] erc20s;
@@ -44,9 +46,21 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
         for (uint32 i; i < CHAINS; ++i) {
             eids[i] = i + 1;
             syncers[i] = makeAddr(string.concat("syncer", vm.toString(i)));
-            liquidityMatrices[i] = new LiquidityMatrix(DEFAULT_CHANNEL_ID, endpoints[eids[i]], syncers[i], owner);
+            // Create LiquidityMatrix (only takes owner)
+            liquidityMatrices[i] = new LiquidityMatrix(owner);
             _liquidityMatrices[i] = address(liquidityMatrices[i]);
-            gateways[i] = new ERC20xDGateway(DEFAULT_CHANNEL_ID, address(liquidityMatrices[i]), owner);
+
+            // Create Synchronizer with LayerZero integration
+            synchronizers[i] = new Synchronizer(
+                DEFAULT_CHANNEL_ID, endpoints[eids[i]], address(liquidityMatrices[i]), syncers[i], owner
+            );
+
+            // Set synchronizer in LiquidityMatrix
+            liquidityMatrices[i].setSynchronizer(address(synchronizers[i]));
+
+            // Create gateway with endpoint
+            gateways[i] =
+                new ERC20xDGateway(DEFAULT_CHANNEL_ID, endpoints[eids[i]], address(liquidityMatrices[i]), owner);
             _gateways[i] = address(gateways[i]);
             settlers[i] = address(new SettlerMock(address(liquidityMatrices[i])));
             erc20s[i] = _newBaseERC20xD(i);
@@ -58,9 +72,13 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             vm.deal(settlers[i], 1000e18);
         }
 
-        wireOApps(address[](_liquidityMatrices));
-        wireOApps(address[](_gateways));
-        wireOApps(address[](_erc20s));
+        // Wire synchronizers (they have the OApp functionality)
+        address[] memory _synchronizers = new address[](CHAINS);
+        for (uint32 i; i < CHAINS; ++i) {
+            _synchronizers[i] = address(synchronizers[i]);
+        }
+        wireOApps(_synchronizers);
+        wireOApps(_gateways);
 
         for (uint32 i; i < CHAINS; ++i) {
             vm.deal(address(erc20s[i]), 1000e18);
@@ -79,7 +97,14 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             }
 
             changePrank(owner, owner);
-            liquidityMatrices[i].configChains(configEids, configConfirmations);
+            synchronizers[i].configChains(configEids, configConfirmations);
+
+            // Set peers for ERC20xD contracts
+            for (uint32 j; j < CHAINS; ++j) {
+                if (i != j) {
+                    erc20s[i].setPeer(eids[j], bytes32(uint256(uint160(address(erc20s[j])))));
+                }
+            }
         }
 
         for (uint256 i; i < syncers.length; ++i) {
@@ -91,6 +116,26 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
     }
 
     function _newBaseERC20xD(uint256 index) internal virtual returns (BaseERC20xD);
+
+    // Override _eid function to handle array-based structure
+    function _eid(ILiquidityMatrix liquidityMatrix) internal view override returns (uint32) {
+        for (uint32 i = 0; i < CHAINS; ++i) {
+            if (address(liquidityMatrix) == address(liquidityMatrices[i])) {
+                return eids[i];
+            }
+        }
+        revert("Unknown LiquidityMatrix");
+    }
+
+    function _eid(address addr) internal view override returns (uint32) {
+        // For synchronizer addresses, check which endpoint they're associated with
+        for (uint32 i = 0; i < CHAINS; ++i) {
+            if (address(liquidityMatrices[i]) != address(0) && addr == address(synchronizers[i])) {
+                return eids[i];
+            }
+        }
+        revert("Unknown address");
+    }
 
     function _syncAndSettleLiquidity() internal {
         ILiquidityMatrix local = liquidityMatrices[0];

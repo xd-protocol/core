@@ -1,12 +1,78 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
-import { ILayerZeroReceiver } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroReceiver.sol";
-import { IOAppCore } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppCore.sol";
-import { IOAppReducer } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppReducer.sol";
+interface ILiquidityMatrix {
+    /*//////////////////////////////////////////////////////////////
+                                ERRORS
+    //////////////////////////////////////////////////////////////*/
 
-interface ILiquidityMatrix is ILayerZeroReceiver, IOAppCore, IOAppReducer {
+    error AppNotRegistered();
+    error AppAlreadyRegistered();
+    error InvalidAddress();
+    error InvalidAmount();
+    error InvalidLengths();
+    error Forbidden();
+    error RemoteAccountAlreadyMapped(uint32 eid, address remote);
+    error LocalAccountAlreadyMapped(uint32 eid, address local);
+    error LiquidityAlreadySettled();
+    error DataAlreadySettled();
+
+    /*//////////////////////////////////////////////////////////////
+                                EVENTS
+    //////////////////////////////////////////////////////////////*/
+
+    event RegisterApp(address indexed app, bool syncMappedAccountsOnly, bool useCallbacks, address settler);
+    event UpdateSyncMappedAccountsOnly(address indexed app, bool syncMappedAccountsOnly);
+    event UpdateUseCallbacks(address indexed app, bool useCallbacks);
+    event UpdateSettler(address indexed app, address settler);
+    event UpdateSettlerWhitelisted(address indexed account, bool whitelisted);
+
+    event UpdateLocalLiquidity(
+        address indexed app,
+        uint256 mainTreeIndex,
+        address indexed account,
+        int256 liquidity,
+        uint256 appTreeIndex,
+        uint256 indexed timestamp
+    );
+
+    event UpdateLocalData(
+        address indexed app,
+        uint256 mainTreeIndex,
+        bytes32 indexed key,
+        bytes value,
+        bytes32 hash,
+        uint256 appTreeIndex,
+        uint256 indexed timestamp
+    );
+
+    event UpdateRemoteApp(address indexed app, uint32 indexed eid, address indexed remoteApp);
+    event MapRemoteAccount(address indexed app, uint32 indexed eid, address indexed remote, address local);
+
+    event OnReceiveRoots(
+        uint32 indexed eid, bytes32 indexed liquidityRoot, bytes32 indexed dataRoot, uint256 timestamp
+    );
+
+    event UpdateSynchronizer(address indexed synchronizer);
+    event UpdateMaxLoop(uint256 indexed maxLoop);
+
+    event SettleLiquidity(uint32 indexed eid, address indexed app, bytes32 indexed liquidityRoot, uint256 timestamp);
+    event SettleData(uint32 indexed eid, address indexed app, bytes32 indexed dataRoot, uint256 timestamp);
+
+    event OnUpdateLiquidityFailure(
+        uint32 indexed eid, uint256 indexed timestamp, address indexed account, int256 liquidity, bytes reason
+    );
+    event OnUpdateTotalLiquidityFailure(
+        uint32 indexed eid, uint256 indexed timestamp, int256 totalLiquidity, bytes reason
+    );
+    event OnUpdateDataFailure(
+        uint32 indexed eid, uint256 indexed timestamp, bytes32 indexed key, bytes value, bytes reason
+    );
+
+    /*//////////////////////////////////////////////////////////////
+                                STRUCTS
+    //////////////////////////////////////////////////////////////*/
+
     struct SettleLiquidityParams {
         address app;
         uint32 eid;
@@ -27,27 +93,9 @@ interface ILiquidityMatrix is ILayerZeroReceiver, IOAppCore, IOAppReducer {
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function chainConfigs() external view returns (uint32[] memory eids, uint16[] memory confirmations);
+    function synchronizer() external view returns (address);
 
-    function quoteSync(uint128 gasLimit, uint32 calldataSize) external view returns (uint256 fee);
-
-    function quoteSync(uint32[] memory eids, uint128 gasLimit, uint32 calldataSize)
-        external
-        view
-        returns (uint256 fee);
-
-    function quoteRequestMapRemoteAccounts(
-        uint32 eid,
-        address app,
-        address remoteApp,
-        address[] memory remotes,
-        address[] memory locals,
-        uint128 gasLimit
-    ) external view returns (uint256 fee);
-
-    function getSyncCmd() external view returns (bytes memory);
-
-    function getSyncCmd(uint32[] memory eids) external view returns (bytes memory);
+    function maxLoop() external view returns (uint256);
 
     function getAppSetting(address app)
         external
@@ -160,9 +208,9 @@ interface ILiquidityMatrix is ILayerZeroReceiver, IOAppCore, IOAppReducer {
         view
         returns (bytes32 root, uint256 timestamp);
 
-    function isLiquidityRootSettled(address app, uint32 eid, uint256 timestamp) external view returns (bool);
+    function isLiquiditySettled(address app, uint32 eid, uint256 timestamp) external view returns (bool);
 
-    function isDataRootSettled(address app, uint32 eid, uint256 timestamp) external view returns (bool);
+    function isDataSettled(address app, uint32 eid, uint256 timestamp) external view returns (bool);
 
     function areRootsFinalized(address app, uint32 eid, uint256 timestamp) external view returns (bool);
 
@@ -192,16 +240,15 @@ interface ILiquidityMatrix is ILayerZeroReceiver, IOAppCore, IOAppReducer {
 
     function settleData(SettleDataParams memory params) external;
 
-    function configChains(uint32[] memory eids, uint16[] memory confirmations) external;
-
     function updateSettlerWhitelisted(address account, bool whitelisted) external;
 
-    function sync(uint128 gasLimit, uint32 calldataSize) external payable returns (MessagingReceipt memory fee);
+    function setSynchronizer(address _synchronizer) external;
 
-    function sync(uint32[] memory eids, uint128 gasLimit, uint32 calldataSize)
-        external
-        payable
-        returns (MessagingReceipt memory fee);
+    function updateMaxLoop(uint256 _maxLoop) external;
+
+    function onReceiveRoots(uint32 eid, bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp) external;
+
+    function onReceiveMapRemoteAccountRequests(uint32 _fromEid, address _localApp, bytes memory _message) external;
 
     function requestMapRemoteAccounts(
         uint32 eid,

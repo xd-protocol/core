@@ -1,344 +1,1045 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { OAppRead } from "@layerzerolabs/oapp-evm/contracts/oapp/OAppRead.sol";
-import { Origin } from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
-import {
-    ReadCodecV1,
-    EVMCallRequestV1,
-    EVMCallComputeV1
-} from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
-import { OptionsBuilder } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
-import {
-    MessagingReceipt,
-    MessagingFee,
-    ILayerZeroEndpointV2
-} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
-import { AddressCast } from "@layerzerolabs/lz-evm-protocol-v2/contracts/libs/AddressCast.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
-import { LiquidityMatrixLocal } from "./mixins/LiquidityMatrixLocal.sol";
-import { LiquidityMatrixRemote } from "./mixins/LiquidityMatrixRemote.sol";
+import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
+import { AddressLib } from "./libraries/AddressLib.sol";
+import { MerkleTreeLib } from "./libraries/MerkleTreeLib.sol";
 import { SnapshotsLib } from "./libraries/SnapshotsLib.sol";
+import { ILiquidityMatrix } from "./interfaces/ILiquidityMatrix.sol";
+import { ILiquidityMatrixCallbacks } from "./interfaces/ILiquidityMatrixCallbacks.sol";
+import { ILiquidityMatrixAccountMapper } from "./interfaces/ILiquidityMatrixAccountMapper.sol";
+import { ISynchronizer } from "./interfaces/ISynchronizer.sol";
 
 /**
  * @title LiquidityMatrix
- * @dev Extends LiquidityMatrixRemote and integrates LayerZero's read and messaging protocols
- *      to synchronize liquidity and data roots across multiple chains. This contract provides:
- *      - Chain configuration for read requests.
- *      - Messaging-based remote application and account updates.
+ * @notice Core ledger contract managing hierarchical Merkle trees to track and synchronize liquidity and data updates across applications.
+ * @dev This contract has no LayerZero dependencies and serves as the main state management layer.
+ *      Cross-chain synchronization is handled by a pluggable Synchronizer contract.
+ *
+ * ## Architecture Overview:
+ *
+ * This contract maintains two main Merkle trees:
+ * - **Main Liquidity Tree**: Tracks liquidity data for all registered applications.
+ * - **Main Data Tree**: Tracks arbitrary key-value data for all registered applications.
+ *
+ * Each application maintains its own pair of Merkle trees:
+ * - **Liquidity Tree**: Tracks account-specific liquidity data within the application.
+ * - **Data Tree**: Tracks key-value pairs specific to the application.
+ *
+ * ## Relationship Between Main and App Trees:
+ *
+ * The roots of application-specific trees (liquidity and data) are added as nodes to their respective main trees.
+ * This hierarchical structure allows efficient propagation of changes:
+ * - When an application's liquidity or data tree is updated, its root is recalculated.
+ * - The new root is propagated to the corresponding main tree, ensuring global consistency.
+ *
+ * ## ASCII Diagram:
+ *
+ *                         +--------------------------+
+ *                         |    Main Liquidity Tree   |
+ *                         |--------------------------|
+ *                         |          Root            |
+ *                         +--------------------------+
+ *                                   |
+ *               -------------------------------------------------
+ *               |                               |               |
+ *   +------------------------+   +------------------------+   +------------------------+
+ *   | App A Liquidity Tree   |   | App B Liquidity Tree   |   | App C Liquidity Tree   |
+ *   |------------------------|   |------------------------|   |------------------------|
+ *   |          Root          |   |          Root          |   |          Root          |
+ *   |------------------------|   |------------------------|   |------------------------|
+ *   | + Node(Account X)      |   | + Node(Account Z)      |   | + Node(Account Y)      |
+ *   | + Node(Account Y)      |   | + Node(Account W)      |   | + Node(Account Z)      |
+ *   +------------------------+   +------------------------+   +------------------------+
+ *
+ *                         +--------------------------+
+ *                         |     Main Data Tree       |
+ *                         |--------------------------|
+ *                         |          Root            |
+ *                         +--------------------------+
+ *                                   |
+ *               -------------------------------------------------
+ *               |                               |               |
+ *   +------------------------+   +------------------------+   +------------------------+
+ *   | App A Data Tree        |   | App B Data Tree        |   | App C Data Tree        |
+ *   |------------------------|   |------------------------|   |------------------------|
+ *   |          Root          |   |          Root          |   |          Root          |
+ *   |------------------------|   |------------------------|   |------------------------|
+ *   | + Node(Key 1)          |   | + Node(Key A)          |   | + Node(Key X)          |
+ *   | + Node(Key 2)          |   | + Node(Key B)          |   | + Node(Key Y)          |
+ *   +------------------------+   +------------------------+   +------------------------+
+ *
+ * ## Lifecycle of a Root (Remote State):
+ *
+ * A root progresses through the following states:
+ *
+ * 1. **None**:
+ *    - The initial state where no root exists for a given chain and timestamp.
+ *
+ * 2. **Synced**:
+ *    - Roots are received via `onReceiveRoots` and stored in `_liquidityRoots` or `_dataRoots` for their respective timestamps.
+ *    - Roots are accessible for verification but remain unprocessed.
+ *
+ * 3. **Settled**:
+ *    - Settled roots are tracked in `liquiditySettled` or `dataSettled` mappings.
+ *    - Once settled, data is processed via `settleLiquidity` or `settleData`, updating local states and triggering application-specific callbacks.
+ *
+ * 4. **Finalized**:
+ *    - A root becomes finalized when both the liquidity root and data root for the same timestamp are settled.
+ *    - Finalized roots represent a complete and validated cross-chain state.
+ *
+ * ## Key Functionalities:
+ *
+ * 1. **App Registration**:
+ *    - Applications must register to start using the contract.
+ *    - During registration, their individual liquidity and data trees are initialized.
+ *
+ * 2. **Updating Liquidity**:
+ *    - Liquidity updates are recorded in the app's liquidity tree.
+ *    - The new liquidity tree root is propagated to the main liquidity tree.
+ *
+ * 3. **Updating Data**:
+ *    - Key-value data updates are recorded in the app's data tree.
+ *    - The new data tree root is propagated to the main data tree.
+ *
+ * 4. **Cross-Chain Settlement**:
+ *    - Settlers process roots from remote chains without proof verification (trust-based).
+ *    - Updates snapshots and triggers application-specific callbacks.
+ *
+ * 5. **Tree Root Retrieval**:
+ *    - Allows querying of the current roots of the main liquidity and data trees.
+ *    - Enables synchronization across chains or with off-chain systems.
  */
-contract LiquidityMatrix is LiquidityMatrixRemote, OAppRead {
-    using OptionsBuilder for bytes;
+contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
+    using AddressLib for address;
+    using MerkleTreeLib for MerkleTreeLib.Tree;
     using SnapshotsLib for SnapshotsLib.Snapshots;
 
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
-    uint32 internal constant READ_CHANNEL_EID_THRESHOLD = 4_294_965_694;
-    uint16 internal constant CMD_SYNC = 1;
-    uint16 internal constant MAP_REMOTE_ACCOUNTS = 1;
 
-    uint32 public immutable READ_CHANNEL;
+    /**
+     * @notice Represents the state of a registered application
+     * @param registered Whether the application is registered
+     * @param syncMappedAccountsOnly If true, only syncs liquidity for mapped accounts
+     * @param useCallbacks If true, triggers callbacks to the app on state updates
+     * @param settler Address authorized to settle roots for this app
+     * @param totalLiquidity Snapshots tracking total liquidity over time
+     * @param liquidity Account-specific liquidity snapshots
+     * @param liquidityTree Merkle tree of account liquidities
+     * @param dataHashes Snapshots of data value hashes
+     * @param dataTree Merkle tree of data key-value pairs
+     */
+    struct AppState {
+        bool registered;
+        bool syncMappedAccountsOnly;
+        bool useCallbacks;
+        address settler;
+        SnapshotsLib.Snapshots totalLiquidity;
+        mapping(address account => SnapshotsLib.Snapshots) liquidity;
+        MerkleTreeLib.Tree liquidityTree;
+        mapping(bytes32 key => SnapshotsLib.Snapshots) dataHashes;
+        MerkleTreeLib.Tree dataTree;
+    }
 
-    address public syncer;
+    /**
+     * @notice Represents the state of a remote application on another chain
+     * @param app Address of the remote application
+     * @param mappedAccounts Maps remote accounts to local accounts
+     * @param localAccountMapped Tracks which local accounts are already mapped
+     * @param totalLiquidity Snapshots tracking total liquidity from the remote chain
+     * @param liquidity Account-specific liquidity snapshots from the remote chain
+     * @param dataHashes Snapshots of data value hashes from the remote chain
+     * @param liquiditySettled Tracks which liquidity roots have been settled
+     * @param dataSettled Tracks which data roots have been settled
+     */
+    struct RemoteState {
+        address app;
+        mapping(address remote => address local) mappedAccounts;
+        mapping(address local => bool) localAccountMapped;
+        SnapshotsLib.Snapshots totalLiquidity;
+        mapping(address account => SnapshotsLib.Snapshots) liquidity;
+        mapping(bytes32 key => SnapshotsLib.Snapshots) dataHashes;
+        // settlement
+        mapping(uint256 timestamp => bool) liquiditySettled;
+        mapping(uint256 timestamp => bool) dataSettled;
+    }
 
-    uint32[] internal _targetEids;
-    mapping(uint32 => uint16) internal _chainConfigConfirmations;
+    mapping(address app => AppState) internal _appStates;
+    MerkleTreeLib.Tree internal _mainLiquidityTree;
+    MerkleTreeLib.Tree internal _mainDataTree;
 
-    uint256 internal _lastSyncRequestTimestamp;
+    mapping(address => bool) internal _isSettlerWhitelisted;
+    mapping(address app => mapping(uint32 eid => RemoteState)) internal _remoteStates;
+    mapping(uint32 eid => uint256[]) internal _rootTimestamps;
+    mapping(uint32 eid => mapping(uint256 timestamp => bytes32)) internal _liquidityRoots;
+    mapping(uint32 eid => mapping(uint256 timestamp => bytes32)) internal _dataRoots;
+
+    address public synchronizer;
+    uint256 public maxLoop = 10;
 
     /*//////////////////////////////////////////////////////////////
-                                 EVENTS
+                              MODIFIERS
     //////////////////////////////////////////////////////////////*/
-    event UpdateSyncer(address indexed syncer);
-    event UpdateSettlerWhitelisted(address indexed account, bool whitelisted);
-    event Sync(address indexed caller);
-    event RequestMapRemoteAccounts(
-        address indexed app, uint32 indexed eid, address indexed remoteApp, address[] locals, address[] remotes
-    );
+
+    modifier onlyApp(address _app) {
+        if (!_appStates[_app].registered) revert AppNotRegistered();
+        _;
+    }
+
+    modifier onlySettler(address _account, address _app) {
+        AppState storage state = _appStates[_app];
+        if (!state.registered) revert AppNotRegistered();
+        if (state.settler != _account && !_isSettlerWhitelisted[_account]) revert Forbidden();
+        _;
+    }
+
+    modifier onlySynchronizer() {
+        if (msg.sender != synchronizer) revert Forbidden();
+        _;
+    }
 
     /*//////////////////////////////////////////////////////////////
-                                 ERRORS
+                            CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    error InvalidCmd();
-    error AlreadyRequested();
-    error DuplicateTargetEid();
-    error InvalidAddress();
-    error Forbidden();
-    error InvalidMsgType();
+    constructor(address _owner) Ownable(_owner) { }
 
     /*//////////////////////////////////////////////////////////////
-                             CONSTRUCTOR
+                          VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    constructor(uint32 _readChannel, address _endpoint, address _syncer, address _owner)
-        OAppRead(_endpoint, _owner)
-        Ownable(_owner)
+    /**
+     * @notice Returns the settings for a registered application
+     * @param app The application address
+     * @return registered Whether the app is registered
+     * @return syncMappedAccountsOnly Whether to sync only mapped accounts
+     * @return useCallbacks Whether callbacks are enabled
+     * @return settler The authorized settler address
+     */
+    function getAppSetting(address app)
+        external
+        view
+        returns (bool registered, bool syncMappedAccountsOnly, bool useCallbacks, address settler)
     {
-        READ_CHANNEL = _readChannel;
-        syncer = _syncer;
+        AppState storage state = _appStates[app];
+        return (state.registered, state.syncMappedAccountsOnly, state.useCallbacks, state.settler);
+    }
 
-        _setPeer(_readChannel, AddressCast.toBytes32(address(this)));
+    /**
+     * @notice Gets the current local liquidity for an account in an app
+     * @param app The application address
+     * @param account The account to query
+     * @return The current liquidity amount
+     */
+    function getLocalLiquidity(address app, address account) external view returns (int256) {
+        return _appStates[app].liquidity[account].getLastAsInt();
+    }
+
+    /**
+     * @notice Gets the local liquidity for an account at a specific timestamp
+     * @param app The application address
+     * @param account The account to query
+     * @param timestamp The timestamp to query
+     * @return The liquidity amount at the timestamp
+     */
+    function getLocalLiquidityAt(address app, address account, uint256 timestamp) external view returns (int256) {
+        return _appStates[app].liquidity[account].getAsInt(timestamp);
+    }
+
+    /**
+     * @notice Gets the current total local liquidity for an app
+     * @param app The application address
+     * @return The current total liquidity
+     */
+    function getLocalTotalLiquidity(address app) external view returns (int256) {
+        return _appStates[app].totalLiquidity.getLastAsInt();
+    }
+
+    /**
+     * @notice Gets the total local liquidity for an app at a specific timestamp
+     * @param app The application address
+     * @param timestamp The timestamp to query
+     * @return The total liquidity at the timestamp
+     */
+    function getLocalTotalLiquidityAt(address app, uint256 timestamp) external view returns (int256) {
+        return _appStates[app].totalLiquidity.getAsInt(timestamp);
+    }
+
+    /**
+     * @notice Gets the current hash of data stored under a key for an app
+     * @param app The application address
+     * @param key The data key
+     * @return The current data hash
+     */
+    function getLocalDataHash(address app, bytes32 key) external view returns (bytes32) {
+        return _appStates[app].dataHashes[key].getLast();
+    }
+
+    /**
+     * @notice Gets the data hash for a key at a specific timestamp
+     * @param app The application address
+     * @param key The data key
+     * @param timestamp The timestamp to query
+     * @return The data hash at the timestamp
+     */
+    function getLocalDataHashAt(address app, bytes32 key, uint256 timestamp) external view returns (bytes32) {
+        return _appStates[app].dataHashes[key].get(timestamp);
+    }
+
+    /**
+     * @notice Gets the current root of an app's liquidity tree
+     * @param app The application address
+     * @return The liquidity tree root
+     */
+    function getLocalLiquidityRoot(address app) public view returns (bytes32) {
+        return _appStates[app].liquidityTree.root;
+    }
+
+    /**
+     * @notice Gets the current root of an app's data tree
+     * @param app The application address
+     * @return The data tree root
+     */
+    function getLocalDataRoot(address app) public view returns (bytes32) {
+        return _appStates[app].dataTree.root;
+    }
+
+    /**
+     * @notice Gets the current main tree roots and timestamp
+     * @return liquidityRoot The main liquidity tree root
+     * @return dataRoot The main data tree root
+     * @return timestamp The current block timestamp
+     */
+    function getMainRoots() public view returns (bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp) {
+        return (getMainLiquidityRoot(), getMainDataRoot(), block.timestamp);
+    }
+
+    /**
+     * @notice Gets the current root of the main liquidity tree
+     * @return The main liquidity tree root
+     */
+    function getMainLiquidityRoot() public view returns (bytes32) {
+        return _mainLiquidityTree.root;
+    }
+
+    /**
+     * @notice Gets the current root of the main data tree
+     * @return The main data tree root
+     */
+    function getMainDataRoot() public view returns (bytes32) {
+        return _mainDataTree.root;
+    }
+
+    /**
+     * @notice Gets the local account mapped to a remote account
+     * @param app The application address
+     * @param eid The endpoint ID of the remote chain
+     * @param remote The remote account address
+     * @return local The mapped local account address
+     */
+    function getMappedAccount(address app, uint32 eid, address remote) external view returns (address local) {
+        return _remoteStates[app][eid].mappedAccounts[remote];
+    }
+
+    /**
+     * @notice Checks if a local account is already mapped to a remote account
+     * @param app The application address
+     * @param eid The endpoint ID of the remote chain
+     * @param local The local account address
+     * @return Whether the local account is mapped
+     */
+    function isLocalAccountMapped(address app, uint32 eid, address local) external view returns (bool) {
+        return _remoteStates[app][eid].localAccountMapped[local];
+    }
+
+    function getRemoteLiquidity(address app, uint32 eid, address account) external view returns (int256) {
+        RemoteState storage state = _remoteStates[app][eid];
+        address remote = account;
+        address local = state.mappedAccounts[remote];
+        if (local != address(0)) return state.liquidity[local].getLastAsInt();
+        return state.liquidity[remote].getLastAsInt();
+    }
+
+    function getRemoteLiquidityAt(address app, uint32 eid, address account, uint256 timestamp)
+        public
+        view
+        returns (int256)
+    {
+        RemoteState storage state = _remoteStates[app][eid];
+        address remote = account;
+        address local = state.mappedAccounts[remote];
+        if (local != address(0)) return state.liquidity[local].getAsInt(timestamp);
+        return state.liquidity[remote].getAsInt(timestamp);
+    }
+
+    function getRemoteTotalLiquidity(address app, uint32 eid) external view returns (int256) {
+        return _remoteStates[app][eid].totalLiquidity.getLastAsInt();
+    }
+
+    function getRemoteTotalLiquidityAt(address app, uint32 eid, uint256 timestamp) public view returns (int256) {
+        return _remoteStates[app][eid].totalLiquidity.getAsInt(timestamp);
+    }
+
+    function getRemoteDataHash(address app, uint32 eid, bytes32 key) external view returns (bytes32) {
+        return _remoteStates[app][eid].dataHashes[key].getLast();
+    }
+
+    function getRemoteDataHashAt(address app, uint32 eid, bytes32 key, uint256 timestamp)
+        public
+        view
+        returns (bytes32)
+    {
+        return _remoteStates[app][eid].dataHashes[key].get(timestamp);
+    }
+
+    /**
+     * @notice Gets the last synced liquidity root from a remote chain
+     * @param eid The endpoint ID of the remote chain
+     * @return root The liquidity root hash
+     * @return timestamp The timestamp when the root was synced
+     */
+    function getLastSyncedLiquidityRoot(uint32 eid) public view returns (bytes32 root, uint256 timestamp) {
+        uint256 length = _rootTimestamps[eid].length;
+        if (length == 0) return (bytes32(0), 0);
+
+        for (uint256 i = length; i > 0; i--) {
+            timestamp = _rootTimestamps[eid][i - 1];
+            root = _liquidityRoots[eid][timestamp];
+            if (root != bytes32(0)) return (root, timestamp);
+        }
+        return (bytes32(0), 0);
+    }
+
+    /**
+     * @notice Gets the last synced data root from a remote chain
+     * @param eid The endpoint ID of the remote chain
+     * @return root The data root hash
+     * @return timestamp The timestamp when the root was synced
+     */
+    function getLastSyncedDataRoot(uint32 eid) public view returns (bytes32 root, uint256 timestamp) {
+        uint256 length = _rootTimestamps[eid].length;
+        if (length == 0) return (bytes32(0), 0);
+
+        for (uint256 i = length; i > 0; i--) {
+            timestamp = _rootTimestamps[eid][i - 1];
+            root = _dataRoots[eid][timestamp];
+            if (root != bytes32(0)) return (root, timestamp);
+        }
+        return (bytes32(0), 0);
+    }
+
+    /**
+     * @notice Checks if a liquidity root has been settled for an app
+     * @param app The application address
+     * @param eid The endpoint ID of the remote chain
+     * @param timestamp The timestamp to check
+     * @return Whether the liquidity root is settled
+     */
+    function isLiquiditySettled(address app, uint32 eid, uint256 timestamp) external view returns (bool) {
+        return _remoteStates[app][eid].liquiditySettled[timestamp];
+    }
+
+    /**
+     * @notice Checks if a data root has been settled for an app
+     * @param app The application address
+     * @param eid The endpoint ID of the remote chain
+     * @param timestamp The timestamp to check
+     * @return Whether the data root is settled
+     */
+    function isDataSettled(address app, uint32 eid, uint256 timestamp) external view returns (bool) {
+        return _remoteStates[app][eid].dataSettled[timestamp];
+    }
+
+    /**
+     * @notice Checks if an account is whitelisted as a settler
+     * @param account The account to check
+     * @return Whether the account is whitelisted
+     */
+    function isSettlerWhitelisted(address account) external view returns (bool) {
+        return _isSettlerWhitelisted[account];
+    }
+
+    /**
+     * @notice Gets the remote app address for a given chain
+     * @param app The local application address
+     * @param eid The endpoint ID of the remote chain
+     * @return The remote application address
+     */
+    function getRemoteApp(address app, uint32 eid) external view returns (address) {
+        return _remoteStates[app][eid].app;
+    }
+
+    /**
+     * @notice Gets the liquidity root at a specific timestamp
+     * @param eid The endpoint ID of the remote chain
+     * @param timestamp The timestamp to query
+     * @return root The liquidity root at the timestamp
+     */
+    function getLiquidityRootAt(uint32 eid, uint256 timestamp) external view returns (bytes32 root) {
+        return _liquidityRoots[eid][timestamp];
+    }
+
+    /**
+     * @notice Gets the data root at a specific timestamp
+     * @param eid The endpoint ID of the remote chain
+     * @param timestamp The timestamp to query
+     * @return root The data root at the timestamp
+     */
+    function getDataRootAt(uint32 eid, uint256 timestamp) external view returns (bytes32 root) {
+        return _dataRoots[eid][timestamp];
+    }
+
+    /**
+     * @notice Gets the total liquidity across all chains where liquidity is settled
+     * @dev Aggregates local liquidity and remote liquidity from all configured chains
+     * @param app The application address
+     * @return liquidity The total settled liquidity
+     */
+    function getSettledTotalLiquidity(address app) external view returns (int256 liquidity) {
+        liquidity = _appStates[app].totalLiquidity.getLastAsInt();
+
+        // Add remote liquidity from all configured chains
+        ISynchronizer sync = ISynchronizer(synchronizer);
+        uint256 length = sync.eidsLength();
+        for (uint256 i = 0; i < length; i++) {
+            uint32 eid = sync.eidAt(i);
+            (bytes32 root, uint256 timestamp) = getLastSyncedLiquidityRoot(eid);
+            if (root != bytes32(0) && _remoteStates[app][eid].liquiditySettled[timestamp]) {
+                liquidity += _remoteStates[app][eid].totalLiquidity.getLastAsInt();
+            }
+        }
+    }
+
+    /**
+     * @notice Gets the total liquidity across all chains where both roots are finalized
+     * @dev More conservative than settled - requires both liquidity and data roots to be settled
+     * @param app The application address
+     * @return liquidity The total finalized liquidity
+     */
+    function getFinalizedTotalLiquidity(address app) external view returns (int256 liquidity) {
+        liquidity = _appStates[app].totalLiquidity.getLastAsInt();
+
+        // Add remote liquidity from all configured chains where both roots are settled
+        ISynchronizer sync = ISynchronizer(synchronizer);
+        uint256 length = sync.eidsLength();
+        for (uint256 i = 0; i < length; i++) {
+            uint32 eid = sync.eidAt(i);
+            (bytes32 liquidityRoot, uint256 liqTimestamp) = getLastSyncedLiquidityRoot(eid);
+            (bytes32 dataRoot, uint256 dataTimestamp) = getLastSyncedDataRoot(eid);
+
+            if (
+                liquidityRoot != bytes32(0) && dataRoot != bytes32(0)
+                    && _remoteStates[app][eid].liquiditySettled[liqTimestamp]
+                    && _remoteStates[app][eid].dataSettled[dataTimestamp]
+            ) {
+                liquidity += _remoteStates[app][eid].totalLiquidity.getLastAsInt();
+            }
+        }
+    }
+
+    function getTotalLiquidityAt(address app, uint256[] memory timestamps) external view returns (int256 liquidity) {
+        // Find the latest valid timestamp
+        uint256 latestTimestamp;
+        for (uint256 i = 0; i < timestamps.length; i++) {
+            if (timestamps[i] <= block.timestamp && timestamps[i] > latestTimestamp) {
+                latestTimestamp = timestamps[i];
+            }
+        }
+
+        if (latestTimestamp > 0) {
+            liquidity = _appStates[app].totalLiquidity.getAsInt(latestTimestamp);
+
+            // Add remote liquidity
+            ISynchronizer sync = ISynchronizer(synchronizer);
+            uint256 length = sync.eidsLength();
+            for (uint256 i = 0; i < length; i++) {
+                uint32 eid = sync.eidAt(i);
+                liquidity += _remoteStates[app][eid].totalLiquidity.getAsInt(latestTimestamp);
+            }
+        }
+    }
+
+    function getSettledLiquidity(address app, address account) external view returns (int256 liquidity) {
+        liquidity = _appStates[app].liquidity[account].getLastAsInt();
+
+        // Add remote liquidity from all configured chains
+        ISynchronizer sync = ISynchronizer(synchronizer);
+        uint256 length = sync.eidsLength();
+        for (uint256 i = 0; i < length; i++) {
+            uint32 eid = sync.eidAt(i);
+            (bytes32 root, uint256 timestamp) = getLastSyncedLiquidityRoot(eid);
+            if (root != bytes32(0) && _remoteStates[app][eid].liquiditySettled[timestamp]) {
+                RemoteState storage state = _remoteStates[app][eid];
+                address local = state.mappedAccounts[account];
+                if (local != address(0)) {
+                    liquidity += state.liquidity[local].getLastAsInt();
+                } else {
+                    liquidity += state.liquidity[account].getLastAsInt();
+                }
+            }
+        }
+    }
+
+    function getFinalizedLiquidity(address app, address account) external view returns (int256 liquidity) {
+        liquidity = _appStates[app].liquidity[account].getLastAsInt();
+
+        // Add remote liquidity from all configured chains where both roots are settled
+        ISynchronizer sync = ISynchronizer(synchronizer);
+        uint256 length = sync.eidsLength();
+        for (uint256 i = 0; i < length; i++) {
+            uint32 eid = sync.eidAt(i);
+            (bytes32 liquidityRoot, uint256 liqTimestamp) = getLastSyncedLiquidityRoot(eid);
+            (bytes32 dataRoot, uint256 dataTimestamp) = getLastSyncedDataRoot(eid);
+
+            if (
+                liquidityRoot != bytes32(0) && dataRoot != bytes32(0)
+                    && _remoteStates[app][eid].liquiditySettled[liqTimestamp]
+                    && _remoteStates[app][eid].dataSettled[dataTimestamp]
+            ) {
+                RemoteState storage state = _remoteStates[app][eid];
+                address local = state.mappedAccounts[account];
+                if (local != address(0)) {
+                    liquidity += state.liquidity[local].getLastAsInt();
+                } else {
+                    liquidity += state.liquidity[account].getLastAsInt();
+                }
+            }
+        }
+    }
+
+    function getLiquidityAt(address app, address account, uint256[] memory timestamps)
+        external
+        view
+        returns (int256 liquidity)
+    {
+        // Find the latest valid timestamp
+        uint256 latestTimestamp;
+        for (uint256 i = 0; i < timestamps.length; i++) {
+            if (timestamps[i] <= block.timestamp && timestamps[i] > latestTimestamp) {
+                latestTimestamp = timestamps[i];
+            }
+        }
+
+        if (latestTimestamp > 0) {
+            liquidity = _appStates[app].liquidity[account].getAsInt(latestTimestamp);
+
+            // Add remote liquidity
+            ISynchronizer sync = ISynchronizer(synchronizer);
+            uint256 length = sync.eidsLength();
+            for (uint256 i = 0; i < length; i++) {
+                uint32 eid = sync.eidAt(i);
+                RemoteState storage state = _remoteStates[app][eid];
+                address local = state.mappedAccounts[account];
+                if (local != address(0)) {
+                    liquidity += state.liquidity[local].getAsInt(latestTimestamp);
+                } else {
+                    liquidity += state.liquidity[account].getAsInt(latestTimestamp);
+                }
+            }
+        }
+    }
+
+    function getSettledRemoteTotalLiquidity(address app, uint32 eid) external view returns (int256 liquidity) {
+        (, uint256 timestamp) = getLastSettledLiquidityRoot(app, eid);
+        if (timestamp == 0) return 0;
+        return getRemoteTotalLiquidityAt(app, eid, timestamp);
+    }
+
+    function getFinalizedRemoteTotalLiquidity(address app, uint32 eid) external view returns (int256 liquidity) {
+        (, uint256 timestamp) = getLastFinalizedLiquidityRoot(app, eid);
+        if (timestamp == 0) return 0;
+        return getRemoteTotalLiquidityAt(app, eid, timestamp);
+    }
+
+    function getSettledRemoteLiquidity(address app, uint32 eid, address account)
+        external
+        view
+        returns (int256 liquidity)
+    {
+        (, uint256 timestamp) = getLastSettledLiquidityRoot(app, eid);
+        if (timestamp == 0) return 0;
+        return getRemoteLiquidityAt(app, eid, account, timestamp);
+    }
+
+    function getFinalizedRemoteLiquidity(address app, uint32 eid, address account)
+        external
+        view
+        returns (int256 liquidity)
+    {
+        (, uint256 timestamp) = getLastFinalizedLiquidityRoot(app, eid);
+        if (timestamp == 0) return 0;
+        return getRemoteLiquidityAt(app, eid, account, timestamp);
+    }
+
+    function getSettledRemoteDataHash(address app, uint32 eid, bytes32 key) external view returns (bytes32 value) {
+        (, uint256 timestamp) = getLastSettledDataRoot(app, eid);
+        if (timestamp == 0) return 0;
+        return getRemoteDataHashAt(app, eid, key, timestamp);
+    }
+
+    function getFinalizedRemoteDataHash(address app, uint32 eid, bytes32 key) external view returns (bytes32 value) {
+        (, uint256 timestamp) = getLastFinalizedLiquidityRoot(app, eid);
+        if (timestamp == 0) return 0;
+        return getRemoteDataHashAt(app, eid, key, timestamp);
+    }
+
+    /**
+     * @notice Gets the last settled liquidity root for an app on a specific chain
+     * @dev Iterates through recent timestamps up to maxLoop to find the latest settled root
+     * @param app The application address
+     * @param eid The endpoint ID of the remote chain
+     * @return root The liquidity root hash
+     * @return timestamp The timestamp of the settled root
+     */
+    function getLastSettledLiquidityRoot(address app, uint32 eid)
+        public
+        view
+        returns (bytes32 root, uint256 timestamp)
+    {
+        RemoteState storage state = _remoteStates[app][eid];
+        uint256[] storage timestamps = _rootTimestamps[eid];
+        uint256 length = timestamps.length;
+        for (uint256 i; i < length && i < maxLoop; ++i) {
+            uint256 ts = timestamps[length - i - 1];
+            if (state.liquiditySettled[ts]) return (_liquidityRoots[eid][ts], ts);
+        }
+        return (bytes32(0), 0);
+    }
+
+    /**
+     * @notice Gets the last finalized liquidity root (both liquidity and data settled)
+     * @dev A root is finalized when both liquidity and data roots are settled for the same timestamp
+     * @param app The application address
+     * @param eid The endpoint ID of the remote chain
+     * @return root The liquidity root hash
+     * @return timestamp The timestamp of the finalized root
+     */
+    function getLastFinalizedLiquidityRoot(address app, uint32 eid)
+        public
+        view
+        returns (bytes32 root, uint256 timestamp)
+    {
+        uint256[] storage timestamps = _rootTimestamps[eid];
+        uint256 length = timestamps.length;
+        for (uint256 i; i < length && i < maxLoop; ++i) {
+            uint256 ts = timestamps[length - i - 1];
+            if (areRootsFinalized(app, eid, ts)) return (_liquidityRoots[eid][ts], ts);
+        }
+        return (bytes32(0), 0);
+    }
+
+    function getLastSettledDataRoot(address app, uint32 eid) public view returns (bytes32 root, uint256 timestamp) {
+        RemoteState storage state = _remoteStates[app][eid];
+        uint256[] storage timestamps = _rootTimestamps[eid];
+        uint256 length = timestamps.length;
+        for (uint256 i; i < length && i < maxLoop; ++i) {
+            uint256 ts = timestamps[length - i - 1];
+            if (state.dataSettled[ts]) return (_dataRoots[eid][ts], ts);
+        }
+        return (bytes32(0), 0);
+    }
+
+    function getLastFinalizedDataRoot(address app, uint32 eid)
+        external
+        view
+        returns (bytes32 root, uint256 timestamp)
+    {
+        uint256[] storage timestamps = _rootTimestamps[eid];
+        uint256 length = timestamps.length;
+        for (uint256 i; i < length && i < maxLoop; ++i) {
+            uint256 ts = timestamps[length - i - 1];
+            if (areRootsFinalized(app, eid, ts)) return (_dataRoots[eid][ts], ts);
+        }
+        return (bytes32(0), 0);
+    }
+
+    /**
+     * @notice Checks if both roots are finalized for a given timestamp
+     * @dev Returns true if both liquidity and data are settled, or if one is settled and the other is empty
+     * @param app The application address
+     * @param eid The endpoint ID of the remote chain
+     * @param timestamp The timestamp to check
+     * @return Whether the roots are finalized
+     */
+    function areRootsFinalized(address app, uint32 eid, uint256 timestamp) public view returns (bool) {
+        bool liquiditySettled = _remoteStates[app][eid].liquiditySettled[timestamp];
+        bool dataSettled = _remoteStates[app][eid].dataSettled[timestamp];
+        if (liquiditySettled && dataSettled) return true;
+        if (liquiditySettled && _dataRoots[eid][timestamp] == bytes32(0)) return true;
+        if (dataSettled && _liquidityRoots[eid][timestamp] == bytes32(0)) return true;
+        return false;
     }
 
     /*//////////////////////////////////////////////////////////////
-                             VIEW FUNCTIONS
+                      LOCAL STATE MANAGEMENT
     //////////////////////////////////////////////////////////////*/
 
-    function chainConfigs() external view returns (uint32[] memory eids, uint16[] memory confirmations) {
-        uint256 length = _targetEids.length;
-        eids = _targetEids;
-        confirmations = new uint16[](length);
-        for (uint256 i; i < length; i++) {
-            confirmations[i] = _chainConfigConfirmations[_targetEids[i]];
-        }
+    /**
+     * @notice Registers a new application with the LiquidityMatrix
+     * @dev Initializes the app's liquidity and data trees
+     * @param syncMappedAccountsOnly If true, only syncs liquidity for mapped accounts
+     * @param useCallbacks If true, triggers callbacks to the app on state updates
+     * @param settler Address authorized to settle roots for this app
+     */
+    function registerApp(bool syncMappedAccountsOnly, bool useCallbacks, address settler) external {
+        address app = msg.sender;
+        if (_appStates[app].registered) revert AppAlreadyRegistered();
+
+        AppState storage state = _appStates[app];
+        state.registered = true;
+        state.syncMappedAccountsOnly = syncMappedAccountsOnly;
+        state.useCallbacks = useCallbacks;
+        state.settler = settler;
+
+        emit RegisterApp(app, syncMappedAccountsOnly, useCallbacks, settler);
     }
 
     /**
-     * @notice Processes the responses from LayerZero's read protocol, aggregating results based on the command label.
-     * @param _cmd The encoded command specifying the request details.
-     * @param _responses An array of responses corresponding to each read request.
-     * @return The aggregated result, such as synced chain roots and timestamps.
+     * @notice Updates whether to sync only mapped accounts
+     * @param syncMappedAccountsOnly New setting value
      */
-    function lzReduce(bytes calldata _cmd, bytes[] calldata _responses) external pure returns (bytes memory) {
-        (uint16 appCmdLabel, EVMCallRequestV1[] memory requests,) = ReadCodecV1.decode(_cmd);
-        if (appCmdLabel == CMD_SYNC) {
-            uint32[] memory eids = new uint32[](requests.length);
-            bytes32[] memory liquidityRoots = new bytes32[](requests.length);
-            bytes32[] memory dataRoots = new bytes32[](requests.length);
-            uint256[] memory timestamps = new uint256[](requests.length);
-            for (uint256 i; i < eids.length; ++i) {
-                eids[i] = requests[i].targetEid;
-                (liquidityRoots[i], dataRoots[i], timestamps[i]) =
-                    abi.decode(_responses[i], (bytes32, bytes32, uint256));
-            }
-            return abi.encode(CMD_SYNC, eids, liquidityRoots, dataRoots, timestamps);
-        } else {
-            revert InvalidCmd();
-        }
+    function updateSyncMappedAccountsOnly(bool syncMappedAccountsOnly) external onlyApp(msg.sender) {
+        _appStates[msg.sender].syncMappedAccountsOnly = syncMappedAccountsOnly;
+        emit UpdateSyncMappedAccountsOnly(msg.sender, syncMappedAccountsOnly);
     }
 
     /**
-     * @notice Quotes the messaging fee for sending a read request with specific gas and calldata size.
-     * @param gasLimit The amount of gas to allocate for the executor.
-     * @param calldataSize The size of the calldata in bytes.
-     * @return fee The estimated messaging fee for the request.
+     * @notice Updates whether to use callbacks for state updates
+     * @param useCallbacks New setting value
      */
-    function quoteSync(uint128 gasLimit, uint32 calldataSize) public view returns (uint256 fee) {
-        MessagingFee memory _fee = _quote(
-            READ_CHANNEL,
-            getSyncCmd(),
-            OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0),
-            false
-        );
-        return _fee.nativeFee;
+    function updateUseCallbacks(bool useCallbacks) external onlyApp(msg.sender) {
+        _appStates[msg.sender].useCallbacks = useCallbacks;
+        emit UpdateUseCallbacks(msg.sender, useCallbacks);
     }
 
     /**
-     * @notice Quotes the messaging fee for sending a read request to specific endpoints.
-     * @param eids Array of endpoint IDs to synchronize.
-     * @param gasLimit The amount of gas to allocate for the executor.
-     * @param calldataSize The size of the calldata in bytes.
-     * @return fee The estimated messaging fee for the request.
+     * @notice Updates the authorized settler for the app
+     * @param settler New settler address
      */
-    function quoteSync(uint32[] memory eids, uint128 gasLimit, uint32 calldataSize) public view returns (uint256 fee) {
-        MessagingFee memory _fee = _quote(
-            READ_CHANNEL,
-            getSyncCmd(eids),
-            OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0),
-            false
-        );
-        return _fee.nativeFee;
+    function updateSettler(address settler) external onlyApp(msg.sender) {
+        _appStates[msg.sender].settler = settler;
+        emit UpdateSettler(msg.sender, settler);
     }
 
     /**
-     * @notice Quotes the messaging fee for sending a write request with specific gas and calldata size.
-     * @param gasLimit The amount of gas to allocate for the executor.
-     * @return fee The estimated messaging fee for the request.
+     * @notice Updates the liquidity for an account in the calling app
+     * @dev Updates the app's liquidity tree and propagates to the main tree
+     * @param account The account to update
+     * @param liquidity The new liquidity amount
+     * @return mainTreeIndex The index in the main liquidity tree
+     * @return appTreeIndex The index in the app's liquidity tree
      */
-    function quoteRequestMapRemoteAccounts(
-        uint32 eid,
-        address app,
-        address remoteApp,
-        address[] memory locals,
-        address[] memory remotes,
-        uint128 gasLimit
-    ) public view returns (uint256 fee) {
-        MessagingFee memory _fee = _quote(
-            eid,
-            abi.encode(MAP_REMOTE_ACCOUNTS, app, remoteApp, locals, remotes),
-            OptionsBuilder.newOptions().addExecutorLzReceiveOption(gasLimit, 0),
-            false
-        );
-        return _fee.nativeFee;
+    function updateLocalLiquidity(address account, int256 liquidity)
+        external
+        onlyApp(msg.sender)
+        returns (uint256 mainTreeIndex, uint256 appTreeIndex)
+    {
+        address app = msg.sender;
+        AppState storage state = _appStates[app];
+
+        appTreeIndex = state.liquidityTree.update(bytes32(uint256(uint160(account))), bytes32(uint256(liquidity)));
+        mainTreeIndex = _mainLiquidityTree.update(bytes32(uint256(uint160(app))), state.liquidityTree.root);
+
+        int256 oldTotalLiquidity = state.totalLiquidity.getLastAsInt();
+        int256 oldLiquidity = state.liquidity[account].getLastAsInt();
+        state.liquidity[account].setAsInt(liquidity);
+        int256 newTotalLiquidity = oldTotalLiquidity - oldLiquidity + liquidity;
+        state.totalLiquidity.setAsInt(newTotalLiquidity);
+
+        emit UpdateLocalLiquidity(app, mainTreeIndex, account, liquidity, appTreeIndex, block.timestamp);
     }
 
     /**
-     * @notice Constructs and encodes the read command for LayerZero's read protocol.
-     * @dev Uses `_computeSettings` to determine the compute settings for the command.
-     * @return The encoded command with all configured chain requests.
+     * @notice Updates arbitrary data for the calling app
+     * @dev Updates the app's data tree and propagates to the main tree
+     * @param key The data key
+     * @param value The data value
+     * @return mainTreeIndex The index in the main data tree
+     * @return appTreeIndex The index in the app's data tree
      */
-    function getSyncCmd() public view returns (bytes memory) {
-        uint256 length = _targetEids.length;
-        EVMCallRequestV1[] memory readRequests = new EVMCallRequestV1[](length);
+    function updateLocalData(bytes32 key, bytes memory value)
+        external
+        onlyApp(msg.sender)
+        returns (uint256 mainTreeIndex, uint256 appTreeIndex)
+    {
+        address app = msg.sender;
+        AppState storage state = _appStates[app];
 
-        uint64 timestamp = uint64(block.timestamp);
-        for (uint256 i; i < length; i++) {
-            uint32 eid = _targetEids[i];
-            address to = AddressCast.toAddress(_getPeerOrRevert(eid));
-            uint16 confirmations = _chainConfigConfirmations[eid];
-            readRequests[i] = EVMCallRequestV1({
-                appRequestLabel: uint16(i + 1),
-                targetEid: eid,
-                isBlockNum: false,
-                blockNumOrTimestamp: timestamp,
-                confirmations: confirmations,
-                to: to,
-                callData: abi.encodeWithSelector(LiquidityMatrixLocal.getMainRoots.selector)
-            });
-        }
+        bytes32 hash = keccak256(value);
+        appTreeIndex = state.dataTree.update(key, hash);
+        mainTreeIndex = _mainDataTree.update(bytes32(uint256(uint160(app))), state.dataTree.root);
 
-        return ReadCodecV1.encode(CMD_SYNC, readRequests, _computeSettings());
-    }
+        state.dataHashes[key].set(hash);
 
-    /**
-     * @notice Constructs and encodes the read command for specific chains.
-     * @dev Uses `_computeSettings` to determine the compute settings for the command.
-     *      Only includes the specified endpoint IDs in the sync request.
-     * @param eids Array of endpoint IDs to include in the sync command.
-     * @return The encoded command with the specified chain requests.
-     */
-    function getSyncCmd(uint32[] memory eids) public view returns (bytes memory) {
-        uint256 length = eids.length;
-        EVMCallRequestV1[] memory readRequests = new EVMCallRequestV1[](length);
-
-        uint64 timestamp = uint64(block.timestamp);
-        for (uint256 i; i < length; i++) {
-            uint32 eid = eids[i];
-            address to = AddressCast.toAddress(_getPeerOrRevert(eid));
-            uint16 confirmations = _chainConfigConfirmations[eid];
-
-            readRequests[i] = EVMCallRequestV1({
-                appRequestLabel: uint16(i + 1),
-                targetEid: eid,
-                isBlockNum: false,
-                blockNumOrTimestamp: timestamp,
-                confirmations: confirmations,
-                to: to,
-                callData: abi.encodeWithSelector(LiquidityMatrixLocal.getMainRoots.selector)
-            });
-        }
-
-        return ReadCodecV1.encode(CMD_SYNC, readRequests, _computeSettings());
-    }
-
-    function _computeSettings() internal view returns (EVMCallComputeV1 memory) {
-        return EVMCallComputeV1({
-            computeSetting: 1, // lzReduce()
-            targetEid: ILayerZeroEndpointV2(endpoint).eid(),
-            isBlockNum: false,
-            blockNumOrTimestamp: uint64(block.timestamp),
-            confirmations: 0,
-            to: address(this)
-        });
-    }
-
-    function eidsLength() public view override returns (uint256) {
-        return _targetEids.length;
-    }
-
-    function eidAt(uint256 index) public view override returns (uint32) {
-        return _targetEids[index];
+        emit UpdateLocalData(app, mainTreeIndex, key, value, hash, appTreeIndex, block.timestamp);
     }
 
     /*//////////////////////////////////////////////////////////////
-                                LOGIC
+                      REMOTE STATE MANAGEMENT
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Updates the configuration for target chains used in LayerZero read requests.
-     * @param eids Array of endpoint IDs.
-     * @param confirmations Array of confirmation requirements for each endpoint.
+     * @notice Links the calling app to a remote app on another chain
+     * @param eid The endpoint ID of the remote chain
+     * @param remoteApp The address of the app on the remote chain
      */
-    function configChains(uint32[] memory eids, uint16[] memory confirmations) external onlyOwner {
-        if (eids.length != confirmations.length) revert InvalidLengths();
-
-        // Clear existing mappings
-        for (uint256 i; i < _targetEids.length; i++) {
-            delete _chainConfigConfirmations[_targetEids[i]];
-        }
-
-        // Validate and populate new mappings
-        for (uint256 i; i < eids.length; i++) {
-            for (uint256 j = i + 1; j < eids.length; j++) {
-                if (eids[i] == eids[j]) revert DuplicateTargetEid();
-            }
-            _chainConfigConfirmations[eids[i]] = confirmations[i];
-        }
-
-        _targetEids = eids;
+    function updateRemoteApp(uint32 eid, address remoteApp) external onlyApp(msg.sender) {
+        _remoteStates[msg.sender][eid].app = remoteApp;
+        emit UpdateRemoteApp(msg.sender, eid, remoteApp);
     }
 
-    function updateSyncer(address _syncer) external onlyOwner {
-        syncer = _syncer;
-
-        emit UpdateSyncer(_syncer);
-    }
-
+    /**
+     * @notice Updates the whitelist status of a settler
+     * @dev Only callable by owner
+     * @param account The settler account
+     * @param whitelisted Whether to whitelist or remove from whitelist
+     */
     function updateSettlerWhitelisted(address account, bool whitelisted) external onlyOwner {
         _isSettlerWhitelisted[account] = whitelisted;
-
         emit UpdateSettlerWhitelisted(account, whitelisted);
     }
 
     /**
-     * @notice Initiates a sync operation using lzRead.
-     * @dev Sends a read request with specified gas and calldata size.
-     *      The user must provide sufficient fees via `msg.value`.
-     * @param gasLimit The gas limit to allocate for the executor.
-     * @param calldataSize The size of the calldata for the request, in bytes.
-     * @return receipt The messaging receipt from LayerZero, confirming the request details.
-     *         Includes the `guid` and `block` parameters for tracking.
+     * @notice Sets the synchronizer contract address
+     * @dev Only callable by owner. The synchronizer handles all cross-chain communication.
+     * @param _synchronizer Address of the synchronizer contract
      */
-    function sync(uint128 gasLimit, uint32 calldataSize) external payable returns (MessagingReceipt memory receipt) {
-        if (msg.sender != syncer) revert Forbidden();
-        if (block.timestamp <= _lastSyncRequestTimestamp) revert AlreadyRequested();
-        _lastSyncRequestTimestamp = block.timestamp;
-
-        bytes memory cmd = getSyncCmd();
-        bytes memory options = OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0);
-        receipt = _lzSend(READ_CHANNEL, cmd, options, MessagingFee(msg.value, 0), payable(msg.sender));
-
-        emit Sync(msg.sender);
+    function setSynchronizer(address _synchronizer) external onlyOwner {
+        synchronizer = _synchronizer;
+        emit UpdateSynchronizer(_synchronizer);
     }
 
     /**
-     * @notice Initiates a sync operation for specific chains using lzRead.
-     * @dev Sends a read request for the specified endpoint IDs with gas and calldata size.
-     *      The user must provide sufficient fees via `msg.value`.
-     * @param eids Array of endpoint IDs to synchronize.
-     * @param gasLimit The gas limit to allocate for the executor.
-     * @param calldataSize The size of the calldata for the request, in bytes.
-     * @return receipt The messaging receipt from LayerZero, confirming the request details.
-     *         Includes the `guid` and `block` parameters for tracking.
+     * @notice Updates the maximum loop iterations for efficient lookups
+     * @dev Limits iterations when searching for settled/finalized roots to prevent gas exhaustion
+     * @param _maxLoop New maximum loop count (must be > 0)
      */
-    function sync(uint32[] memory eids, uint128 gasLimit, uint32 calldataSize)
-        external
-        payable
-        returns (MessagingReceipt memory receipt)
-    {
-        if (msg.sender != syncer) revert Forbidden();
-        if (block.timestamp <= _lastSyncRequestTimestamp) revert AlreadyRequested();
-        _lastSyncRequestTimestamp = block.timestamp;
-
-        bytes memory cmd = getSyncCmd(eids);
-        bytes memory options = OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, calldataSize, 0);
-        receipt = _lzSend(READ_CHANNEL, cmd, options, MessagingFee(msg.value, 0), payable(msg.sender));
-
-        emit Sync(msg.sender);
+    function updateMaxLoop(uint256 _maxLoop) external onlyOwner {
+        if (_maxLoop == 0) revert InvalidAmount();
+        maxLoop = _maxLoop;
+        emit UpdateMaxLoop(_maxLoop);
     }
 
+    /**
+     * @notice Receives and stores Merkle roots from remote chains
+     * @dev Called by the synchronizer after successful cross-chain sync
+     * @param eid The endpoint ID of the remote chain
+     * @param liquidityRoot The liquidity Merkle root from the remote chain
+     * @param dataRoot The data Merkle root from the remote chain
+     * @param timestamp The timestamp when the roots were generated
+     */
+    function onReceiveRoots(uint32 eid, bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp)
+        external
+        onlySynchronizer
+    {
+        // Only push new timestamp if it's different from the last one
+        if (_rootTimestamps[eid].length == 0 || _rootTimestamps[eid][_rootTimestamps[eid].length - 1] != timestamp) {
+            _rootTimestamps[eid].push(timestamp);
+        }
+
+        _liquidityRoots[eid][timestamp] = liquidityRoot;
+        _dataRoots[eid][timestamp] = dataRoot;
+
+        emit OnReceiveRoots(eid, liquidityRoot, dataRoot, timestamp);
+    }
+
+    /**
+     * @notice Settles liquidity data from a remote chain for a specific app
+     * @dev Trusts the settler to provide valid data without proof verification.
+     *      Updates liquidity snapshots and triggers callbacks if enabled.
+     * @param params Settlement parameters including app, eid, timestamp, accounts and liquidity values
+     */
+    function settleLiquidity(SettleLiquidityParams memory params) external onlySettler(msg.sender, params.app) {
+        AppState storage localState = _appStates[params.app];
+        bool syncMappedAccountsOnly = localState.syncMappedAccountsOnly;
+        bool useCallbacks = localState.useCallbacks;
+
+        RemoteState storage state = _remoteStates[params.app][params.eid];
+        if (state.liquiditySettled[params.timestamp]) revert LiquidityAlreadySettled();
+        state.liquiditySettled[params.timestamp] = true;
+
+        int256 totalLiquidity;
+        // Process each account's liquidity update
+        for (uint256 i; i < params.accounts.length; i++) {
+            (address account, int256 liquidity) = (params.accounts[i], params.liquidity[i]);
+
+            // Check if account is mapped to a local account
+            address _account = state.mappedAccounts[account];
+            if (syncMappedAccountsOnly && _account == address(0)) continue;
+            if (_account == address(0)) {
+                _account = account;
+            }
+
+            // Update liquidity snapshot and track total change
+            SnapshotsLib.Snapshots storage snapshots = state.liquidity[_account];
+            totalLiquidity -= state.liquidity[_account].getLastAsInt();
+            snapshots.setAsInt(liquidity, params.timestamp);
+            totalLiquidity += liquidity;
+
+            // Trigger callback if enabled, catching any failures
+            if (useCallbacks) {
+                try ILiquidityMatrixCallbacks(params.app).onUpdateLiquidity(
+                    params.eid, params.timestamp, _account, liquidity
+                ) { } catch (bytes memory reason) {
+                    emit OnUpdateLiquidityFailure(params.eid, params.timestamp, _account, liquidity, reason);
+                }
+            }
+        }
+
+        state.totalLiquidity.setAsInt(totalLiquidity, params.timestamp);
+        if (useCallbacks) {
+            try ILiquidityMatrixCallbacks(params.app).onUpdateTotalLiquidity(
+                params.eid, params.timestamp, totalLiquidity
+            ) { } catch (bytes memory reason) {
+                emit OnUpdateTotalLiquidityFailure(params.eid, params.timestamp, totalLiquidity, reason);
+            }
+        }
+
+        emit SettleLiquidity(params.eid, params.app, _liquidityRoots[params.eid][params.timestamp], params.timestamp);
+    }
+
+    /**
+     * @notice Settles arbitrary data from a remote chain for a specific app
+     * @dev Trusts the settler to provide valid data without proof verification.
+     *      Updates data hashes and triggers callbacks if enabled.
+     * @param params Settlement parameters including app, eid, timestamp, keys and values
+     */
+    function settleData(SettleDataParams memory params) external onlySettler(msg.sender, params.app) {
+        RemoteState storage state = _remoteStates[params.app][params.eid];
+        if (state.dataSettled[params.timestamp]) revert DataAlreadySettled();
+        state.dataSettled[params.timestamp] = true;
+
+        bool useCallbacks = _appStates[params.app].useCallbacks;
+        // Process each key-value pair
+        for (uint256 i; i < params.keys.length; i++) {
+            (bytes32 key, bytes memory value) = (params.keys[i], params.values[i]);
+            bytes32 valueHash = keccak256(value);
+            state.dataHashes[key].set(valueHash, params.timestamp);
+
+            // Trigger callback if enabled, catching any failures
+            if (useCallbacks) {
+                try ILiquidityMatrixCallbacks(params.app).onUpdateData(params.eid, params.timestamp, key, value) { }
+                catch (bytes memory reason) {
+                    emit OnUpdateDataFailure(params.eid, params.timestamp, key, value, reason);
+                }
+            }
+        }
+
+        emit SettleData(params.eid, params.app, _dataRoots[params.eid][params.timestamp], params.timestamp);
+    }
+
+    /**
+     * @notice Requests mapping of remote accounts to local accounts on another chain
+     * @dev Forwards the request to the synchronizer for cross-chain messaging
+     * @param eid Target chain endpoint ID
+     * @param remoteApp Address of the app on the remote chain
+     * @param locals Array of local account addresses to map
+     * @param remotes Array of remote account addresses to map
+     * @param gasLimit Gas limit for the cross-chain message
+     */
     function requestMapRemoteAccounts(
         uint32 eid,
         address remoteApp,
@@ -352,51 +1053,62 @@ contract LiquidityMatrix is LiquidityMatrixRemote, OAppRead {
             if (local == address(0) || remote == address(0)) revert InvalidAddress();
         }
 
-        _lzSend(
-            eid,
-            abi.encode(MAP_REMOTE_ACCOUNTS, msg.sender, remoteApp, locals, remotes),
-            OptionsBuilder.newOptions().addExecutorLzReceiveOption(gasLimit, 0),
-            MessagingFee(msg.value, 0),
-            payable(msg.sender)
+        // Forward to synchronizer
+        ISynchronizer(synchronizer).requestMapRemoteAccounts{ value: msg.value }(
+            eid, remoteApp, locals, remotes, gasLimit
         );
-        emit RequestMapRemoteAccounts(msg.sender, eid, remoteApp, remotes, locals);
     }
 
     /**
-     * @notice Handles messages received from LayerZero's messaging protocol.
-     * @dev Updates the root and timestamp for each chain ID based on the received message.
-     * @param _message The encoded payload containing chain roots and timestamps.
+     * @notice Processes remote account mapping requests received from other chains
+     * @dev Called by synchronizer when receiving cross-chain mapping requests.
+     *      Validates mappings and consolidates liquidity from remote to local accounts.
+     * @param _fromEid Source chain endpoint ID
+     * @param _localApp Local app address that should process this request
+     * @param _message Encoded remote and local account arrays
      */
-    function _lzReceive(
-        Origin calldata _origin,
-        bytes32, /* _guid */
-        bytes calldata _message,
-        address, /* _executor */
-        bytes calldata /* _extraData */
-    ) internal virtual override {
-        if (_origin.srcEid == READ_CHANNEL) {
-            (
-                ,
-                uint32[] memory eids,
-                bytes32[] memory liquidityRoots,
-                bytes32[] memory dataRoots,
-                uint256[] memory timestamps
-            ) = abi.decode(_message, (uint16, uint32[], bytes32[], bytes32[], uint256[]));
-            for (uint256 i; i < eids.length; ++i) {
-                _onReceiveRoots(eids[i], liquidityRoots[i], dataRoots[i], timestamps[i]);
+    function onReceiveMapRemoteAccountRequests(uint32 _fromEid, address _localApp, bytes memory _message)
+        external
+        onlySynchronizer
+    {
+        (address[] memory remotes, address[] memory locals) = abi.decode(_message, (address[], address[]));
+
+        // Verify the app is registered
+        if (!_appStates[_localApp].registered) revert AppNotRegistered();
+
+        RemoteState storage state = _remoteStates[_localApp][_fromEid];
+
+        bool[] memory shouldMap = new bool[](remotes.length);
+        if (ILiquidityMatrixAccountMapper(_localApp).shouldMapAccounts.selector == bytes4(0)) {
+            for (uint256 i; i < remotes.length; ++i) {
+                shouldMap[i] = true;
             }
         } else {
-            uint16 msgType = abi.decode(_message, (uint16));
-            if (msgType == MAP_REMOTE_ACCOUNTS) {
-                uint32 eid = _origin.srcEid;
-                (, address remoteApp, address app, address[] memory remotes, address[] memory locals) =
-                    abi.decode(_message, (uint16, address, address, address[], address[]));
-                if (_remoteStates[app][eid].app != remoteApp) revert Forbidden();
-
-                _onMapRemoteAccounts(app, eid, remotes, locals);
-            } else {
-                revert InvalidMsgType();
+            for (uint256 i; i < remotes.length; ++i) {
+                shouldMap[i] =
+                    ILiquidityMatrixAccountMapper(_localApp).shouldMapAccounts(_fromEid, remotes[i], locals[i]);
             }
+        }
+
+        for (uint256 i; i < remotes.length; ++i) {
+            if (!shouldMap[i]) continue;
+
+            address remote = remotes[i];
+            address local = locals[i];
+
+            if (state.mappedAccounts[remote] != address(0)) revert RemoteAccountAlreadyMapped(_fromEid, remote);
+            if (state.localAccountMapped[local]) revert LocalAccountAlreadyMapped(_fromEid, local);
+
+            state.mappedAccounts[remote] = local;
+            state.localAccountMapped[local] = true;
+
+            int256 remoteLiquidity = state.liquidity[remote].getLastAsInt();
+            state.liquidity[remote].setAsInt(0);
+
+            int256 currentLocalLiquidity = state.liquidity[local].getLastAsInt();
+            state.liquidity[local].setAsInt(currentLocalLiquidity + remoteLiquidity);
+
+            emit MapRemoteAccount(_localApp, _fromEid, remote, local);
         }
     }
 }

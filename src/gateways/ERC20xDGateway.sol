@@ -22,6 +22,7 @@ import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
 import { IERC20xDGateway } from "../interfaces/IERC20xDGateway.sol";
 import { IERC20xDGatewayCallbacks } from "../interfaces/IERC20xDGatewayCallbacks.sol";
 import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
+import { ISynchronizer } from "../interfaces/ISynchronizer.sol";
 
 contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
     using OptionsBuilder for bytes;
@@ -58,10 +59,13 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
 
     /**
      * @notice Initializes the ERC20xDGateway contract with the necessary configurations.
+     * @param _readChannel The read channel ID for LayerZero communication.
+     * @param _endpoint The LayerZero endpoint address.
+     * @param _liquidityMatrix The LiquidityMatrix contract address.
      * @param _owner The address that will be granted ownership privileges.
      */
-    constructor(uint32 _readChannel, address _liquidityMatrix, address _owner)
-        OAppRead(address(ILiquidityMatrix(_liquidityMatrix).endpoint()), _owner)
+    constructor(uint32 _readChannel, address _endpoint, address _liquidityMatrix, address _owner)
+        OAppRead(_endpoint, _owner)
         Ownable(_owner)
     {
         READ_CHANNEL = _readChannel;
@@ -75,7 +79,8 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
     //////////////////////////////////////////////////////////////*/
 
     function chainConfigs() public view returns (uint32[] memory eids, uint16[] memory confirmations) {
-        return ILiquidityMatrix(liquidityMatrix).chainConfigs();
+        address synchronizer = ILiquidityMatrix(liquidityMatrix).synchronizer();
+        return ISynchronizer(synchronizer).chainConfigs();
     }
 
     function transferDelay(uint32 eid) external view returns (uint256) {
