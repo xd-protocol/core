@@ -668,4 +668,557 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         changePrank(txOrigin, msgSender);
     }
+
+    /*//////////////////////////////////////////////////////////////
+                        ADDITIONAL PRODUCTION TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    // Error handling and edge cases
+    function test_registerApp_alreadyRegistered() public {
+        address newApp = makeAddr("newApp");
+        changePrank(newApp, newApp);
+        liquidityMatrices[0].registerApp(false, false, address(0));
+
+        vm.expectRevert(ILiquidityMatrix.AppAlreadyRegistered.selector);
+        liquidityMatrices[0].registerApp(false, false, address(0));
+    }
+
+    function test_updateLocalLiquidity_notRegistered() public {
+        address unregisteredApp = makeAddr("unregisteredApp");
+        changePrank(unregisteredApp, unregisteredApp);
+
+        vm.expectRevert(ILiquidityMatrix.AppNotRegistered.selector);
+        liquidityMatrices[0].updateLocalLiquidity(users[0], 100e18);
+    }
+
+    function test_updateLocalData_notRegistered() public {
+        address unregisteredApp = makeAddr("unregisteredApp");
+        changePrank(unregisteredApp, unregisteredApp);
+
+        vm.expectRevert(ILiquidityMatrix.AppNotRegistered.selector);
+        liquidityMatrices[0].updateLocalData(keccak256("key"), abi.encode("value"));
+    }
+
+    // Access control tests
+    function test_setSynchronizer_onlyOwner() public {
+        address notOwner = makeAddr("notOwner");
+        changePrank(notOwner, notOwner);
+
+        vm.expectRevert(abi.encodeWithSelector(0x118cdaa7, notOwner));
+        liquidityMatrices[0].setSynchronizer(address(0x123));
+    }
+
+    function test_updateSettlerWhitelisted_onlyOwner() public {
+        address notOwner = makeAddr("notOwner");
+        changePrank(notOwner, notOwner);
+
+        vm.expectRevert(abi.encodeWithSelector(0x118cdaa7, notOwner));
+        liquidityMatrices[0].updateSettlerWhitelisted(address(0x123), true);
+    }
+
+    function test_updateMaxLoop_onlyOwner() public {
+        address notOwner = makeAddr("notOwner");
+        changePrank(notOwner, notOwner);
+
+        vm.expectRevert(abi.encodeWithSelector(0x118cdaa7, notOwner));
+        liquidityMatrices[0].updateMaxLoop(20);
+    }
+
+    // Settler permission tests
+    function test_settleLiquidity_notWhitelisted() public {
+        address notWhitelisted = makeAddr("notWhitelisted");
+        changePrank(notWhitelisted, notWhitelisted);
+
+        address[] memory accounts = new address[](1);
+        accounts[0] = users[0];
+        int256[] memory liquidity = new int256[](1);
+        liquidity[0] = 100e18;
+
+        vm.expectRevert(ILiquidityMatrix.Forbidden.selector);
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], eids[1], block.timestamp, accounts, liquidity)
+        );
+    }
+
+    function test_settleData_notWhitelisted() public {
+        address notWhitelisted = makeAddr("notWhitelisted");
+        changePrank(notWhitelisted, notWhitelisted);
+
+        bytes32[] memory keys = new bytes32[](1);
+        keys[0] = keccak256("key");
+        bytes[] memory values = new bytes[](1);
+        values[0] = abi.encode("value");
+
+        vm.expectRevert(ILiquidityMatrix.Forbidden.selector);
+        liquidityMatrices[0].settleData(
+            ILiquidityMatrix.SettleDataParams(apps[0], eids[1], block.timestamp, keys, values)
+        );
+    }
+
+    // Already settled tests
+    function test_settleLiquidity_alreadySettled() public {
+        // Setup settler
+        address settler = makeAddr("settler");
+        changePrank(owner, owner);
+        liquidityMatrices[0].updateSettlerWhitelisted(settler, true);
+
+        // Update remote liquidity
+        changePrank(apps[1], apps[1]);
+        liquidityMatrices[1].updateLocalLiquidity(users[0], 100e18);
+
+        // Sync
+        ILiquidityMatrix[] memory remotes = new ILiquidityMatrix[](1);
+        remotes[0] = liquidityMatrices[1];
+        _sync(syncers[0], liquidityMatrices[0], remotes);
+
+        // Get root timestamp
+        (, uint256 rootTimestamp) = liquidityMatrices[0].getLastSyncedLiquidityRoot(eids[1]);
+
+        // First settlement
+        changePrank(settler, settler);
+        address[] memory accounts = new address[](1);
+        accounts[0] = users[0];
+        int256[] memory liquidity = new int256[](1);
+        liquidity[0] = 100e18;
+
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], eids[1], rootTimestamp, accounts, liquidity)
+        );
+
+        // Try to settle again
+        vm.expectRevert(ILiquidityMatrix.LiquidityAlreadySettled.selector);
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], eids[1], rootTimestamp, accounts, liquidity)
+        );
+    }
+
+    function test_settleData_alreadySettled() public {
+        // Setup settler
+        address settler = makeAddr("settler");
+        changePrank(owner, owner);
+        liquidityMatrices[0].updateSettlerWhitelisted(settler, true);
+
+        // Update remote data
+        changePrank(apps[1], apps[1]);
+        liquidityMatrices[1].updateLocalData(keccak256("key"), abi.encode("value"));
+
+        // Sync
+        ILiquidityMatrix[] memory remotes = new ILiquidityMatrix[](1);
+        remotes[0] = liquidityMatrices[1];
+        _sync(syncers[0], liquidityMatrices[0], remotes);
+
+        // Get root timestamp
+        (, uint256 rootTimestamp) = liquidityMatrices[0].getLastSyncedDataRoot(eids[1]);
+
+        // First settlement
+        changePrank(settler, settler);
+        bytes32[] memory keys = new bytes32[](1);
+        keys[0] = keccak256("key");
+        bytes[] memory values = new bytes[](1);
+        values[0] = abi.encode("value");
+
+        liquidityMatrices[0].settleData(
+            ILiquidityMatrix.SettleDataParams(apps[0], eids[1], rootTimestamp, keys, values)
+        );
+
+        // Try to settle again
+        vm.expectRevert(ILiquidityMatrix.DataAlreadySettled.selector);
+        liquidityMatrices[0].settleData(
+            ILiquidityMatrix.SettleDataParams(apps[0], eids[1], rootTimestamp, keys, values)
+        );
+    }
+
+    // Account mapping tests
+    function test_mapRemoteAccount_remoteAlreadyMapped() public {
+        // App is already registered and remote app is already set up in setup()
+
+        // Set up the app mock to allow mapping
+        AppMock(apps[0]).setShouldMapAccounts(eids[1], users[0], users[1], true);
+        AppMock(apps[0]).setShouldMapAccounts(eids[1], users[0], users[2], true);
+
+        // Simulate receiving a map request from remote chain
+        // First mapping succeeds
+        changePrank(address(synchronizers[0]), address(synchronizers[0]));
+        address[] memory remotes1 = new address[](1);
+        address[] memory locals1 = new address[](1);
+        remotes1[0] = users[0];
+        locals1[0] = users[1];
+        bytes memory message1 = abi.encode(remotes1, locals1);
+        liquidityMatrices[0].onReceiveMapRemoteAccountRequests(eids[1], apps[0], message1);
+
+        // Try to map same remote account to different local
+        address[] memory remotes2 = new address[](1);
+        address[] memory locals2 = new address[](1);
+        remotes2[0] = users[0];
+        locals2[0] = users[2];
+        bytes memory message2 = abi.encode(remotes2, locals2);
+        vm.expectRevert(abi.encodeWithSelector(ILiquidityMatrix.RemoteAccountAlreadyMapped.selector, eids[1], users[0]));
+        liquidityMatrices[0].onReceiveMapRemoteAccountRequests(eids[1], apps[0], message2);
+    }
+
+    function test_mapRemoteAccount_localAlreadyMapped() public {
+        // App is already registered and remote app is already set up in setup()
+
+        // Set up the app mock to allow mapping
+        AppMock(apps[0]).setShouldMapAccounts(eids[1], users[0], users[1], true);
+        AppMock(apps[0]).setShouldMapAccounts(eids[1], users[2], users[1], true);
+
+        // Simulate receiving a map request from remote chain
+        // First mapping succeeds
+        changePrank(address(synchronizers[0]), address(synchronizers[0]));
+        address[] memory remotes1 = new address[](1);
+        address[] memory locals1 = new address[](1);
+        remotes1[0] = users[0];
+        locals1[0] = users[1];
+        bytes memory message1 = abi.encode(remotes1, locals1);
+        liquidityMatrices[0].onReceiveMapRemoteAccountRequests(eids[1], apps[0], message1);
+
+        // Try to map different remote account to same local
+        address[] memory remotes2 = new address[](1);
+        address[] memory locals2 = new address[](1);
+        remotes2[0] = users[2];
+        locals2[0] = users[1];
+        bytes memory message2 = abi.encode(remotes2, locals2);
+        vm.expectRevert(abi.encodeWithSelector(ILiquidityMatrix.LocalAccountAlreadyMapped.selector, eids[1], users[1]));
+        liquidityMatrices[0].onReceiveMapRemoteAccountRequests(eids[1], apps[0], message2);
+    }
+
+    function test_requestMapRemoteAccounts_invalidLengths() public {
+        changePrank(apps[0], apps[0]);
+
+        address[] memory remotes = new address[](2);
+        address[] memory locals = new address[](3); // Different length
+
+        vm.expectRevert(ILiquidityMatrix.InvalidLengths.selector);
+        liquidityMatrices[0].requestMapRemoteAccounts{ value: 1 ether }(eids[1], apps[1], remotes, locals, 100_000);
+    }
+
+    function test_requestMapRemoteAccounts_invalidAddress() public {
+        changePrank(apps[0], apps[0]);
+
+        address[] memory remotes = new address[](1);
+        address[] memory locals = new address[](1);
+        locals[0] = address(0); // Invalid address
+
+        vm.expectRevert(ILiquidityMatrix.InvalidAddress.selector);
+        liquidityMatrices[0].requestMapRemoteAccounts{ value: 1 ether }(eids[1], apps[1], remotes, locals, 100_000);
+    }
+
+    // Complex liquidity scenarios
+    function test_liquidityUpdates_negativeValues() public {
+        changePrank(apps[0], apps[0]);
+
+        // Test negative liquidity
+        liquidityMatrices[0].updateLocalLiquidity(users[0], -100e18);
+        assertEq(liquidityMatrices[0].getLocalLiquidity(apps[0], users[0]), -100e18);
+        assertEq(liquidityMatrices[0].getLocalTotalLiquidity(apps[0]), -100e18);
+
+        // Update to positive
+        liquidityMatrices[0].updateLocalLiquidity(users[0], 50e18);
+        assertEq(liquidityMatrices[0].getLocalLiquidity(apps[0], users[0]), 50e18);
+        assertEq(liquidityMatrices[0].getLocalTotalLiquidity(apps[0]), 50e18);
+
+        // Add another negative account
+        liquidityMatrices[0].updateLocalLiquidity(users[1], -200e18);
+        assertEq(liquidityMatrices[0].getLocalTotalLiquidity(apps[0]), -150e18);
+    }
+
+    function test_liquidityUpdates_multipleAppsAndAccounts() public {
+        // Register multiple apps
+        address[] memory testApps = new address[](3);
+        for (uint256 i = 0; i < 3; i++) {
+            testApps[i] = makeAddr(string.concat("testApp", vm.toString(i)));
+            changePrank(testApps[i], testApps[i]);
+            liquidityMatrices[0].registerApp(false, false, address(0));
+        }
+
+        // Update liquidity for multiple accounts in each app
+        for (uint256 i = 0; i < testApps.length; i++) {
+            changePrank(testApps[i], testApps[i]);
+            for (uint256 j = 0; j < 5; j++) {
+                liquidityMatrices[0].updateLocalLiquidity(users[j], int256((i + 1) * (j + 1) * 1e18));
+            }
+        }
+
+        // Verify each app's liquidity
+        for (uint256 i = 0; i < testApps.length; i++) {
+            int256 expectedTotal = 0;
+            for (uint256 j = 0; j < 5; j++) {
+                int256 expectedLiquidity = int256((i + 1) * (j + 1) * 1e18);
+                assertEq(liquidityMatrices[0].getLocalLiquidity(testApps[i], users[j]), expectedLiquidity);
+                expectedTotal += expectedLiquidity;
+            }
+            assertEq(liquidityMatrices[0].getLocalTotalLiquidity(testApps[i]), expectedTotal);
+        }
+    }
+
+    // Data storage edge cases
+    function test_updateLocalData_largeData() public {
+        changePrank(apps[0], apps[0]);
+
+        // Create large data (1KB)
+        bytes memory largeData = new bytes(1024);
+        for (uint256 i = 0; i < largeData.length; i++) {
+            largeData[i] = bytes1(uint8(i % 256));
+        }
+
+        bytes32 key = keccak256("largeDataKey");
+        liquidityMatrices[0].updateLocalData(key, largeData);
+
+        bytes32 storedHash = liquidityMatrices[0].getLocalDataHash(apps[0], key);
+        assertEq(storedHash, keccak256(largeData));
+    }
+
+    function test_updateLocalData_emptyData() public {
+        changePrank(apps[0], apps[0]);
+
+        bytes32 key = keccak256("emptyDataKey");
+        bytes memory emptyData = "";
+
+        liquidityMatrices[0].updateLocalData(key, emptyData);
+
+        bytes32 storedHash = liquidityMatrices[0].getLocalDataHash(apps[0], key);
+        assertEq(storedHash, keccak256(emptyData));
+    }
+
+    // Historical data tests
+    function test_getLocalLiquidityAt_multipleTimestamps() public {
+        changePrank(apps[0], apps[0]);
+
+        // Update liquidity at different timestamps
+        liquidityMatrices[0].updateLocalLiquidity(users[0], 100e18);
+        uint256 t1 = block.timestamp;
+
+        skip(100);
+        liquidityMatrices[0].updateLocalLiquidity(users[0], 200e18);
+        uint256 t2 = block.timestamp;
+
+        skip(100);
+        liquidityMatrices[0].updateLocalLiquidity(users[0], 300e18);
+        uint256 t3 = block.timestamp;
+
+        // Check historical values
+        assertEq(liquidityMatrices[0].getLocalLiquidityAt(apps[0], users[0], t1), 100e18);
+        assertEq(liquidityMatrices[0].getLocalLiquidityAt(apps[0], users[0], t2), 200e18);
+        assertEq(liquidityMatrices[0].getLocalLiquidityAt(apps[0], users[0], t3), 300e18);
+    }
+
+    function test_getLocalTotalLiquidityAt_multipleTimestamps() public {
+        changePrank(apps[0], apps[0]);
+
+        // Update total liquidity at different timestamps
+        liquidityMatrices[0].updateLocalLiquidity(users[0], 100e18);
+        uint256 t1 = block.timestamp;
+
+        skip(100);
+        liquidityMatrices[0].updateLocalLiquidity(users[1], 200e18);
+        uint256 t2 = block.timestamp;
+
+        skip(100);
+        liquidityMatrices[0].updateLocalLiquidity(users[2], 300e18);
+        uint256 t3 = block.timestamp;
+
+        // Check historical total values
+        assertEq(liquidityMatrices[0].getLocalTotalLiquidityAt(apps[0], t1), 100e18);
+        assertEq(liquidityMatrices[0].getLocalTotalLiquidityAt(apps[0], t2), 300e18); // 100 + 200
+        assertEq(liquidityMatrices[0].getLocalTotalLiquidityAt(apps[0], t3), 600e18); // 100 + 200 + 300
+    }
+
+    // Remote liquidity view functions
+    function test_getSettledRemoteLiquidity() public {
+        // Setup settler
+        address settler = makeAddr("settler");
+        changePrank(owner, owner);
+        liquidityMatrices[0].updateSettlerWhitelisted(settler, true);
+
+        // Update remote liquidity
+        changePrank(apps[1], apps[1]);
+        liquidityMatrices[1].updateLocalLiquidity(users[0], 100e18);
+        liquidityMatrices[1].updateLocalLiquidity(users[1], 200e18);
+
+        // Sync and settle
+        ILiquidityMatrix[] memory remotes = new ILiquidityMatrix[](1);
+        remotes[0] = liquidityMatrices[1];
+        _sync(syncers[0], liquidityMatrices[0], remotes);
+
+        (, uint256 rootTimestamp) = liquidityMatrices[0].getLastSyncedLiquidityRoot(eids[1]);
+
+        changePrank(settler, settler);
+        address[] memory accounts = new address[](2);
+        accounts[0] = users[0];
+        accounts[1] = users[1];
+        int256[] memory liquidity = new int256[](2);
+        liquidity[0] = 100e18;
+        liquidity[1] = 200e18;
+
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], eids[1], rootTimestamp, accounts, liquidity)
+        );
+
+        // Check settled values
+        assertEq(liquidityMatrices[0].getSettledRemoteLiquidity(apps[0], eids[1], users[0]), 100e18);
+        assertEq(liquidityMatrices[0].getSettledRemoteLiquidity(apps[0], eids[1], users[1]), 200e18);
+        assertEq(liquidityMatrices[0].getSettledRemoteTotalLiquidity(apps[0], eids[1]), 300e18);
+    }
+
+    // Synchronizer permission tests
+    function test_onReceiveRoots_onlySynchronizer() public {
+        address notSynchronizer = makeAddr("notSynchronizer");
+        changePrank(notSynchronizer, notSynchronizer);
+
+        vm.expectRevert(ILiquidityMatrix.Forbidden.selector);
+        liquidityMatrices[0].onReceiveRoots(eids[1], bytes32(0), bytes32(0), block.timestamp);
+    }
+
+    function test_onReceiveMapRemoteAccountRequests_onlySynchronizer() public {
+        address notSynchronizer = makeAddr("notSynchronizer");
+        changePrank(notSynchronizer, notSynchronizer);
+
+        vm.expectRevert(ILiquidityMatrix.Forbidden.selector);
+        liquidityMatrices[0].onReceiveMapRemoteAccountRequests(eids[1], apps[0], "");
+    }
+
+    // Update settings tests
+    function test_updateSyncMappedAccountsOnly() public {
+        // Use the already registered app
+        changePrank(apps[0], apps[0]);
+
+        // Update setting
+        liquidityMatrices[0].updateSyncMappedAccountsOnly(true);
+
+        (, bool syncMappedAccountsOnly,,) = liquidityMatrices[0].getAppSetting(apps[0]);
+        assertTrue(syncMappedAccountsOnly);
+    }
+
+    function test_updateUseCallbacks_EdgeCase() public {
+        // Use the already registered app
+        changePrank(apps[0], apps[0]);
+
+        // Update setting
+        liquidityMatrices[0].updateUseCallbacks(true);
+
+        (,, bool useCallbacks,) = liquidityMatrices[0].getAppSetting(apps[0]);
+        assertTrue(useCallbacks);
+    }
+
+    // Timestamp edge cases
+    function test_getDataAt_futureTimestamp() public {
+        changePrank(apps[0], apps[0]);
+
+        bytes32 key = keccak256("testKey");
+        liquidityMatrices[0].updateLocalData(key, abi.encode("value1"));
+
+        // Query with future timestamp should return current value
+        uint256 futureTime = block.timestamp + 1000;
+        bytes32 hash = liquidityMatrices[0].getLocalDataHashAt(apps[0], key, futureTime);
+        assertEq(hash, keccak256(abi.encode("value1")));
+    }
+
+    // Multi-chain settlement scenario
+    function test_multiChainSettlement_complexScenario() public {
+        // Setup settler
+        address settler = makeAddr("settler");
+        changePrank(owner, owner);
+        for (uint256 i = 0; i < CHAINS; i++) {
+            liquidityMatrices[i].updateSettlerWhitelisted(settler, true);
+        }
+
+        // Each chain updates liquidity for different accounts
+        for (uint256 i = 0; i < CHAINS; i++) {
+            changePrank(apps[i], apps[i]);
+            for (uint256 j = 0; j < 3; j++) {
+                liquidityMatrices[i].updateLocalLiquidity(users[j], int256((i + 1) * (j + 1) * 1e18));
+            }
+        }
+
+        // Sync all chains to chain 0
+        ILiquidityMatrix[] memory remotes = new ILiquidityMatrix[](CHAINS - 1);
+        for (uint256 i = 1; i < CHAINS; i++) {
+            remotes[i - 1] = liquidityMatrices[i];
+        }
+        _sync(syncers[0], liquidityMatrices[0], remotes);
+
+        // Settle from each remote chain
+        changePrank(settler, settler);
+        for (uint256 i = 1; i < CHAINS; i++) {
+            (, uint256 rootTimestamp) = liquidityMatrices[0].getLastSyncedLiquidityRoot(eids[i]);
+
+            address[] memory accounts = new address[](3);
+            int256[] memory liquidity = new int256[](3);
+            for (uint256 j = 0; j < 3; j++) {
+                accounts[j] = users[j];
+                liquidity[j] = int256((i + 1) * (j + 1) * 1e18);
+            }
+
+            liquidityMatrices[0].settleLiquidity(
+                ILiquidityMatrix.SettleLiquidityParams(apps[0], eids[i], rootTimestamp, accounts, liquidity)
+            );
+        }
+
+        // Verify total settled liquidity
+        // getSettledTotalLiquidity includes both local liquidity and settled remote liquidity
+        int256 totalSettled = liquidityMatrices[0].getSettledTotalLiquidity(apps[0]);
+
+        // Calculate expected total including local chain (i=0) and remote chains (i=1 to CHAINS-1)
+        int256 expectedTotal = 0;
+        for (uint256 i = 0; i < CHAINS; i++) {
+            for (uint256 j = 0; j < 3; j++) {
+                expectedTotal += int256((i + 1) * (j + 1) * 1e18);
+            }
+        }
+        assertEq(totalSettled, expectedTotal);
+    }
+
+    // Zero address handling
+    function test_updateRemoteApp_zeroAddress() public {
+        changePrank(apps[0], apps[0]);
+
+        // Should allow setting to zero address (unset)
+        liquidityMatrices[0].updateRemoteApp(eids[1], address(0));
+        assertEq(liquidityMatrices[0].getRemoteApp(apps[0], eids[1]), address(0));
+    }
+
+    // Batch operations with mixed results
+    function test_settleLiquidity_mixedResults() public {
+        // Setup settler
+        address settler = makeAddr("settler");
+        changePrank(owner, owner);
+        liquidityMatrices[0].updateSettlerWhitelisted(settler, true);
+
+        // Update remote liquidity with various amounts
+        changePrank(apps[1], apps[1]);
+        liquidityMatrices[1].updateLocalLiquidity(users[0], 100e18);
+        liquidityMatrices[1].updateLocalLiquidity(users[1], -50e18); // negative
+        liquidityMatrices[1].updateLocalLiquidity(users[2], 0); // zero
+        liquidityMatrices[1].updateLocalLiquidity(users[3], 200e18);
+
+        // Sync and settle
+        ILiquidityMatrix[] memory remotes = new ILiquidityMatrix[](1);
+        remotes[0] = liquidityMatrices[1];
+        _sync(syncers[0], liquidityMatrices[0], remotes);
+
+        (, uint256 rootTimestamp) = liquidityMatrices[0].getLastSyncedLiquidityRoot(eids[1]);
+
+        changePrank(settler, settler);
+        address[] memory accounts = new address[](4);
+        int256[] memory liquidity = new int256[](4);
+        for (uint256 i = 0; i < 4; i++) {
+            accounts[i] = users[i];
+        }
+        liquidity[0] = 100e18;
+        liquidity[1] = -50e18;
+        liquidity[2] = 0;
+        liquidity[3] = 200e18;
+
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], eids[1], rootTimestamp, accounts, liquidity)
+        );
+
+        // Verify settled values
+        assertEq(liquidityMatrices[0].getSettledRemoteLiquidity(apps[0], eids[1], users[0]), 100e18);
+        assertEq(liquidityMatrices[0].getSettledRemoteLiquidity(apps[0], eids[1], users[1]), -50e18);
+        assertEq(liquidityMatrices[0].getSettledRemoteLiquidity(apps[0], eids[1], users[2]), 0);
+        assertEq(liquidityMatrices[0].getSettledRemoteLiquidity(apps[0], eids[1], users[3]), 200e18);
+        assertEq(liquidityMatrices[0].getSettledRemoteTotalLiquidity(apps[0], eids[1]), 250e18);
+    }
 }
