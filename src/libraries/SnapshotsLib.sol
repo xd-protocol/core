@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
+import { ArrayLib } from "./ArrayLib.sol";
+
 library SnapshotsLib {
+    using ArrayLib for uint256[];
+
     struct Snapshots {
         uint256[] timestamps;
         mapping(uint256 timestap => Snapshot) snapshots;
@@ -11,12 +15,6 @@ library SnapshotsLib {
         bytes32 value;
         uint256 timestamp;
     }
-
-    /*//////////////////////////////////////////////////////////////
-                                 ERRORS
-    //////////////////////////////////////////////////////////////*/
-
-    error StaleTimestamp();
 
     /*//////////////////////////////////////////////////////////////
                              VIEW FUNCTIONS
@@ -103,24 +101,18 @@ library SnapshotsLib {
     }
 
     /**
-     * @notice Sets a new snapshot with a given `bytes32` value and a specific timestamp.
+     * @notice Sets the snapshot with a given `bytes32` value and a specific timestamp.
      * @param value The `bytes32` value to store in the snapshot.
      * @param timestamp The timestamp to associate with the snapshot.
      */
     function set(Snapshots storage snapshots, bytes32 value, uint256 timestamp) internal {
-        uint256[] storage array = snapshots.timestamps;
-        if (array.length > 0) {
-            uint256 lastTimestamp = array[array.length - 1];
-            if (timestamp < lastTimestamp) revert StaleTimestamp();
-            if (timestamp == lastTimestamp) {
-                // update
-                snapshots.snapshots[timestamp].value = value;
-                return;
-            }
+        Snapshot storage snapshot = snapshots.snapshots[timestamp];
+        if (snapshot.timestamp > 0) {
+            snapshot.value = value;
+            return;
         }
 
-        // add
         snapshots.snapshots[timestamp] = Snapshot(value, timestamp);
-        snapshots.timestamps.push(timestamp);
+        snapshots.timestamps.insertSorted(timestamp);
     }
 }
