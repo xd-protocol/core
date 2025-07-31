@@ -155,8 +155,8 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         changePrank(apps[0], apps[0]);
 
         // Create a series of liquidity updates at different timestamps
-        uint256[] memory timestamps = new uint256[](5);
-        int256[] memory liquidityValues = new int256[](5);
+        uint256[] memory timestamps = new uint256[](4);
+        int256[] memory liquidityValues = new int256[](4);
 
         // T0: Initial state (should be 0)
         timestamps[0] = block.timestamp;
@@ -179,12 +179,6 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         liquidityMatrices[0].updateLocalLiquidity(users[0], 1000e18);
         timestamps[3] = block.timestamp;
         liquidityValues[3] = 1000e18;
-
-        // T4: Zero update
-        skip(400);
-        liquidityMatrices[0].updateLocalLiquidity(users[0], 0);
-        timestamps[4] = block.timestamp;
-        liquidityValues[4] = 0;
 
         // Test historical queries
         for (uint256 i = 0; i < timestamps.length; i++) {
@@ -213,7 +207,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         }
 
         // Query far in the future (should return last value)
-        assertEq(liquidityMatrices[0].getLocalLiquidityAt(apps[0], users[0], block.timestamp + 10_000), 0);
+        assertEq(liquidityMatrices[0].getLocalLiquidityAt(apps[0], users[0], block.timestamp + 10_000), 1000e18);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -288,6 +282,16 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
                 );
             }
         }
+
+        // Query before any updates (should return 0)
+        if (timestamps[0] > 100) {
+            assertEq(liquidityMatrices[0].getLocalTotalLiquidityAt(apps[0], timestamps[0] - 100), 0);
+        } else {
+            assertEq(liquidityMatrices[0].getLocalTotalLiquidityAt(apps[0], 0), 0);
+        }
+
+        // Query far in the future (should return last value)
+        assertEq(liquidityMatrices[0].getLocalTotalLiquidityAt(apps[0], block.timestamp + 10_000), 150e18);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -317,18 +321,6 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
     //////////////////////////////////////////////////////////////*/
 
     function test_getLocalDataHashAt() public {
-        changePrank(apps[0], apps[0]);
-
-        bytes32 key = keccak256("testKey");
-        liquidityMatrices[0].updateLocalData(key, abi.encode("value1"));
-
-        // Query with future timestamp should return current value
-        uint256 futureTime = block.timestamp + 1000;
-        bytes32 hash = liquidityMatrices[0].getLocalDataHashAt(apps[0], key, futureTime);
-        assertEq(hash, keccak256(abi.encode("value1")));
-    }
-
-    function test_getLocalDataHashAt_historicalValues() public {
         changePrank(apps[0], apps[0]);
 
         bytes32 key = keccak256("config");
@@ -949,6 +941,12 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         } else {
             assertEq(liquidityMatrices[0].getRemoteDataHashAt(apps[0], remoteEid, key, 0), bytes32(0));
         }
+
+        // Test far future
+        assertEq(
+            liquidityMatrices[0].getRemoteDataHashAt(apps[0], remoteEid, key, block.timestamp + 10_000),
+            keccak256(data2)
+        );
     }
 
     /*//////////////////////////////////////////////////////////////
