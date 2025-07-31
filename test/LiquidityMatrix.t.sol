@@ -9,7 +9,6 @@ import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
 import { Synchronizer } from "src/Synchronizer.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { ISynchronizer } from "src/interfaces/ISynchronizer.sol";
-import { ArrayLib } from "src/libraries/ArrayLib.sol";
 import { MerkleTreeLib } from "src/libraries/MerkleTreeLib.sol";
 import { Test, console } from "forge-std/Test.sol";
 import { AppMock } from "./mocks/AppMock.sol";
@@ -2017,7 +2016,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
                         isFinalized() TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_areRootsFinalized() public {
+    function test_isFinalized() public {
         address app = apps[0];
         uint32 eid = 30_001;
 
@@ -2077,7 +2076,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         assertTrue(liquidityMatrices[0].isFinalized(app, eid, block.timestamp - 100));
     }
 
-    function test_areRootsFinalized(bytes32 seed) public {
+    function test_isFinalized(bytes32 seed) public {
         // Setup settler
         address settler = makeAddr("settler");
         changePrank(owner, owner);
@@ -3172,6 +3171,214 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         assertEq(liquidityMatrices[0].getSettledLiquidity(apps[0], traders[0]), 1000e18 + 2000e18);
         assertEq(liquidityMatrices[0].getSettledLiquidity(apps[0], traders[1]), -500e18);
         assertEq(liquidityMatrices[0].getSettledLiquidity(apps[0], traders[2]), 1500e18);
+    }
+
+    function test_outOfOrderSettlement_comprehensiveChecks() public {
+        // Test all getter functions after each settlement in random order
+        address settler = makeAddr("settler");
+        changePrank(owner, owner);
+        liquidityMatrices[0].updateSettlerWhitelisted(settler, true);
+
+        // Receive three sets of roots sequentially
+        changePrank(address(synchronizers[0]), address(synchronizers[0]));
+
+        // Root 1 at timestamp T1
+        uint256 t1 = block.timestamp;
+        bytes32 liqRoot1 = keccak256("liquidity_root_1");
+        bytes32 dataRoot1 = keccak256("data_root_1");
+        liquidityMatrices[0].onReceiveRoots(eids[1], liqRoot1, dataRoot1, t1);
+
+        // Root 2 at timestamp T2
+        skip(100);
+        uint256 t2 = block.timestamp;
+        bytes32 liqRoot2 = keccak256("liquidity_root_2");
+        bytes32 dataRoot2 = keccak256("data_root_2");
+        liquidityMatrices[0].onReceiveRoots(eids[1], liqRoot2, dataRoot2, t2);
+
+        // Root 3 at timestamp T3
+        skip(100);
+        uint256 t3 = block.timestamp;
+        bytes32 liqRoot3 = keccak256("liquidity_root_3");
+        bytes32 dataRoot3 = keccak256("data_root_3");
+        liquidityMatrices[0].onReceiveRoots(eids[1], liqRoot3, dataRoot3, t3);
+
+        // Initial state - nothing settled
+        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], eids[1], t1));
+        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], eids[1], t2));
+        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], eids[1], t3));
+        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], eids[1], t1));
+        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], eids[1], t2));
+        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], eids[1], t3));
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], eids[1], t1));
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], eids[1], t2));
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], eids[1], t3));
+
+        // Check getters return zero/empty
+        (bytes32 root, uint256 timestamp) = liquidityMatrices[0].getLastSettledLiquidityRoot(apps[0], eids[1]);
+        assertEq(root, bytes32(0));
+        assertEq(timestamp, 0);
+        (root, timestamp) = liquidityMatrices[0].getLastSettledDataRoot(apps[0], eids[1]);
+        assertEq(root, bytes32(0));
+        assertEq(timestamp, 0);
+        (root, timestamp) = liquidityMatrices[0].getLastFinalizedLiquidityRoot(apps[0], eids[1]);
+        assertEq(root, bytes32(0));
+        assertEq(timestamp, 0);
+        (root, timestamp) = liquidityMatrices[0].getLastFinalizedDataRoot(apps[0], eids[1]);
+        assertEq(root, bytes32(0));
+        assertEq(timestamp, 0);
+
+        // Step 1: Settle liquidity for root2
+        changePrank(settler, settler);
+        address[] memory accounts = new address[](1);
+        accounts[0] = users[0];
+        int256[] memory liquidity = new int256[](1);
+        liquidity[0] = 200e18;
+
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], eids[1], t2, accounts, liquidity)
+        );
+
+        // Check states after first settlement
+        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], eids[1], t1));
+        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], eids[1], t2));
+        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], eids[1], t3));
+        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], eids[1], t1));
+        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], eids[1], t2));
+        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], eids[1], t3));
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], eids[1], t1));
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], eids[1], t2)); // Not finalized without data
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], eids[1], t3));
+
+        // Check getters
+        (root, timestamp) = liquidityMatrices[0].getLastSettledLiquidityRoot(apps[0], eids[1]);
+        assertEq(root, liqRoot2);
+        assertEq(timestamp, t2);
+        (root, timestamp) = liquidityMatrices[0].getLastSettledDataRoot(apps[0], eids[1]);
+        assertEq(root, bytes32(0));
+        assertEq(timestamp, 0);
+        (root, timestamp) = liquidityMatrices[0].getLastFinalizedLiquidityRoot(apps[0], eids[1]);
+        assertEq(root, bytes32(0));
+        assertEq(timestamp, 0);
+
+        // Step 2: Settle data for root3
+        bytes32[] memory keys = new bytes32[](1);
+        keys[0] = keccak256("key3");
+        bytes[] memory values = new bytes[](1);
+        values[0] = abi.encode("value3");
+
+        liquidityMatrices[0].settleData(ILiquidityMatrix.SettleDataParams(apps[0], eids[1], t3, keys, values));
+
+        // Check states after second settlement
+        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], eids[1], t1));
+        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], eids[1], t2));
+        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], eids[1], t3));
+        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], eids[1], t1));
+        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], eids[1], t2));
+        assertTrue(liquidityMatrices[0].isDataSettled(apps[0], eids[1], t3));
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], eids[1], t1));
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], eids[1], t2));
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], eids[1], t3)); // Not finalized without liquidity
+
+        // Check getters
+        (root, timestamp) = liquidityMatrices[0].getLastSettledLiquidityRoot(apps[0], eids[1]);
+        assertEq(root, liqRoot2);
+        assertEq(timestamp, t2);
+        (root, timestamp) = liquidityMatrices[0].getLastSettledDataRoot(apps[0], eids[1]);
+        assertEq(root, dataRoot3);
+        assertEq(timestamp, t3);
+        (root, timestamp) = liquidityMatrices[0].getLastFinalizedLiquidityRoot(apps[0], eids[1]);
+        assertEq(root, bytes32(0));
+        assertEq(timestamp, 0);
+
+        // Step 3: Settle liquidity for root1
+        liquidity[0] = 100e18;
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], eids[1], t1, accounts, liquidity)
+        );
+
+        // Check states
+        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], eids[1], t1));
+        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], eids[1], t2));
+        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], eids[1], t3));
+
+        // Last settled should still be t2 (not t1 because t1 < t2)
+        (root, timestamp) = liquidityMatrices[0].getLastSettledLiquidityRoot(apps[0], eids[1]);
+        assertEq(root, liqRoot2);
+        assertEq(timestamp, t2);
+
+        // Still no finalized roots (t1 has no data, t2 has no data, t3 has data but no liquidity)
+        (root, timestamp) = liquidityMatrices[0].getLastFinalizedLiquidityRoot(apps[0], eids[1]);
+        assertEq(root, bytes32(0));
+        assertEq(timestamp, 0);
+
+        // Step 4: Settle data for root2
+        keys[0] = keccak256("key2");
+        values[0] = abi.encode("value2");
+        liquidityMatrices[0].settleData(ILiquidityMatrix.SettleDataParams(apps[0], eids[1], t2, keys, values));
+
+        // Now root2 should be finalized (both liquidity and data settled for t2)
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], eids[1], t1)); // Missing data
+        assertTrue(liquidityMatrices[0].isFinalized(apps[0], eids[1], t2)); // Both settled
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], eids[1], t3)); // Missing liquidity
+
+        // Due to the current implementation, finalization only updates when settling
+        // a timestamp that is greater than the last settled timestamp.
+        // Since we settled data for t3 before t2, the finalization check is skipped.
+        // This is a limitation of the current design.
+        (root, timestamp) = liquidityMatrices[0].getLastFinalizedLiquidityRoot(apps[0], eids[1]);
+        assertEq(root, bytes32(0));
+        assertEq(timestamp, 0);
+        (root, timestamp) = liquidityMatrices[0].getLastFinalizedDataRoot(apps[0], eids[1]);
+        assertEq(root, bytes32(0));
+        assertEq(timestamp, 0);
+
+        // Step 5: Settle liquidity for root3
+        liquidity[0] = 300e18;
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], eids[1], t3, accounts, liquidity)
+        );
+
+        // Now root3 should be finalized and be the latest
+        assertTrue(liquidityMatrices[0].isFinalized(apps[0], eids[1], t3));
+
+        // Check getters - last settled/finalized should be t3
+        (root, timestamp) = liquidityMatrices[0].getLastSettledLiquidityRoot(apps[0], eids[1]);
+        assertEq(root, liqRoot3);
+        assertEq(timestamp, t3);
+        (root, timestamp) = liquidityMatrices[0].getLastFinalizedLiquidityRoot(apps[0], eids[1]);
+        assertEq(root, liqRoot3);
+        assertEq(timestamp, t3);
+
+        // Step 6: Settle data for root1 (complete all settlements)
+        keys[0] = keccak256("key1");
+        values[0] = abi.encode("value1");
+        liquidityMatrices[0].settleData(ILiquidityMatrix.SettleDataParams(apps[0], eids[1], t1, keys, values));
+
+        // All should be finalized now
+        assertTrue(liquidityMatrices[0].isFinalized(apps[0], eids[1], t1));
+        assertTrue(liquidityMatrices[0].isFinalized(apps[0], eids[1], t2));
+        assertTrue(liquidityMatrices[0].isFinalized(apps[0], eids[1], t3));
+
+        // Last settled data should still be t3 (not t1)
+        (root, timestamp) = liquidityMatrices[0].getLastSettledDataRoot(apps[0], eids[1]);
+        assertEq(root, dataRoot3);
+        assertEq(timestamp, t3);
+
+        // Last finalized should still be t3
+        (root, timestamp) = liquidityMatrices[0].getLastFinalizedLiquidityRoot(apps[0], eids[1]);
+        assertEq(root, liqRoot3);
+        assertEq(timestamp, t3);
+        (root, timestamp) = liquidityMatrices[0].getLastFinalizedDataRoot(apps[0], eids[1]);
+        assertEq(root, dataRoot3);
+        assertEq(timestamp, t3);
+
+        // Verify roots at specific timestamps
+        assertEq(liquidityMatrices[0].getLiquidityRootAt(eids[1], t1), liqRoot1);
+        assertEq(liquidityMatrices[0].getLiquidityRootAt(eids[1], t2), liqRoot2);
+        assertEq(liquidityMatrices[0].getLiquidityRootAt(eids[1], t3), liqRoot3);
+        assertEq(liquidityMatrices[0].getDataRootAt(eids[1], t1), dataRoot1);
+        assertEq(liquidityMatrices[0].getDataRootAt(eids[1], t2), dataRoot2);
+        assertEq(liquidityMatrices[0].getDataRootAt(eids[1], t3), dataRoot3);
     }
 
     /*//////////////////////////////////////////////////////////////

@@ -215,7 +215,7 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
 
         for (uint256 i; i < _remotes.length; ++i) {
             uint32 eid = _eid(_remotes[i]);
-            (bytes32 _liquidityRoot, uint256 _liquidityTimestamp) = _local.getLastSyncedLiquidityRoot(eid);
+            (bytes32 _liquidityRoot, uint256 _liquidityTimestamp) = _local.getLastReceivedLiquidityRoot(eid);
             assertEq(_liquidityRoot, liquidityRoots[i], "Liquidity root mismatch");
 
             // Only check liquidity timestamp if liquidity root is non-zero
@@ -223,7 +223,7 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
                 assertEq(_liquidityTimestamp, timestamps[i], "Liquidity timestamp mismatch");
             }
 
-            (bytes32 _dataRoot, uint256 _dataTimestamp) = _local.getLastSyncedDataRoot(eid);
+            (bytes32 _dataRoot, uint256 _dataTimestamp) = _local.getLastReceivedDataRoot(eid);
             assertEq(_dataRoot, dataRoots[i], "Data root mismatch");
 
             // Only check data timestamp if data root is non-zero
