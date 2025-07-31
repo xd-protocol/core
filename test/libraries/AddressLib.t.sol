@@ -118,9 +118,11 @@ contract AddressLibTest is Test {
         uint256 amount = 2 ether;
         vm.deal(address(this), balance);
 
-        // Just check that it reverts with TransferFailure, don't check the exact data
+        // When attempting to transfer more ETH than available, the low-level call will fail
+        // and AddressLib will revert with TransferFailure error
+        // Note: We can't predict the exact error data as it's Foundry-specific
         vm.expectRevert();
-        AddressLib.transferNative(eoa, amount);
+        this.callTransferNative(eoa, amount);
     }
 
     function test_transferNative_multipleTransfers() public {
@@ -201,9 +203,16 @@ contract AddressLibTest is Test {
     }
 
     function test_transferNative_maxUint256_reverts() public {
-        // This should revert due to insufficient balance
+        // When attempting to transfer max uint256, the low-level call will fail
+        // and AddressLib will revert with TransferFailure error
+        // Note: We can't predict the exact error data as it's Foundry-specific
         vm.expectRevert();
-        AddressLib.transferNative(eoa, type(uint256).max);
+        this.callTransferNative(eoa, type(uint256).max);
+    }
+
+    // Helper function to make the call external for expectRevert
+    function callTransferNative(address to, uint256 amount) external {
+        AddressLib.transferNative(to, amount);
     }
 
     // Required to receive ETH

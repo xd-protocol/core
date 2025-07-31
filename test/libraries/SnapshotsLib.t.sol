@@ -342,15 +342,29 @@ contract SnapshotsLibTest is Test {
 
         // Verify each value can be retrieved
         for (uint256 i = 0; i < 5; i++) {
-            // The value at a timestamp should be the one with the highest timestamp <= query
+            // Find the expected value by simulating what SnapshotsLib does:
+            // It returns the value at the highest timestamp <= query timestamp
+            // If multiple values are set at the same timestamp, the last one wins
+
+            // Build a map of final values at each unique timestamp
             uint256 expectedValue = 0;
-            uint256 expectedTimestamp = 0;
+            uint256 highestValidTimestamp = 0;
+
+            // Check all snapshots to find what value would be stored at each timestamp
             for (uint256 j = 0; j < 5; j++) {
-                if (timestamps[j] <= timestamps[i] && timestamps[j] > expectedTimestamp) {
-                    expectedTimestamp = timestamps[j];
-                    expectedValue = values[j];
+                if (timestamps[j] <= timestamps[i]) {
+                    // This value could be a candidate
+                    if (timestamps[j] > highestValidTimestamp) {
+                        // New highest timestamp
+                        highestValidTimestamp = timestamps[j];
+                        expectedValue = values[j];
+                    } else if (timestamps[j] == highestValidTimestamp) {
+                        // Same timestamp - the later set value wins (higher index)
+                        expectedValue = values[j];
+                    }
                 }
             }
+
             assertEq(uint256(snapshots.get(timestamps[i])), expectedValue);
         }
     }
