@@ -1,22 +1,48 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+/**
+ * @title ILiquidityMatrixCallbacks
+ * @notice Interface for applications to receive callbacks when remote state is settled
+ * @dev Implement this interface to be notified when liquidity or data from remote chains is settled
+ *      All callbacks are executed with try/catch to prevent settlement failures
+ */
 interface ILiquidityMatrixCallbacks {
+    /**
+     * @notice Called when remote accounts are successfully mapped to local accounts
+     * @dev Allows apps to perform additional logic when account mappings are established
+     * @param eid The endpoint ID of the remote chain
+     * @param remoteAccount The account address on the remote chain
+     * @param localAccount The mapped local account address
+     */
     function onMapAccounts(uint32 eid, address remoteAccount, address localAccount) external;
 
+    /**
+     * @notice Called when liquidity for a specific account is settled from a remote chain
+     * @dev Triggered during settleLiquidity if callbacks are enabled for the app
+     * @param eid The endpoint ID of the remote chain
+     * @param timestamp The timestamp of the settled data
+     * @param account The account whose liquidity was updated
+     * @param liquidity The settled liquidity value
+     */
     function onUpdateLiquidity(uint32 eid, uint256 timestamp, address account, int256 liquidity) external;
 
+    /**
+     * @notice Called when the total liquidity is settled from a remote chain
+     * @dev Triggered after all individual account liquidity updates are processed
+     * @param eid The endpoint ID of the remote chain
+     * @param timestamp The timestamp of the settled data
+     * @param totalLiquidity The total liquidity across all accounts
+     */
     function onUpdateTotalLiquidity(uint32 eid, uint256 timestamp, int256 totalLiquidity) external;
 
+    /**
+     * @notice Called when data is settled from a remote chain
+     * @dev Triggered during settleData if callbacks are enabled for the app
+     * @param eid The endpoint ID of the remote chain
+     * @param timestamp The timestamp of the settled data
+     * @param key The data key that was updated
+     * @param value The settled data value
+     */
     function onUpdateData(uint32 eid, uint256 timestamp, bytes32 key, bytes memory value) external;
-
-    function onSettleLiquidity(
-        uint32 eid,
-        uint256 timestamp,
-        address[] memory accounts,
-        int256[] memory liquidity,
-        int256 totalLiquidity
-    ) external;
-
-    function onSettleData(uint32 eid, uint256 timestamp, bytes32[] memory keys, bytes[] memory values) external;
 }
