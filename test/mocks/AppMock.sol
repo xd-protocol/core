@@ -47,23 +47,4 @@ contract AppMock is IAppMock {
     function onUpdateData(uint32 eid, uint256, bytes32 key, bytes memory value) external {
         _remoteData[eid][key] = value;
     }
-
-    function onSettleLiquidity(
-        uint32 eid,
-        uint256,
-        address[] memory accounts,
-        int256[] memory liquidity,
-        int256 totalLiquidity
-    ) external {
-        _remoteTotalLiquidity[eid] = totalLiquidity;
-        for (uint256 i = 0; i < accounts.length; i++) {
-            _remoteLiquidity[eid][accounts[i]] = liquidity[i];
-        }
-    }
-
-    function onSettleData(uint32 eid, uint256, bytes32[] memory keys, bytes[] memory values) external {
-        for (uint256 i = 0; i < keys.length; i++) {
-            _remoteData[eid][keys[i]] = values[i];
-        }
-    }
 }
