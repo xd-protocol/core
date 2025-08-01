@@ -237,65 +237,15 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
     }
 
     /*//////////////////////////////////////////////////////////////
-                       LOCAL TRANSFER TESTS
+                       STANDARD TRANSFER TEST
     //////////////////////////////////////////////////////////////*/
 
-    function test_transfer_local() public {
+    function test_transfer_reverts_unsupported() public {
         BaseERC20xD token = erc20s[0];
 
         vm.prank(alice);
-        bool success = token.transfer(bob, 50e18);
-
-        assertTrue(success);
-        assertEq(token.localBalanceOf(alice), 50e18);
-        assertEq(token.localBalanceOf(bob), 150e18);
-    }
-
-    function test_transfer_local_revertZeroAddress() public {
-        BaseERC20xD token = erc20s[0];
-
-        vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.InvalidAddress.selector);
-        token.transfer(address(0), 50e18);
-    }
-
-    function test_transfer_local_revertZeroAmount() public {
-        BaseERC20xD token = erc20s[0];
-
-        vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.InvalidAmount.selector);
-        token.transfer(bob, 0);
-    }
-
-    function test_transfer_local_revertInsufficientBalance() public {
-        BaseERC20xD token = erc20s[0];
-
-        vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.InsufficientBalance.selector);
-        token.transfer(bob, 101e18);
-    }
-
-    function test_transfer_local_withPendingTransfer() public {
-        BaseERC20xD token = erc20s[0];
-
-        _syncAndSettleLiquidity();
-
-        // Create pending transfer
-        uint256 fee = token.quoteTransfer(alice, GAS_LIMIT);
-        vm.deal(alice, fee);
-        vm.prank(alice);
-        token.transfer{ value: fee }(bob, 60e18, abi.encode(GAS_LIMIT, alice));
-
-        // Available balance is reduced
-        assertEq(token.availableLocalBalanceOf(alice, 0), 40e18);
-
-        // Can still do local transfer within available balance
-        vm.prank(alice);
-        bool success = token.transfer(charlie, 30e18);
-
-        assertTrue(success);
-        assertEq(token.localBalanceOf(alice), 70e18);
-        assertEq(token.localBalanceOf(charlie), 130e18);
+        vm.expectRevert(BaseERC20xD.Unsupported.selector);
+        token.transfer(bob, 50e18);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -520,8 +470,8 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         BaseERC20xD token = erc20s[0];
 
         // Test with CMD_TRANSFER but empty requests array
-        EVMCallRequestV1[] memory emptyRequests = new EVMCallRequestV1[](0);
-        bytes memory invalidCmd = abi.encode(uint16(1), emptyRequests, bytes(""));
+        // Manual encoding: CMD_VERSION (1) + appCmdLabel (1) + requests.length (0)
+        bytes memory invalidCmd = abi.encodePacked(uint16(1), uint16(1), uint16(0));
 
         bytes[] memory responses = new bytes[](0);
 
@@ -937,143 +887,5 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         assertEq(erc20s[0].localBalanceOf(bob), 300e18);
         assertEq(erc20s[0].balanceOf(alice), CHAINS * 100e18 - 200e18);
         assertEq(erc20s[0].balanceOf(bob), CHAINS * 100e18 + 200e18);
-    }
-
-    function test_localTransfer() public {
-        BaseERC20xD local = erc20s[0];
-
-        assertEq(local.localBalanceOf(alice), 100e18);
-        assertEq(local.localBalanceOf(bob), 100e18);
-
-        changePrank(alice, alice);
-        uint256 amount = 50e18;
-        bool success = local.transfer(bob, amount);
-
-        assertTrue(success);
-        assertEq(local.localBalanceOf(alice), 50e18);
-        assertEq(local.localBalanceOf(bob), 150e18);
-        assertEq(local.localTotalSupply(), 300e18);
-    }
-
-    function test_localTransfer_fullBalance() public {
-        BaseERC20xD local = erc20s[0];
-
-        changePrank(alice, alice);
-        uint256 amount = 100e18;
-        bool success = local.transfer(bob, amount);
-
-        assertTrue(success);
-        assertEq(local.localBalanceOf(alice), 0);
-        assertEq(local.localBalanceOf(bob), 200e18);
-    }
-
-    function test_localTransfer_multipleTransfers() public {
-        BaseERC20xD local = erc20s[0];
-
-        changePrank(alice, alice);
-        local.transfer(bob, 25e18);
-        local.transfer(charlie, 25e18);
-        local.transfer(bob, 25e18);
-
-        assertEq(local.localBalanceOf(alice), 25e18);
-        assertEq(local.localBalanceOf(bob), 150e18);
-        assertEq(local.localBalanceOf(charlie), 125e18);
-    }
-
-    function test_localTransfer_revertInvalidAddress() public {
-        BaseERC20xD local = erc20s[0];
-
-        changePrank(alice, alice);
-        vm.expectRevert(BaseERC20xD.InvalidAddress.selector);
-        local.transfer(address(0), 50e18);
-    }
-
-    function test_localTransfer_revertInvalidAmount() public {
-        BaseERC20xD local = erc20s[0];
-
-        changePrank(alice, alice);
-        vm.expectRevert(BaseERC20xD.InvalidAmount.selector);
-        local.transfer(bob, 0);
-    }
-
-    function test_localTransfer_revertInsufficientBalance() public {
-        BaseERC20xD local = erc20s[0];
-
-        changePrank(alice, alice);
-        vm.expectRevert(BaseERC20xD.InsufficientBalance.selector);
-        local.transfer(bob, 101e18);
-    }
-
-    function test_localTransfer_withPendingCrossChainTransfer() public {
-        BaseERC20xD local = erc20s[0];
-
-        _syncAndSettleLiquidity();
-
-        changePrank(alice, alice);
-        uint256 crossChainAmount = 60e18;
-        uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
-        local.transfer{ value: fee }(bob, crossChainAmount, abi.encode(GAS_LIMIT, bob));
-
-        assertEq(local.availableLocalBalanceOf(alice, 0), 40e18);
-
-        uint256 localAmount = 30e18;
-        bool success = local.transfer(charlie, localAmount);
-
-        assertTrue(success);
-        assertEq(local.localBalanceOf(alice), 70e18);
-        assertEq(local.localBalanceOf(charlie), 130e18);
-        assertEq(local.availableLocalBalanceOf(alice, 0), 10e18);
-    }
-
-    function test_localTransfer_revertInsufficientAvailableBalance() public {
-        BaseERC20xD local = erc20s[0];
-
-        _syncAndSettleLiquidity();
-
-        changePrank(alice, alice);
-        uint256 crossChainAmount = 60e18;
-        uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
-        local.transfer{ value: fee }(bob, crossChainAmount, abi.encode(GAS_LIMIT, bob));
-
-        assertEq(local.availableLocalBalanceOf(alice, 0), 40e18);
-
-        uint256 localAmount = 50e18;
-        vm.expectRevert(BaseERC20xD.InsufficientBalance.selector);
-        local.transfer(charlie, localAmount);
-    }
-
-    function test_localTransfer_toSelf() public {
-        BaseERC20xD local = erc20s[0];
-
-        changePrank(alice, alice);
-        uint256 amount = 50e18;
-        bool success = local.transfer(alice, amount);
-
-        assertTrue(success);
-        assertEq(local.localBalanceOf(alice), 100e18);
-        assertEq(local.localTotalSupply(), 300e18);
-    }
-
-    function test_localTransfer_afterCrossChainTransferCompletes() public {
-        BaseERC20xD local = erc20s[0];
-
-        _syncAndSettleLiquidity();
-
-        changePrank(alice, alice);
-        uint256 crossChainAmount = 50e18;
-        uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
-        local.transfer{ value: fee }(bob, crossChainAmount, abi.encode(GAS_LIMIT, bob));
-
-        _executeTransfer(local, alice, 1, "");
-
-        assertEq(local.localBalanceOf(alice), 50e18);
-        assertEq(local.pendingNonce(alice), 0);
-
-        uint256 localAmount = 30e18;
-        bool success = local.transfer(charlie, localAmount);
-
-        assertTrue(success);
-        assertEq(local.localBalanceOf(alice), 20e18);
-        assertEq(local.localBalanceOf(charlie), 130e18);
     }
 }

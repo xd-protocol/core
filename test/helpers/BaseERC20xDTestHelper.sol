@@ -164,6 +164,9 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
                 ILiquidityMatrix.SettleLiquidityParams(address(localApp), eids[i], rootTimestamp, users, liquidity)
             );
         }
+
+        // Stop the prank to avoid conflicts in tests
+        vm.stopPrank();
     }
 
     function _executeTransfer(BaseERC20xD erc20, address from, uint256 nonce, bytes memory error) internal {
