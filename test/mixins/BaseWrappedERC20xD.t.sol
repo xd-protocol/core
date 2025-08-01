@@ -15,8 +15,8 @@ import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { IBaseERC20xD } from "src/interfaces/IBaseERC20xD.sol";
 import { IBaseWrappedERC20xD } from "src/interfaces/IBaseWrappedERC20xD.sol";
-import { ERC20Mock } from "./mocks/ERC20Mock.sol";
-import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
+import { ERC20Mock } from "../mocks/ERC20Mock.sol";
+import { BaseERC20xDTestHelper } from "../helpers/BaseERC20xDTestHelper.sol";
 import { SafeTransferLib, ERC20 } from "solmate/utils/SafeTransferLib.sol";
 import {
     MessagingReceipt, Origin

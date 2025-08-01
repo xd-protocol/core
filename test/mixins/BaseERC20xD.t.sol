@@ -12,7 +12,7 @@ import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
 import { ERC20xD } from "src/ERC20xD.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
-import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
+import { BaseERC20xDTestHelper } from "../helpers/BaseERC20xDTestHelper.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { OptionsBuilder } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
 
