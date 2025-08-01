@@ -13,6 +13,8 @@ import { ERC20xD } from "src/ERC20xD.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { OptionsBuilder } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
 
 contract Composable {
     event Compose(address indexed token, uint256 amount);
@@ -25,7 +27,16 @@ contract Composable {
 }
 
 contract BaseERC20xDTest is BaseERC20xDTestHelper {
+    using OptionsBuilder for bytes;
+
     Composable composable = new Composable();
+
+    event PeerSet(uint32 eid, bytes32 peer);
+    event UpdateLiquidityMatrix(address indexed liquidityMatrix);
+    event UpdateGateway(address indexed gateway);
+    event Transfer(address indexed from, address indexed to, uint256 amount, uint256 indexed nonce);
+    event CancelPendingTransfer(uint256 indexed nonce);
+    event Transfer(address indexed from, address indexed to, uint256 amount);
 
     function setUp() public virtual override {
         super.setUp();
@@ -36,11 +47,501 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
                 erc20.mint(users[j], 100e18);
             }
         }
+
+        // Stop any ongoing prank from parent setUp
+        vm.stopPrank();
     }
 
     function _newBaseERC20xD(uint256 i) internal override returns (BaseERC20xD) {
         return new ERC20xD("xD", "xD", 18, address(liquidityMatrices[i]), address(gateways[i]), owner);
     }
+
+    /*//////////////////////////////////////////////////////////////
+                         CONSTRUCTOR TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_constructor() public view {
+        BaseERC20xD token = erc20s[0];
+
+        assertEq(token.name(), "xD");
+        assertEq(token.symbol(), "xD");
+        assertEq(token.decimals(), 18);
+        assertEq(token.liquidityMatrix(), address(liquidityMatrices[0]));
+        assertEq(token.gateway(), address(gateways[0]));
+        assertEq(token.owner(), owner);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                         OWNERSHIP TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_setPeer() public {
+        BaseERC20xD token = erc20s[0];
+        uint32 eid = 999;
+        bytes32 peer = bytes32(uint256(uint160(makeAddr("peer"))));
+
+        vm.expectEmit(true, false, false, true);
+        emit PeerSet(eid, peer);
+
+        vm.prank(owner);
+        token.setPeer(eid, peer);
+
+        assertEq(token.peers(eid), peer);
+    }
+
+    function test_setPeer_revertNonOwner() public {
+        BaseERC20xD token = erc20s[0];
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        token.setPeer(999, bytes32(0));
+    }
+
+    function test_updateLiquidityMatrix() public {
+        BaseERC20xD token = erc20s[0];
+        address newMatrix = makeAddr("newMatrix");
+
+        vm.expectEmit(true, false, false, false);
+        emit UpdateLiquidityMatrix(newMatrix);
+
+        vm.prank(owner);
+        token.updateLiquidityMatrix(newMatrix);
+
+        assertEq(token.liquidityMatrix(), newMatrix);
+    }
+
+    function test_updateLiquidityMatrix_revertNonOwner() public {
+        BaseERC20xD token = erc20s[0];
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        token.updateLiquidityMatrix(makeAddr("newMatrix"));
+    }
+
+    function test_updateGateway() public {
+        BaseERC20xD token = erc20s[0];
+        address newGateway = makeAddr("newGateway");
+
+        vm.expectEmit(true, false, false, false);
+        emit UpdateGateway(newGateway);
+
+        vm.prank(owner);
+        token.updateGateway(newGateway);
+
+        assertEq(token.gateway(), newGateway);
+    }
+
+    function test_updateGateway_revertNonOwner() public {
+        BaseERC20xD token = erc20s[0];
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        token.updateGateway(makeAddr("newGateway"));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                         VIEW FUNCTION TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_totalSupply() public {
+        BaseERC20xD token = erc20s[0];
+
+        // Before sync, only local total supply
+        assertEq(token.totalSupply(), 300e18);
+
+        // After sync, global total supply
+        _syncAndSettleLiquidity();
+        assertEq(token.totalSupply(), CHAINS * 300e18);
+    }
+
+    function test_balanceOf() public {
+        BaseERC20xD token = erc20s[0];
+
+        // Before sync, only local balance
+        assertEq(token.balanceOf(alice), 100e18);
+
+        // After sync, global balance
+        _syncAndSettleLiquidity();
+        assertEq(token.balanceOf(alice), CHAINS * 100e18);
+    }
+
+    function test_localTotalSupply() public view {
+        BaseERC20xD token = erc20s[0];
+        assertEq(token.localTotalSupply(), 300e18);
+    }
+
+    function test_localBalanceOf() public view {
+        BaseERC20xD token = erc20s[0];
+        assertEq(token.localBalanceOf(alice), 100e18);
+        assertEq(token.localBalanceOf(bob), 100e18);
+        assertEq(token.localBalanceOf(charlie), 100e18);
+    }
+
+    function test_availableLocalBalanceOf() public {
+        BaseERC20xD token = erc20s[0];
+
+        // No pending transfer
+        assertEq(token.availableLocalBalanceOf(alice, 0), 100e18);
+
+        // With pending transfer
+        _syncAndSettleLiquidity();
+        uint256 fee = token.quoteTransfer(alice, GAS_LIMIT);
+        vm.deal(alice, fee);
+        vm.prank(alice);
+        token.transfer{ value: fee }(bob, 60e18, abi.encode(GAS_LIMIT, alice));
+
+        assertEq(token.availableLocalBalanceOf(alice, 0), 40e18);
+    }
+
+    function test_pendingNonce() public {
+        BaseERC20xD token = erc20s[0];
+
+        assertEq(token.pendingNonce(alice), 0);
+
+        _syncAndSettleLiquidity();
+        uint256 fee = token.quoteTransfer(alice, GAS_LIMIT);
+        vm.deal(alice, fee);
+        vm.prank(alice);
+        token.transfer{ value: fee }(bob, 60e18, abi.encode(GAS_LIMIT, alice));
+
+        assertEq(token.pendingNonce(alice), 1);
+    }
+
+    function test_pendingTransfer() public {
+        BaseERC20xD token = erc20s[0];
+
+        _syncAndSettleLiquidity();
+        uint256 fee = token.quoteTransfer(alice, GAS_LIMIT);
+        vm.deal(alice, fee);
+        vm.prank(alice);
+        token.transfer{ value: fee }(bob, 60e18, abi.encode(GAS_LIMIT, alice));
+
+        BaseERC20xD.PendingTransfer memory pending = token.pendingTransfer(alice);
+        assertEq(pending.pending, true);
+        assertEq(pending.from, alice);
+        assertEq(pending.to, bob);
+        assertEq(pending.amount, 60e18);
+        assertEq(pending.value, 0);
+    }
+
+    function test_quoteTransfer() public view {
+        BaseERC20xD token = erc20s[0];
+        uint256 fee = token.quoteTransfer(alice, GAS_LIMIT);
+        assertTrue(fee > 0);
+    }
+
+    function test_getTransferCmd() public view {
+        BaseERC20xD token = erc20s[0];
+        bytes memory cmd = token.getTransferCmd(alice, 1);
+        assertTrue(cmd.length > 0);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                       LOCAL TRANSFER TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_transfer_local() public {
+        BaseERC20xD token = erc20s[0];
+
+        vm.prank(alice);
+        bool success = token.transfer(bob, 50e18);
+
+        assertTrue(success);
+        assertEq(token.localBalanceOf(alice), 50e18);
+        assertEq(token.localBalanceOf(bob), 150e18);
+    }
+
+    function test_transfer_local_revertZeroAddress() public {
+        BaseERC20xD token = erc20s[0];
+
+        vm.prank(alice);
+        vm.expectRevert(BaseERC20xD.InvalidAddress.selector);
+        token.transfer(address(0), 50e18);
+    }
+
+    function test_transfer_local_revertZeroAmount() public {
+        BaseERC20xD token = erc20s[0];
+
+        vm.prank(alice);
+        vm.expectRevert(BaseERC20xD.InvalidAmount.selector);
+        token.transfer(bob, 0);
+    }
+
+    function test_transfer_local_revertInsufficientBalance() public {
+        BaseERC20xD token = erc20s[0];
+
+        vm.prank(alice);
+        vm.expectRevert(BaseERC20xD.InsufficientBalance.selector);
+        token.transfer(bob, 101e18);
+    }
+
+    function test_transfer_local_withPendingTransfer() public {
+        BaseERC20xD token = erc20s[0];
+
+        _syncAndSettleLiquidity();
+
+        // Create pending transfer
+        uint256 fee = token.quoteTransfer(alice, GAS_LIMIT);
+        vm.deal(alice, fee);
+        vm.prank(alice);
+        token.transfer{ value: fee }(bob, 60e18, abi.encode(GAS_LIMIT, alice));
+
+        // Available balance is reduced
+        assertEq(token.availableLocalBalanceOf(alice, 0), 40e18);
+
+        // Can still do local transfer within available balance
+        vm.prank(alice);
+        bool success = token.transfer(charlie, 30e18);
+
+        assertTrue(success);
+        assertEq(token.localBalanceOf(alice), 70e18);
+        assertEq(token.localBalanceOf(charlie), 130e18);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                     CROSS-CHAIN TRANSFER TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_transfer_crossChain_basic() public {
+        BaseERC20xD token = erc20s[0];
+
+        _syncAndSettleLiquidity();
+
+        uint256 fee = token.quoteTransfer(alice, GAS_LIMIT);
+        vm.deal(alice, fee);
+
+        vm.expectEmit(true, true, true, false);
+        emit Transfer(alice, bob, 50e18, 1);
+
+        vm.prank(alice);
+        token.transfer{ value: fee }(bob, 50e18, abi.encode(GAS_LIMIT, alice));
+
+        // Verify pending transfer created
+        assertEq(token.pendingNonce(alice), 1);
+        BaseERC20xD.PendingTransfer memory pending = token.pendingTransfer(alice);
+        assertEq(pending.pending, true);
+        assertEq(pending.from, alice);
+        assertEq(pending.to, bob);
+        assertEq(pending.amount, 50e18);
+
+        // Execute transfer
+        _executeTransfer(token, alice, 1, "");
+
+        // Verify transfer completed
+        assertEq(token.pendingNonce(alice), 0);
+        assertEq(token.localBalanceOf(alice), 50e18);
+        assertEq(token.localBalanceOf(bob), 150e18);
+    }
+
+    function test_transfer_crossChain_revertInvalidAddress() public {
+        BaseERC20xD token = erc20s[0];
+
+        _syncAndSettleLiquidity();
+
+        uint256 fee = token.quoteTransfer(alice, GAS_LIMIT);
+        vm.deal(alice, fee);
+
+        vm.prank(alice);
+        vm.expectRevert(BaseERC20xD.InvalidAddress.selector);
+        token.transfer{ value: fee }(address(0), 50e18, abi.encode(GAS_LIMIT, alice));
+    }
+
+    function test_transfer_crossChain_revertZeroAmount() public {
+        BaseERC20xD token = erc20s[0];
+
+        _syncAndSettleLiquidity();
+
+        uint256 fee = token.quoteTransfer(alice, GAS_LIMIT);
+        vm.deal(alice, fee);
+
+        vm.prank(alice);
+        vm.expectRevert(BaseERC20xD.InvalidAmount.selector);
+        token.transfer{ value: fee }(bob, 0, abi.encode(GAS_LIMIT, alice));
+    }
+
+    function test_transfer_crossChain_revertOverflow() public {
+        BaseERC20xD token = erc20s[0];
+
+        _syncAndSettleLiquidity();
+
+        uint256 fee = token.quoteTransfer(alice, GAS_LIMIT);
+        vm.deal(alice, fee);
+
+        uint256 maxAmount = uint256(type(int256).max) + 1;
+        vm.prank(alice);
+        vm.expectRevert(BaseERC20xD.Overflow.selector);
+        token.transfer{ value: fee }(bob, maxAmount, abi.encode(GAS_LIMIT, alice));
+    }
+
+    function test_transfer_crossChain_revertInsufficientBalance() public {
+        BaseERC20xD token = erc20s[0];
+
+        vm.prank(alice);
+        uint256 fee = token.quoteTransfer(alice, GAS_LIMIT);
+        vm.deal(alice, fee);
+
+        vm.prank(alice);
+        vm.expectRevert(BaseERC20xD.InsufficientBalance.selector);
+        token.transfer{ value: fee }(bob, 101e18, abi.encode(GAS_LIMIT, alice));
+    }
+
+    function test_transfer_crossChain_revertInsufficientValue() public {
+        BaseERC20xD token = erc20s[0];
+
+        _syncAndSettleLiquidity();
+
+        uint256 nativeValue = 1e18;
+
+        vm.prank(alice);
+        vm.expectRevert(BaseERC20xD.InsufficientValue.selector);
+        token.transfer{ value: 0 }(bob, 50e18, "", nativeValue, "");
+    }
+
+    function test_transfer_crossChain_revertTransferPending() public {
+        BaseERC20xD token = erc20s[0];
+
+        _syncAndSettleLiquidity();
+
+        uint256 fee = token.quoteTransfer(alice, GAS_LIMIT);
+        vm.deal(alice, 2 * fee);
+
+        // First transfer
+        vm.prank(alice);
+        token.transfer{ value: fee }(bob, 50e18, abi.encode(GAS_LIMIT, alice));
+
+        // Second transfer should fail
+        vm.prank(alice);
+        vm.expectRevert(BaseERC20xD.TransferPending.selector);
+        token.transfer{ value: fee }(bob, 30e18, abi.encode(GAS_LIMIT, alice));
+    }
+
+    function test_transfer_crossChain_withCallData() public {
+        BaseERC20xD token = erc20s[0];
+
+        _syncAndSettleLiquidity();
+
+        bytes memory callData = abi.encodeWithSelector(Composable.compose.selector, address(token), 50e18);
+        uint256 nativeValue = 1e18;
+
+        uint256 fee = token.quoteTransfer(alice, 1_000_000);
+        vm.deal(alice, fee + nativeValue);
+
+        vm.prank(alice);
+        token.transfer{ value: fee + nativeValue }(
+            address(composable), 50e18, callData, nativeValue, abi.encode(1_000_000, alice)
+        );
+
+        // Execute with compose
+        vm.expectEmit();
+        emit Composable.Compose(address(token), 50e18);
+        _executeTransfer(token, alice, 1, "");
+
+        assertEq(token.balanceOf(address(composable)), 50e18);
+        assertEq(address(composable).balance, nativeValue);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                       CANCEL TRANSFER TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_cancelPendingTransfer() public {
+        BaseERC20xD token = erc20s[0];
+
+        _syncAndSettleLiquidity();
+
+        // Create pending transfer with native value
+        uint256 nativeValue = 0.5e18;
+        uint256 fee = token.quoteTransfer(alice, GAS_LIMIT);
+        vm.deal(alice, fee + nativeValue);
+        vm.prank(alice);
+        token.transfer{ value: fee + nativeValue }(bob, 50e18, "", nativeValue, abi.encode(GAS_LIMIT, alice));
+
+        assertEq(token.pendingNonce(alice), 1);
+
+        uint256 aliceBalanceBefore = alice.balance;
+
+        vm.expectEmit(true, false, false, false);
+        emit CancelPendingTransfer(1);
+
+        vm.prank(alice);
+        token.cancelPendingTransfer();
+
+        assertEq(token.pendingNonce(alice), 0);
+        assertEq(alice.balance, aliceBalanceBefore + nativeValue);
+    }
+
+    function test_cancelPendingTransfer_revertNotPending() public {
+        BaseERC20xD token = erc20s[0];
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(BaseERC20xD.TransferNotPending.selector, 0));
+        token.cancelPendingTransfer();
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        TRANSFERFROM TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_transferFrom_revertNotComposing() public {
+        BaseERC20xD token = erc20s[0];
+
+        vm.prank(alice);
+        token.approve(bob, 50e18);
+
+        vm.prank(bob);
+        vm.expectRevert(BaseERC20xD.NotComposing.selector);
+        token.transferFrom(alice, charlie, 50e18);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                      LZ REDUCE/READ TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_lzReduce() public view {
+        BaseERC20xD token = erc20s[0];
+
+        bytes memory cmd = token.getTransferCmd(alice, 1);
+
+        // Mock responses - each chain reports 100e18 available
+        bytes[] memory responses = new bytes[](CHAINS - 1);
+        for (uint256 i = 0; i < responses.length; i++) {
+            responses[i] = abi.encode(int256(100e18));
+        }
+
+        bytes memory result = token.lzReduce(cmd, responses);
+
+        (uint16 cmdLabel, uint256 nonce, int256 availability) = abi.decode(result, (uint16, uint256, int256));
+        assertEq(cmdLabel, 1); // CMD_TRANSFER
+        assertEq(nonce, 1);
+        assertEq(availability, int256(uint256(CHAINS - 1) * 100e18));
+    }
+
+    function test_lzReduce_revertInvalidRequests() public {
+        BaseERC20xD token = erc20s[0];
+
+        // Test with CMD_TRANSFER but empty requests array
+        EVMCallRequestV1[] memory emptyRequests = new EVMCallRequestV1[](0);
+        bytes memory invalidCmd = abi.encode(uint16(1), emptyRequests, bytes(""));
+
+        bytes[] memory responses = new bytes[](0);
+
+        vm.expectRevert(BaseERC20xD.InvalidRequests.selector);
+        token.lzReduce(invalidCmd, responses);
+    }
+
+    function test_onRead_revertForbidden() public {
+        BaseERC20xD token = erc20s[0];
+
+        bytes memory message = abi.encode(uint16(1), uint256(1), int256(100e18));
+
+        vm.prank(alice);
+        vm.expectRevert(BaseERC20xD.Forbidden.selector);
+        token.onRead(message);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        INTEGRATION TESTS
+    //////////////////////////////////////////////////////////////*/
 
     function test_crossChainTransfer_basic() public {
         BaseERC20xD local = erc20s[0];
@@ -436,40 +937,6 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         assertEq(erc20s[0].localBalanceOf(bob), 300e18);
         assertEq(erc20s[0].balanceOf(alice), CHAINS * 100e18 - 200e18);
         assertEq(erc20s[0].balanceOf(bob), CHAINS * 100e18 + 200e18);
-    }
-
-    function test_cancelPendingTransfer() public {
-        BaseERC20xD local = erc20s[0];
-
-        _syncAndSettleLiquidity();
-
-        changePrank(alice, alice);
-        uint256 amount = 101e18;
-        uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
-        local.transfer{ value: fee }(bob, amount, abi.encode(GAS_LIMIT, bob));
-
-        uint256 nonce = 1;
-        assertEq(local.pendingNonce(alice), nonce);
-        assertEq(local.availableLocalBalanceOf(alice, 0), -1e18);
-
-        local.cancelPendingTransfer();
-        assertEq(local.pendingNonce(alice), 0);
-        assertEq(local.availableLocalBalanceOf(alice, 0), 100e18);
-    }
-
-    function test_cancelPendingTransfer_revertTransferNotPending() public {
-        BaseERC20xD local = erc20s[0];
-
-        changePrank(alice, alice);
-        vm.expectRevert(abi.encodeWithSelector(BaseERC20xD.TransferNotPending.selector, 0));
-        local.cancelPendingTransfer();
-
-        uint256 amount = 1e18;
-        uint256 fee = local.quoteTransfer(bob, GAS_LIMIT);
-        local.transfer{ value: fee }(bob, amount, abi.encode(GAS_LIMIT, bob));
-
-        local.cancelPendingTransfer();
-        assertEq(local.pendingNonce(alice), 0);
     }
 
     function test_localTransfer() public {
