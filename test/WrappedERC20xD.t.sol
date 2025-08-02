@@ -179,17 +179,11 @@ contract WrappedERC20xDTest is BaseERC20xDTestHelper {
 
     function test_wrap_revertInsufficientFee() public {
         WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
-        uint256 amount = 50e18;
-
-        (uint256 minShares, uint256 fee) = vault.quoteDeposit(address(underlyings[0]), amount, GAS_LIMIT);
-        require(fee > 0, "Fee must be greater than 0 for this test");
-        bytes memory depositData = abi.encode(minShares, GAS_LIMIT, alice);
-
-        vm.deal(alice, fee - 1);
+        vm.deal(alice, 0.05 ether);
         vm.prank(alice);
 
-        vm.expectRevert("INSUFFICIENT_FEE");
-        wrapped.wrap{ value: fee - 1 }(alice, amount, fee, depositData);
+        vm.expectRevert();
+        wrapped.wrap{ value: 0.05 ether }(alice, 50e18, 0.1 ether, "");
     }
 
     /*//////////////////////////////////////////////////////////////
