@@ -22,17 +22,26 @@ contract LiquidityMatrixMock {
         return totalLiquidity[app];
     }
 
-    function updateLocalLiquidity(address account, int256 newLiquidity) external returns (uint256, uint256) {
-        require(registeredApps[msg.sender], "App not registered");
-        liquidity[msg.sender][account] = newLiquidity;
-        return (0, 0); // Return dummy indices
+    function getAppSetting(address app)
+        external
+        view
+        returns (bool registered, bool syncMappedAccountsOnly, bool useCallbacks, address settler)
+    {
+        return (registeredApps[app], false, true, address(0));
     }
 
     function registerApp(bool, bool, address) external {
+        require(!registeredApps[msg.sender], "App already registered");
         registeredApps[msg.sender] = true;
     }
 
     function setTotalLiquidity(address app, int256 amount) external {
         totalLiquidity[app] = amount;
+    }
+
+    function updateLocalLiquidity(address account, int256 newLiquidity) external returns (uint256, uint256) {
+        require(registeredApps[msg.sender], "App not registered");
+        liquidity[msg.sender][account] = newLiquidity;
+        return (0, 0); // Return dummy indices
     }
 }
