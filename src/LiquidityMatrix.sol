@@ -158,7 +158,6 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
      * @param dataSettled Tracks which data roots have been settled
      */
     struct RemoteState {
-        address app;
         mapping(address remote => address local) mappedAccounts;
         mapping(address local => bool) localAccountMapped;
         SnapshotsLib.Snapshots totalLiquidity;
@@ -188,15 +187,15 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
                               MODIFIERS
     //////////////////////////////////////////////////////////////*/
 
-    modifier onlyApp(address _app) {
-        if (!_appStates[_app].registered) revert AppNotRegistered();
+    modifier onlyApp() {
+        if (!_appStates[msg.sender].registered) revert Forbidden();
         _;
     }
 
-    modifier onlySettler(address _account, address _app) {
+    modifier onlySettler(address _app) {
         AppState storage state = _appStates[_app];
         if (!state.registered) revert AppNotRegistered();
-        if (state.settler != _account && !_isSettlerWhitelisted[_account]) revert Forbidden();
+        if (state.settler != msg.sender && !_isSettlerWhitelisted[msg.sender]) revert Forbidden();
         _;
     }
 
@@ -348,16 +347,6 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
      */
     function isSettlerWhitelisted(address account) external view returns (bool) {
         return _isSettlerWhitelisted[account];
-    }
-
-    /**
-     * @notice Gets the remote app address for a given chain
-     * @param app The local application address
-     * @param eid The endpoint ID of the remote chain
-     * @return The remote application address
-     */
-    function getRemoteApp(address app, uint32 eid) external view returns (address) {
-        return _remoteStates[app][eid].app;
     }
 
     /**
@@ -817,7 +806,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
      * @notice Updates whether to sync only mapped accounts
      * @param syncMappedAccountsOnly New setting value
      */
-    function updateSyncMappedAccountsOnly(bool syncMappedAccountsOnly) external onlyApp(msg.sender) {
+    function updateSyncMappedAccountsOnly(bool syncMappedAccountsOnly) external onlyApp {
         _appStates[msg.sender].syncMappedAccountsOnly = syncMappedAccountsOnly;
         emit UpdateSyncMappedAccountsOnly(msg.sender, syncMappedAccountsOnly);
     }
@@ -826,7 +815,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
      * @notice Updates whether to use callbacks for state updates
      * @param useCallbacks New setting value
      */
-    function updateUseCallbacks(bool useCallbacks) external onlyApp(msg.sender) {
+    function updateUseCallbacks(bool useCallbacks) external onlyApp {
         _appStates[msg.sender].useCallbacks = useCallbacks;
         emit UpdateUseCallbacks(msg.sender, useCallbacks);
     }
@@ -835,7 +824,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
      * @notice Updates the authorized settler for the app
      * @param settler New settler address
      */
-    function updateSettler(address settler) external onlyApp(msg.sender) {
+    function updateSettler(address settler) external onlyApp {
         _appStates[msg.sender].settler = settler;
         emit UpdateSettler(msg.sender, settler);
     }
@@ -850,7 +839,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
      */
     function updateLocalLiquidity(address account, int256 liquidity)
         external
-        onlyApp(msg.sender)
+        onlyApp
         returns (uint256 mainTreeIndex, uint256 appTreeIndex)
     {
         address app = msg.sender;
@@ -878,7 +867,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
      */
     function updateLocalData(bytes32 key, bytes memory value)
         external
-        onlyApp(msg.sender)
+        onlyApp
         returns (uint256 mainTreeIndex, uint256 appTreeIndex)
     {
         address app = msg.sender;
@@ -896,16 +885,6 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
     /*//////////////////////////////////////////////////////////////
                       REMOTE STATE MANAGEMENT
     //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @notice Links the calling app to a remote app on another chain
-     * @param eid The endpoint ID of the remote chain
-     * @param remoteApp The address of the app on the remote chain
-     */
-    function updateRemoteApp(uint32 eid, address remoteApp) external onlyApp(msg.sender) {
-        _remoteStates[msg.sender][eid].app = remoteApp;
-        emit UpdateRemoteApp(msg.sender, eid, remoteApp);
-    }
 
     /**
      * @notice Updates the whitelist status of a settler
@@ -943,7 +922,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
         address[] memory locals,
         address[] memory remotes,
         uint128 gasLimit
-    ) external payable onlyApp(msg.sender) {
+    ) external payable onlyApp {
         if (remotes.length != locals.length) revert InvalidLengths();
         for (uint256 i; i < locals.length; ++i) {
             (address local, address remote) = (locals[i], remotes[i]);
@@ -984,7 +963,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
      *      Updates liquidity snapshots and triggers callbacks if enabled.
      * @param params Settlement parameters including app, eid, timestamp, accounts and liquidity values
      */
-    function settleLiquidity(SettleLiquidityParams memory params) external onlySettler(msg.sender, params.app) {
+    function settleLiquidity(SettleLiquidityParams memory params) external onlySettler(params.app) {
         AppState storage localState = _appStates[params.app];
         bool syncMappedAccountsOnly = localState.syncMappedAccountsOnly;
         bool useCallbacks = localState.useCallbacks;
@@ -1019,20 +998,20 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
 
             // Trigger callback if enabled, catching any failures
             if (useCallbacks) {
-                try ILiquidityMatrixCallbacks(params.app).onUpdateLiquidity(
+                try ILiquidityMatrixCallbacks(params.app).onSettleLiquidity(
                     params.eid, params.timestamp, _account, liquidity
                 ) { } catch (bytes memory reason) {
-                    emit OnUpdateLiquidityFailure(params.eid, params.timestamp, _account, liquidity, reason);
+                    emit OnSettleLiquidityFailure(params.eid, params.timestamp, _account, liquidity, reason);
                 }
             }
         }
 
         state.totalLiquidity.setAsInt(totalLiquidity, params.timestamp);
         if (useCallbacks) {
-            try ILiquidityMatrixCallbacks(params.app).onUpdateTotalLiquidity(
+            try ILiquidityMatrixCallbacks(params.app).onSettleTotalLiquidity(
                 params.eid, params.timestamp, totalLiquidity
             ) { } catch (bytes memory reason) {
-                emit OnUpdateTotalLiquidityFailure(params.eid, params.timestamp, totalLiquidity, reason);
+                emit OnSettleTotalLiquidityFailure(params.eid, params.timestamp, totalLiquidity, reason);
             }
         }
 
@@ -1045,7 +1024,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
      *      Updates data hashes and triggers callbacks if enabled.
      * @param params Settlement parameters including app, eid, timestamp, keys and values
      */
-    function settleData(SettleDataParams memory params) external onlySettler(msg.sender, params.app) {
+    function settleData(SettleDataParams memory params) external onlySettler(params.app) {
         RemoteState storage state = _remoteStates[params.app][params.eid];
         if (state.dataSettled[params.timestamp]) revert DataAlreadySettled();
         state.dataSettled[params.timestamp] = true;
@@ -1065,9 +1044,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
 
             // Trigger callback if enabled, catching any failures
             if (useCallbacks) {
-                try ILiquidityMatrixCallbacks(params.app).onUpdateData(params.eid, params.timestamp, key, value) { }
+                try ILiquidityMatrixCallbacks(params.app).onSettleData(params.eid, params.timestamp, key, value) { }
                 catch (bytes memory reason) {
-                    emit OnUpdateDataFailure(params.eid, params.timestamp, key, value, reason);
+                    emit OnSettleDataFailure(params.eid, params.timestamp, key, value, reason);
                 }
             }
         }
