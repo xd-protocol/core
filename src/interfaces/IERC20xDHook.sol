@@ -39,8 +39,9 @@ interface IERC20xDHook {
      * @param from Source address (address(0) for mints)
      * @param to Destination address (address(0) for burns)
      * @param amount Amount transferred
+     * @param data Extra data containing LayerZero parameters (gasLimit, refundTo) when applicable
      */
-    function beforeTransfer(address from, address to, uint256 amount) external;
+    function beforeTransfer(address from, address to, uint256 amount, bytes memory data) external;
 
     /**
      * @notice Called after transfer in ERC20xD
@@ -48,8 +49,9 @@ interface IERC20xDHook {
      * @param from Source address (address(0) for mints)
      * @param to Destination address (address(0) for burns)
      * @param amount Amount transferred
+     * @param data Extra data containing LayerZero parameters (gasLimit, refundTo) when applicable
      */
-    function afterTransfer(address from, address to, uint256 amount) external;
+    function afterTransfer(address from, address to, uint256 amount, bytes memory data) external;
 
     function onMapAccounts(uint32 eid, address remoteAccount, address localAccount) external;
 

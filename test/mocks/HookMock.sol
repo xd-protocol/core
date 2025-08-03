@@ -111,14 +111,14 @@ contract HookMock is IERC20xDHook {
         );
     }
 
-    function beforeTransfer(address from, address to, uint256 amount) external override {
+    function beforeTransfer(address from, address to, uint256 amount, bytes memory data) external override {
         if (shouldRevertBeforeTransfer) {
             revert(revertReason);
         }
         beforeTransferCalls.push(TransferCall({ from: from, to: to, amount: amount, timestamp: block.timestamp }));
     }
 
-    function afterTransfer(address from, address to, uint256 amount) external override {
+    function afterTransfer(address from, address to, uint256 amount, bytes memory data) external override {
         if (shouldRevertAfterTransfer) {
             revert(revertReason);
         }

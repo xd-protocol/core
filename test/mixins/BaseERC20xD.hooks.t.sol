@@ -42,11 +42,11 @@ contract OrderTrackingHook is IERC20xDHook {
         tracker = _tracker;
     }
 
-    function beforeTransfer(address, address, uint256) external override {
+    function beforeTransfer(address, address, uint256, bytes memory) external override {
         beforeTransferCallOrder = tracker.incrementAndGet();
     }
 
-    function afterTransfer(address, address, uint256) external override {
+    function afterTransfer(address, address, uint256, bytes memory) external override {
         afterTransferCallOrder = tracker.incrementAndGet();
     }
 

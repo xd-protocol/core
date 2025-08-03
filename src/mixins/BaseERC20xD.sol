@@ -505,7 +505,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         if (nonce > 0) revert TransferPending();
 
         nonce = _pendingTransfers.length;
-        _pendingTransfers.push(PendingTransfer(true, from, to, amount, callData, value));
+        _pendingTransfers.push(PendingTransfer(true, from, to, amount, callData, value, data));
         _pendingNonce[from] = nonce;
 
         bytes memory cmd = getReadAvailabilityCmd(from, nonce);
@@ -627,9 +627,9 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     function _executePendingTransfer(PendingTransfer memory pending) internal virtual {
         (address to, bytes memory callData) = (pending.to, pending.callData);
         if (to != address(0) && to.isContract() && callData.length > 0) {
-            _compose(pending.from, to, pending.amount, pending.value, callData);
+            _compose(pending.from, to, pending.amount, pending.value, callData, pending.data);
         } else {
-            _transferFrom(pending.from, to, pending.amount);
+            _transferFrom(pending.from, to, pending.amount, pending.data);
         }
     }
 
@@ -640,15 +640,16 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @param amount The amount of tokens to transfer
      * @param value Native token value to send with the call
      * @param callData The calldata to execute on the recipient
+     * @param data Extra data containing LayerZero parameters
      * @dev Transfers tokens to this contract, sets allowance, executes call, and refunds any remaining tokens
      */
-    function _compose(address from, address to, uint256 amount, uint256 value, bytes memory callData)
+    function _compose(address from, address to, uint256 amount, uint256 value, bytes memory callData, bytes memory data)
         internal
         virtual
     // TODO: should be kept or not: nonReentrant
     {
         int256 oldBalance = localBalanceOf(address(this));
-        _transferFrom(from, address(this), amount);
+        _transferFrom(from, address(this), amount, data);
 
         allowance[address(this)][to] = amount;
         _composing = true;
@@ -663,7 +664,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         int256 newBalance = localBalanceOf(address(this));
         // refund the change if any
         if (oldBalance < newBalance) {
-            _transferFrom(address(this), from, uint256(newBalance - oldBalance));
+            _transferFrom(address(this), from, uint256(newBalance - oldBalance), data);
         }
     }
 
@@ -675,10 +676,22 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @dev Calls beforeTransfer and afterTransfer hooks, updates local liquidity, and emits Transfer event
      */
     function _transferFrom(address from, address to, uint256 amount) internal virtual {
+        _transferFrom(from, to, amount, "");
+    }
+
+    /**
+     * @dev Internal transfer function that updates liquidity in the LiquidityMatrix
+     * @param from The sender address (can be address(0) for minting)
+     * @param to The recipient address (can be address(0) for burning)
+     * @param amount The amount of tokens to transfer
+     * @param data Extra data containing LayerZero parameters when applicable
+     * @dev Calls beforeTransfer and afterTransfer hooks, updates local liquidity, and emits Transfer event
+     */
+    function _transferFrom(address from, address to, uint256 amount, bytes memory data) internal virtual {
         address[] memory _hooks = hooks;
         uint256 length = _hooks.length;
         for (uint256 i; i < length; ++i) {
-            try IERC20xDHook(_hooks[i]).beforeTransfer(from, to, amount) { }
+            try IERC20xDHook(_hooks[i]).beforeTransfer(from, to, amount, data) { }
             catch (bytes memory reason) {
                 emit BeforeTransferHookFailure(_hooks[i], from, to, amount, reason);
             }
@@ -700,7 +713,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         }
 
         for (uint256 i; i < length; ++i) {
-            try IERC20xDHook(_hooks[i]).afterTransfer(from, to, amount) { }
+            try IERC20xDHook(_hooks[i]).afterTransfer(from, to, amount, data) { }
             catch (bytes memory reason) {
                 emit AfterTransferHookFailure(_hooks[i], from, to, amount, reason);
             }
