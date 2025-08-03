@@ -25,7 +25,7 @@ interface ILiquidityMatrixCallbacks {
      * @param account The account whose liquidity was updated
      * @param liquidity The settled liquidity value
      */
-    function onUpdateLiquidity(uint32 eid, uint256 timestamp, address account, int256 liquidity) external;
+    function onSettleLiquidity(uint32 eid, uint256 timestamp, address account, int256 liquidity) external;
 
     /**
      * @notice Called when the total liquidity is settled from a remote chain
@@ -34,7 +34,7 @@ interface ILiquidityMatrixCallbacks {
      * @param timestamp The timestamp of the settled data
      * @param totalLiquidity The total liquidity across all accounts
      */
-    function onUpdateTotalLiquidity(uint32 eid, uint256 timestamp, int256 totalLiquidity) external;
+    function onSettleTotalLiquidity(uint32 eid, uint256 timestamp, int256 totalLiquidity) external;
 
     /**
      * @notice Called when data is settled from a remote chain
@@ -44,5 +44,5 @@ interface ILiquidityMatrixCallbacks {
      * @param key The data key that was updated
      * @param value The settled data value
      */
-    function onUpdateData(uint32 eid, uint256 timestamp, bytes32 key, bytes memory value) external;
+    function onSettleData(uint32 eid, uint256 timestamp, bytes32 key, bytes memory value) external;
 }
