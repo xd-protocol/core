@@ -253,11 +253,9 @@ contract SynchronizerTest is TestHelperOz5 {
 
         changePrank(localApp, localApp);
         local.registerApp(false, false, address(0));
-        local.updateRemoteApp(EID_REMOTE, remoteApp);
 
         changePrank(remoteApp, remoteApp);
         remote.registerApp(false, false, address(0));
-        remote.updateRemoteApp(EID_LOCAL, localApp);
 
         // Prepare account arrays
         address[] memory locals = new address[](3);
@@ -637,11 +635,9 @@ contract SynchronizerTest is TestHelperOz5 {
 
         changePrank(localApp, localApp);
         local.registerApp(false, false, address(0));
-        local.updateRemoteApp(EID_REMOTE, remoteApp);
 
         changePrank(remoteApp, remoteApp);
         remote.registerApp(false, false, address(0));
-        remote.updateRemoteApp(EID_LOCAL, localApp);
 
         // Prepare account arrays
         address[] memory locals = new address[](3);
@@ -718,11 +714,9 @@ contract SynchronizerTest is TestHelperOz5 {
 
         changePrank(localApp, localApp);
         local.registerApp(false, false, address(0));
-        local.updateRemoteApp(EID_REMOTE, remoteApp);
 
         changePrank(remoteApp, remoteApp);
         remote.registerApp(false, false, address(0));
-        remote.updateRemoteApp(EID_LOCAL, localApp);
 
         // Set up mapping permissions
         address local1 = makeAddr("local1");

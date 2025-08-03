@@ -71,7 +71,6 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
                 configEids[count] = eids[j];
                 configConfirmations[count] = 0;
                 count++;
-                liquidityMatrices[i].updateRemoteApp(eids[j], address(apps[j]));
             }
 
             changePrank(owner, owner);
@@ -1008,23 +1007,6 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         // Remove from whitelist
         liquidityMatrices[0].updateSettlerWhitelisted(settler, false);
         assertFalse(liquidityMatrices[0].isSettlerWhitelisted(settler));
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                        getRemoteApp() TESTS
-    //////////////////////////////////////////////////////////////*/
-
-    function test_getRemoteApp() public {
-        // Update remote app
-        changePrank(apps[0], apps[0]);
-        liquidityMatrices[0].updateRemoteApp(eids[1], address(0xdead));
-
-        // Now returns the new remote app
-        assertEq(liquidityMatrices[0].getRemoteApp(apps[0], eids[1]), address(0xdead));
-
-        // Update to different app
-        liquidityMatrices[0].updateRemoteApp(eids[1], address(0xbeef));
-        assertEq(liquidityMatrices[0].getRemoteApp(apps[0], eids[1]), address(0xbeef));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -2228,11 +2210,11 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         _updateLocalLiquidity(liquidityMatrices[0], apps[0], storages[0], users, seed);
     }
 
-    function test_updateLocalLiquidity_notRegistered() public {
+    function test_updateLocalLiquidity_forbidden() public {
         address unregisteredApp = makeAddr("unregisteredApp");
         changePrank(unregisteredApp, unregisteredApp);
 
-        vm.expectRevert(ILiquidityMatrix.AppNotRegistered.selector);
+        vm.expectRevert(ILiquidityMatrix.Forbidden.selector);
         liquidityMatrices[0].updateLocalLiquidity(users[0], 100e18);
     }
 
@@ -2359,11 +2341,11 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         _updateLocalData(liquidityMatrices[0], apps[0], storages[0], seed);
     }
 
-    function test_updateLocalData_notRegistered() public {
+    function test_updateLocalData_forbidden() public {
         address unregisteredApp = makeAddr("unregisteredApp");
         changePrank(unregisteredApp, unregisteredApp);
 
-        vm.expectRevert(ILiquidityMatrix.AppNotRegistered.selector);
+        vm.expectRevert(ILiquidityMatrix.Forbidden.selector);
         liquidityMatrices[0].updateLocalData(keccak256("key"), abi.encode("value"));
     }
 
@@ -2419,25 +2401,6 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         bytes32 storedHash = liquidityMatrices[0].getLocalDataHash(apps[0], key);
         assertEq(storedHash, keccak256(emptyData));
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                        updateRemoteApp() TESTS
-    //////////////////////////////////////////////////////////////*/
-
-    function test_updateRemoteApp() public {
-        changePrank(apps[0], apps[0]);
-        liquidityMatrices[0].updateRemoteApp(eids[1], address(0xdead));
-
-        assertEq(liquidityMatrices[0].getRemoteApp(apps[0], eids[1]), address(0xdead));
-    }
-
-    function test_updateRemoteApp_zeroAddress() public {
-        changePrank(apps[0], apps[0]);
-
-        // Should allow setting to zero address (unset)
-        liquidityMatrices[0].updateRemoteApp(eids[1], address(0));
-        assertEq(liquidityMatrices[0].getRemoteApp(apps[0], eids[1]), address(0));
     }
 
     /*//////////////////////////////////////////////////////////////
