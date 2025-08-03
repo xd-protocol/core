@@ -58,13 +58,13 @@ interface ILiquidityMatrix {
     event SettleLiquidity(uint32 indexed eid, address indexed app, bytes32 indexed liquidityRoot, uint256 timestamp);
     event SettleData(uint32 indexed eid, address indexed app, bytes32 indexed dataRoot, uint256 timestamp);
 
-    event OnUpdateLiquidityFailure(
+    event OnSettleLiquidityFailure(
         uint32 indexed eid, uint256 indexed timestamp, address indexed account, int256 liquidity, bytes reason
     );
-    event OnUpdateTotalLiquidityFailure(
+    event OnSettleTotalLiquidityFailure(
         uint32 indexed eid, uint256 indexed timestamp, int256 totalLiquidity, bytes reason
     );
-    event OnUpdateDataFailure(
+    event OnSettleDataFailure(
         uint32 indexed eid, uint256 indexed timestamp, bytes32 indexed key, bytes value, bytes reason
     );
 
@@ -208,14 +208,6 @@ interface ILiquidityMatrix {
      * @return Whether the account is whitelisted
      */
     function isSettlerWhitelisted(address account) external view returns (bool);
-
-    /**
-     * @notice Gets the remote app address for a given chain
-     * @param app The local application address
-     * @param eid The endpoint ID of the remote chain
-     * @return The remote application address
-     */
-    function getRemoteApp(address app, uint32 eid) external view returns (address);
 
     /**
      * @notice Gets the local account mapped to a remote account
@@ -541,13 +533,6 @@ interface ILiquidityMatrix {
     function updateLocalData(bytes32 key, bytes memory value)
         external
         returns (uint256 mainTreeIndex, uint256 appTreeIndex);
-
-    /**
-     * @notice Sets the remote app address for cross-chain communication
-     * @param eid The endpoint ID of the remote chain
-     * @param remoteApp The app address on the remote chain
-     */
-    function updateRemoteApp(uint32 eid, address remoteApp) external;
 
     /**
      * @notice Settles liquidity data from a remote chain
