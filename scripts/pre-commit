@@ -7,7 +7,7 @@ GIT_ROOT=$(git rev-parse --show-toplevel)
 echo "Running forge fmt..."
 
 # Run forge fmt
-cd "$GIT_ROOT" && forge fmt
+cd "$GIT_ROOT" && make fmt
 
 # Check if forge fmt made any changes
 if [[ -n $(git diff --name-only) ]]; then
@@ -30,7 +30,7 @@ fi
 
 # Run forge build to ensure compilation
 echo "Running forge build..."
-if ! forge build; then
+if ! make build; then
     echo "❌ Build failed. Please fix compilation errors before committing."
     exit 1
 fi

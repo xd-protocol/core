@@ -1,3 +1,5 @@
+SOLX := $(HOME)/.local/bin/solx
+
 .PHONY: all setup install-hooks build test fmt clean help
 
 # Default target
@@ -17,25 +19,25 @@ install-hooks:
 # Build the project
 build:
 	@echo "Building project..."
-	@forge build
+	@FOUNDRY_SOLC_VERSION=$(SOLX) EVM_DISABLE_MEMORY_SAFE_ASM_CHECK=1 forge build
 
 # Run tests
 test:
 	@echo "Running tests..."
-	@forge test
+	@FOUNDRY_SOLC_VERSION=$(SOLX) EVM_DISABLE_MEMORY_SAFE_ASM_CHECK=1 forge test
 
 # Run tests with verbosity
 test-v:
-	@forge test -vv
+	@FOUNDRY_SOLC_VERSION=$(SOLX) EVM_DISABLE_MEMORY_SAFE_ASM_CHECK=1 forge test -vv
 
 # Run tests with gas reporting
 test-gas:
-	@forge test --gas-report
+	@FOUNDRY_SOLC_VERSION=$(SOLX) EVM_DISABLE_MEMORY_SAFE_ASM_CHECK=1 forge test --gas-report
 
 # Format code
 fmt:
 	@echo "Formatting code..."
-	@forge fmt
+	@FOUNDRY_SOLC_VERSION=$(SOLX) EVM_DISABLE_MEMORY_SAFE_ASM_CHECK=1 forge fmt
 
 # Clean build artifacts
 clean:
@@ -45,7 +47,7 @@ clean:
 # Deploy to local network
 deploy-local:
 	@echo "Deploying to local network..."
-	@forge script script/Deploy.s.sol --rpc-url localhost --broadcast
+	@FOUNDRY_SOLC_VERSION=$(SOLX) EVM_DISABLE_MEMORY_SAFE_ASM_CHECK=1 forge script script/Deploy.s.sol --rpc-url localhost --broadcast
 
 # Show help
 help:

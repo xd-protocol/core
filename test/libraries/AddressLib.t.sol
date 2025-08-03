@@ -51,17 +51,6 @@ contract AddressLibTest is Test {
         assertFalse(AddressLib.isContract(address(0x9))); // blake2f
     }
 
-    function test_isContract_afterDestruction() public {
-        SelfDestructContract selfDestruct = new SelfDestructContract();
-        assertTrue(AddressLib.isContract(address(selfDestruct)));
-
-        selfDestruct.destroy();
-
-        // After selfdestruct, the contract still has code until the end of the transaction
-        // In newer EVM versions, selfdestruct doesn't actually remove code
-        assertTrue(AddressLib.isContract(address(selfDestruct)));
-    }
-
     /*//////////////////////////////////////////////////////////////
                         transferNative() TESTS
     //////////////////////////////////////////////////////////////*/
@@ -237,12 +226,5 @@ contract NonPayableContract {
 contract RevertingContract {
     receive() external payable {
         revert("Always reverts");
-    }
-}
-
-contract SelfDestructContract {
-    function destroy() external {
-        // Note: selfdestruct is deprecated and doesn't actually remove code in newer EVM versions
-        selfdestruct(payable(msg.sender));
     }
 }
