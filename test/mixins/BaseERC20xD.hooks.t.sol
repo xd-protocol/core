@@ -33,6 +33,10 @@ contract OrderTrackingHook is IERC20xDHook {
     uint256 public afterTransferCallOrder;
     uint256 public onInitiateTransferCallOrder;
     uint256 public onReadGlobalAvailabilityCallOrder;
+    uint256 public onMapAccountsCallOrder;
+    uint256 public onSettleLiquidityCallOrder;
+    uint256 public onSettleTotalLiquidityCallOrder;
+    uint256 public onSettleDataCallOrder;
 
     constructor(CallOrderTracker _tracker) {
         tracker = _tracker;
@@ -52,6 +56,22 @@ contract OrderTrackingHook is IERC20xDHook {
 
     function onReadGlobalAvailability(address, int256) external override {
         onReadGlobalAvailabilityCallOrder = tracker.incrementAndGet();
+    }
+
+    function onMapAccounts(uint32, address, address) external override {
+        onMapAccountsCallOrder = tracker.incrementAndGet();
+    }
+
+    function onSettleLiquidity(uint32, uint256, address, int256) external override {
+        onSettleLiquidityCallOrder = tracker.incrementAndGet();
+    }
+
+    function onSettleTotalLiquidity(uint32, uint256, int256) external override {
+        onSettleTotalLiquidityCallOrder = tracker.incrementAndGet();
+    }
+
+    function onSettleData(uint32, uint256, bytes32, bytes memory) external override {
+        onSettleDataCallOrder = tracker.incrementAndGet();
     }
 }
 
@@ -82,6 +102,23 @@ contract BaseERC20xDHooksTest is Test {
     event AfterTransferHookFailure(
         address indexed hook, address indexed from, address indexed to, uint256 amount, bytes reason
     );
+    event OnMapAccountsHookFailure(
+        address indexed hook, uint32 indexed eid, address remoteAccount, address localAccount, bytes reason
+    );
+    event OnSettleLiquidityHookFailure(
+        address indexed hook,
+        uint32 indexed eid,
+        uint256 timestamp,
+        address indexed account,
+        int256 liquidity,
+        bytes reason
+    );
+    event OnSettleTotalLiquidityHookFailure(
+        address indexed hook, uint32 indexed eid, uint256 timestamp, int256 totalLiquidity, bytes reason
+    );
+    event OnSettleDataHookFailure(
+        address indexed hook, uint32 indexed eid, uint256 timestamp, bytes32 indexed key, bytes value, bytes reason
+    );
     event InitiateTransfer(
         address indexed from, address indexed to, uint256 amount, uint256 value, uint256 indexed nonce
     );
@@ -99,10 +136,6 @@ contract BaseERC20xDHooksTest is Test {
         // Set peer for cross-chain
         vm.prank(owner);
         token.setPeer(1, bytes32(uint256(uint160(address(token)))));
-
-        // Register app
-        vm.prank(address(token));
-        liquidityMatrix.registerApp(false, false, address(0));
 
         // Deploy mock hooks
         hook1 = new HookMock();
@@ -677,5 +710,358 @@ contract BaseERC20xDHooksTest is Test {
         // In the actual flow, this happens inside _executePendingTransfer
         assertEq(hook1.getBeforeTransferCallCount(), 1);
         assertEq(hook1.getAfterTransferCallCount(), 1);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                      onMapAccounts HOOK TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_onMapAccounts_called() public {
+        // Add hook
+        vm.prank(owner);
+        token.addHook(address(hook1));
+
+        // Call onMapAccounts as LiquidityMatrix
+        uint32 eid = 1;
+        address remoteAccount = makeAddr("remote");
+        address localAccount = alice;
+
+        vm.prank(address(liquidityMatrix));
+        token.onMapAccounts(eid, remoteAccount, localAccount);
+
+        // Verify hook was called
+        assertEq(hook1.getMapAccountsCallCount(), 1);
+        (uint32 hookEid, address hookRemote, address hookLocal,) = hook1.mapAccountsCalls(0);
+
+        assertEq(hookEid, eid);
+        assertEq(hookRemote, remoteAccount);
+        assertEq(hookLocal, localAccount);
+    }
+
+    function test_onMapAccounts_multipleHooks() public {
+        // Add multiple hooks
+        vm.startPrank(owner);
+        token.addHook(address(hook1));
+        token.addHook(address(hook2));
+        token.addHook(address(hook3));
+        vm.stopPrank();
+
+        // Call onMapAccounts
+        vm.prank(address(liquidityMatrix));
+        token.onMapAccounts(30_000, makeAddr("remote"), bob);
+
+        // Verify all hooks were called
+        assertEq(hook1.getMapAccountsCallCount(), 1);
+        assertEq(hook2.getMapAccountsCallCount(), 1);
+        assertEq(hook3.getMapAccountsCallCount(), 1);
+    }
+
+    function test_onMapAccounts_revertDoesNotBlock() public {
+        // Add reverting hook
+        hook1.setShouldRevertOnMapAccounts(true);
+        vm.prank(owner);
+        token.addHook(address(hook1));
+
+        // Expect failure event
+        vm.expectEmit(true, true, false, false);
+        emit OnMapAccountsHookFailure(
+            address(hook1),
+            1,
+            makeAddr("remote"),
+            alice,
+            abi.encodeWithSignature("Error(string)", "HookMock: Intentional revert")
+        );
+
+        // Call should still succeed
+        vm.prank(address(liquidityMatrix));
+        token.onMapAccounts(1, makeAddr("remote"), alice);
+    }
+
+    function test_onMapAccounts_revertNonLiquidityMatrix() public {
+        // Try to call from non-LiquidityMatrix address
+        vm.prank(alice);
+        vm.expectRevert(BaseERC20xD.Forbidden.selector);
+        token.onMapAccounts(1, makeAddr("remote"), alice);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    onSettleLiquidity HOOK TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_onSettleLiquidity_called() public {
+        // Add hook
+        vm.prank(owner);
+        token.addHook(address(hook1));
+
+        // Call onSettleLiquidity as LiquidityMatrix
+        uint32 eid = 30_000;
+        uint256 timestamp = block.timestamp;
+        int256 liquidity = 100e18;
+
+        vm.prank(address(liquidityMatrix));
+        token.onSettleLiquidity(eid, timestamp, alice, liquidity);
+
+        // Verify hook was called
+        assertEq(hook1.getSettleLiquidityCallCount(), 1);
+        (uint32 hookEid, uint256 hookTimestamp, address hookAccount, int256 hookLiquidity) =
+            hook1.settleLiquidityCalls(0);
+
+        assertEq(hookEid, eid);
+        assertEq(hookTimestamp, timestamp);
+        assertEq(hookAccount, alice);
+        assertEq(hookLiquidity, liquidity);
+    }
+
+    function test_onSettleLiquidity_multipleHooks() public {
+        // Add multiple hooks
+        vm.startPrank(owner);
+        token.addHook(address(hook1));
+        token.addHook(address(hook2));
+        token.addHook(address(hook3));
+        vm.stopPrank();
+
+        // Call onSettleLiquidity
+        vm.prank(address(liquidityMatrix));
+        token.onSettleLiquidity(1, block.timestamp, bob, -50e18);
+
+        // Verify all hooks were called
+        assertEq(hook1.getSettleLiquidityCallCount(), 1);
+        assertEq(hook2.getSettleLiquidityCallCount(), 1);
+        assertEq(hook3.getSettleLiquidityCallCount(), 1);
+    }
+
+    function test_onSettleLiquidity_revertDoesNotBlock() public {
+        // Add reverting hook
+        hook1.setShouldRevertOnSettleLiquidity(true);
+        vm.prank(owner);
+        token.addHook(address(hook1));
+
+        // Expect failure event
+        vm.expectEmit(true, true, false, true);
+        emit OnSettleLiquidityHookFailure(
+            address(hook1),
+            30_000,
+            block.timestamp,
+            alice,
+            100e18,
+            abi.encodeWithSignature("Error(string)", "HookMock: Intentional revert")
+        );
+
+        // Call should still succeed
+        vm.prank(address(liquidityMatrix));
+        token.onSettleLiquidity(30_000, block.timestamp, alice, 100e18);
+    }
+
+    function test_onSettleLiquidity_revertNonLiquidityMatrix() public {
+        // Try to call from non-LiquidityMatrix address
+        vm.prank(alice);
+        vm.expectRevert(BaseERC20xD.Forbidden.selector);
+        token.onSettleLiquidity(1, block.timestamp, alice, 100e18);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                 onSettleTotalLiquidity HOOK TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_onSettleTotalLiquidity_called() public {
+        // Add hook
+        vm.prank(owner);
+        token.addHook(address(hook1));
+
+        // Call onSettleTotalLiquidity as LiquidityMatrix
+        uint32 eid = 30_001;
+        uint256 timestamp = block.timestamp + 1000;
+        int256 totalLiquidity = 1000e18;
+
+        vm.prank(address(liquidityMatrix));
+        token.onSettleTotalLiquidity(eid, timestamp, totalLiquidity);
+
+        // Verify hook was called
+        assertEq(hook1.getSettleTotalLiquidityCallCount(), 1);
+        (uint32 hookEid, uint256 hookTimestamp, int256 hookTotalLiquidity) = hook1.settleTotalLiquidityCalls(0);
+
+        assertEq(hookEid, eid);
+        assertEq(hookTimestamp, timestamp);
+        assertEq(hookTotalLiquidity, totalLiquidity);
+    }
+
+    function test_onSettleTotalLiquidity_multipleHooks() public {
+        // Add multiple hooks
+        vm.startPrank(owner);
+        token.addHook(address(hook1));
+        token.addHook(address(hook2));
+        token.addHook(address(hook3));
+        vm.stopPrank();
+
+        // Call onSettleTotalLiquidity
+        vm.prank(address(liquidityMatrix));
+        token.onSettleTotalLiquidity(1, block.timestamp, 5000e18);
+
+        // Verify all hooks were called
+        assertEq(hook1.getSettleTotalLiquidityCallCount(), 1);
+        assertEq(hook2.getSettleTotalLiquidityCallCount(), 1);
+        assertEq(hook3.getSettleTotalLiquidityCallCount(), 1);
+    }
+
+    function test_onSettleTotalLiquidity_revertDoesNotBlock() public {
+        // Add reverting hook
+        hook1.setShouldRevertOnSettleTotalLiquidity(true);
+        vm.prank(owner);
+        token.addHook(address(hook1));
+
+        // Expect failure event
+        vm.expectEmit(true, true, false, false);
+        emit OnSettleTotalLiquidityHookFailure(
+            address(hook1),
+            30_000,
+            block.timestamp,
+            2000e18,
+            abi.encodeWithSignature("Error(string)", "HookMock: Intentional revert")
+        );
+
+        // Call should still succeed
+        vm.prank(address(liquidityMatrix));
+        token.onSettleTotalLiquidity(30_000, block.timestamp, 2000e18);
+    }
+
+    function test_onSettleTotalLiquidity_revertNonLiquidityMatrix() public {
+        // Try to call from non-LiquidityMatrix address
+        vm.prank(alice);
+        vm.expectRevert(BaseERC20xD.Forbidden.selector);
+        token.onSettleTotalLiquidity(1, block.timestamp, 1000e18);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                      onSettleData HOOK TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_onSettleData_called() public {
+        // Add hook
+        vm.prank(owner);
+        token.addHook(address(hook1));
+
+        // Call onSettleData as LiquidityMatrix
+        uint32 eid = 30_002;
+        uint256 timestamp = block.timestamp + 2000;
+        bytes32 key = keccak256("test.key");
+        bytes memory value = abi.encode("test value", 12_345);
+
+        vm.prank(address(liquidityMatrix));
+        token.onSettleData(eid, timestamp, key, value);
+
+        // Verify hook was called
+        assertEq(hook1.getSettleDataCallCount(), 1);
+        (uint32 hookEid, uint256 hookTimestamp, bytes32 hookKey, bytes memory hookValue) = hook1.settleDataCalls(0);
+
+        assertEq(hookEid, eid);
+        assertEq(hookTimestamp, timestamp);
+        assertEq(hookKey, key);
+        assertEq(hookValue, value);
+    }
+
+    function test_onSettleData_multipleHooks() public {
+        // Add multiple hooks
+        vm.startPrank(owner);
+        token.addHook(address(hook1));
+        token.addHook(address(hook2));
+        token.addHook(address(hook3));
+        vm.stopPrank();
+
+        // Call onSettleData
+        vm.prank(address(liquidityMatrix));
+        token.onSettleData(1, block.timestamp, bytes32(uint256(123)), hex"deadbeef");
+
+        // Verify all hooks were called
+        assertEq(hook1.getSettleDataCallCount(), 1);
+        assertEq(hook2.getSettleDataCallCount(), 1);
+        assertEq(hook3.getSettleDataCallCount(), 1);
+    }
+
+    function test_onSettleData_revertDoesNotBlock() public {
+        // Add reverting hook
+        hook1.setShouldRevertOnSettleData(true);
+        vm.prank(owner);
+        token.addHook(address(hook1));
+
+        bytes memory testValue = abi.encode("data");
+
+        // Expect failure event
+        vm.expectEmit(true, true, false, true);
+        emit OnSettleDataHookFailure(
+            address(hook1),
+            30_000,
+            block.timestamp,
+            keccak256("key"),
+            testValue,
+            abi.encodeWithSignature("Error(string)", "HookMock: Intentional revert")
+        );
+
+        // Call should still succeed
+        vm.prank(address(liquidityMatrix));
+        token.onSettleData(30_000, block.timestamp, keccak256("key"), testValue);
+    }
+
+    function test_onSettleData_revertNonLiquidityMatrix() public {
+        // Try to call from non-LiquidityMatrix address
+        vm.prank(alice);
+        vm.expectRevert(BaseERC20xD.Forbidden.selector);
+        token.onSettleData(1, block.timestamp, bytes32(0), hex"1234");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                  HOOK ORDERING TESTS FOR NEW CALLBACKS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_hookOrdering_onMapAccounts() public {
+        // Deploy a shared call order tracker
+        CallOrderTracker tracker = new CallOrderTracker();
+
+        // Deploy three order tracking hooks with the shared tracker
+        OrderTrackingHook orderHook1 = new OrderTrackingHook(tracker);
+        OrderTrackingHook orderHook2 = new OrderTrackingHook(tracker);
+        OrderTrackingHook orderHook3 = new OrderTrackingHook(tracker);
+
+        // Add hooks in specific order
+        vm.startPrank(owner);
+        token.addHook(address(orderHook1));
+        token.addHook(address(orderHook2));
+        token.addHook(address(orderHook3));
+        vm.stopPrank();
+
+        // Call onMapAccounts - this should call hooks in order
+        vm.prank(address(liquidityMatrix));
+        token.onMapAccounts(1, makeAddr("remote"), alice);
+
+        // Verify hooks were called in the correct order
+        assertEq(orderHook1.onMapAccountsCallOrder(), 1, "Hook1 onMapAccounts should be called 1st");
+        assertEq(orderHook2.onMapAccountsCallOrder(), 2, "Hook2 onMapAccounts should be called 2nd");
+        assertEq(orderHook3.onMapAccountsCallOrder(), 3, "Hook3 onMapAccounts should be called 3rd");
+    }
+
+    function test_allCallbackHooks_inSettlementFlow() public {
+        // Add comprehensive hook
+        vm.prank(owner);
+        token.addHook(address(hook1));
+
+        // Simulate a complete settlement flow
+        vm.startPrank(address(liquidityMatrix));
+
+        // 1. Map accounts (might be called when accounts are mapped)
+        token.onMapAccounts(30_000, makeAddr("remote1"), alice);
+        assertEq(hook1.getMapAccountsCallCount(), 1);
+
+        // 2. Settle individual liquidity
+        token.onSettleLiquidity(30_000, block.timestamp, alice, 100e18);
+        assertEq(hook1.getSettleLiquidityCallCount(), 1);
+
+        // 3. Settle total liquidity
+        token.onSettleTotalLiquidity(30_000, block.timestamp, 1000e18);
+        assertEq(hook1.getSettleTotalLiquidityCallCount(), 1);
+
+        // 4. Settle data
+        token.onSettleData(30_000, block.timestamp, keccak256("config"), hex"1234");
+        assertEq(hook1.getSettleDataCallCount(), 1);
+
+        vm.stopPrank();
     }
 }
