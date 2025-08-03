@@ -151,7 +151,7 @@ contract AddressLibTest is Test {
     }
 
     function testFuzz_transferNative_toEOA(address recipient, uint256 amount) public {
-        if (recipient <= address(0x0a)) return; // precompile address
+        assumeNotPrecompile(recipient);
 
         vm.assume(recipient != address(0));
         vm.assume(!AddressLib.isContract(recipient)); // Ensure it's an EOA
