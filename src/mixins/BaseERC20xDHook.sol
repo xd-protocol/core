@@ -18,4 +18,12 @@ abstract contract BaseERC20xDHook is IERC20xDHook {
     function beforeTransfer(address from, address to, uint256 amount) external { }
 
     function afterTransfer(address from, address to, uint256 amount) external { }
+
+    function onMapAccounts(uint32 eid, address remoteAccount, address localAccount) external { }
+
+    function onSettleLiquidity(uint32 eid, uint256 timestamp, address account, int256 liquidity) external { }
+
+    function onSettleTotalLiquidity(uint32 eid, uint256 timestamp, int256 totalLiquidity) external { }
+
+    function onSettleData(uint32 eid, uint256 timestamp, bytes32 key, bytes memory value) external { }
 }
