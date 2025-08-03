@@ -34,7 +34,9 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
     event PeerSet(uint32 eid, bytes32 peer);
     event UpdateLiquidityMatrix(address indexed liquidityMatrix);
     event UpdateGateway(address indexed gateway);
-    event Transfer(address indexed from, address indexed to, uint256 amount, uint256 indexed nonce);
+    event InitiateTransfer(
+        address indexed from, address indexed to, uint256 amount, uint256 value, uint256 indexed nonce
+    );
     event CancelPendingTransfer(uint256 indexed nonce);
     event Transfer(address indexed from, address indexed to, uint256 amount);
 
@@ -230,9 +232,9 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         assertTrue(fee > 0);
     }
 
-    function test_getTransferCmd() public view {
+    function test_getReadAvailabilityCmd() public view {
         BaseERC20xD token = erc20s[0];
-        bytes memory cmd = token.getTransferCmd(alice, 1);
+        bytes memory cmd = token.getReadAvailabilityCmd(alice, 1);
         assertTrue(cmd.length > 0);
     }
 
@@ -261,7 +263,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         vm.deal(alice, fee);
 
         vm.expectEmit(true, true, true, false);
-        emit Transfer(alice, bob, 50e18, 1);
+        emit InitiateTransfer(alice, bob, 50e18, 0, 1);
 
         vm.prank(alice);
         token.transfer{ value: fee }(bob, 50e18, abi.encode(GAS_LIMIT, alice));
@@ -450,7 +452,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
     function test_lzReduce() public view {
         BaseERC20xD token = erc20s[0];
 
-        bytes memory cmd = token.getTransferCmd(alice, 1);
+        bytes memory cmd = token.getReadAvailabilityCmd(alice, 1);
 
         // Mock responses - each chain reports 100e18 available
         bytes[] memory responses = new bytes[](CHAINS - 1);
@@ -461,7 +463,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         bytes memory result = token.lzReduce(cmd, responses);
 
         (uint16 cmdLabel, uint256 nonce, int256 availability) = abi.decode(result, (uint16, uint256, int256));
-        assertEq(cmdLabel, 1); // CMD_TRANSFER
+        assertEq(cmdLabel, 1); // CMD_READ_AVAILABILITY
         assertEq(nonce, 1);
         assertEq(availability, int256(uint256(CHAINS - 1) * 100e18));
     }
@@ -469,7 +471,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
     function test_lzReduce_revertInvalidRequests() public {
         BaseERC20xD token = erc20s[0];
 
-        // Test with CMD_TRANSFER but empty requests array
+        // Test with CMD_READ_AVAILABILITY but empty requests array
         // Manual encoding: CMD_VERSION (1) + appCmdLabel (1) + requests.length (0)
         bytes memory invalidCmd = abi.encodePacked(uint16(1), uint16(1), uint16(0));
 

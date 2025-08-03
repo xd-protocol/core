@@ -46,7 +46,7 @@ interface IBaseERC20xD is IERC20Permit {
 
     function lzReduce(bytes calldata _cmd, bytes[] calldata _responses) external pure returns (bytes memory);
 
-    function getTransferCmd(address from, uint256 nonce) external view returns (bytes memory);
+    function getReadAvailabilityCmd(address from, uint256 nonce) external view returns (bytes memory);
 
     function setPeer(uint32 eid, bytes32 peer) external;
 

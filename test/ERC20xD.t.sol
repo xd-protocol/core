@@ -35,7 +35,9 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
     event PeerSet(uint32 eid, bytes32 peer);
     event UpdateLiquidityMatrix(address indexed liquidityMatrix);
     event UpdateGateway(address indexed gateway);
-    event Transfer(address indexed from, address indexed to, uint256 amount, uint256 indexed nonce);
+    event InitiateTransfer(
+        address indexed from, address indexed to, uint256 amount, uint256 value, uint256 indexed nonce
+    );
     event CancelPendingTransfer(uint256 indexed nonce);
     event Transfer(address indexed from, address indexed to, uint256 amount);
 
@@ -231,9 +233,9 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
         assertTrue(fee > 0);
     }
 
-    function test_getTransferCmd() public view {
+    function test_getReadAvailabilityCmd() public view {
         BaseERC20xD token = erc20s[0];
-        bytes memory cmd = token.getTransferCmd(alice, 1);
+        bytes memory cmd = token.getReadAvailabilityCmd(alice, 1);
         assertTrue(cmd.length > 0);
     }
 
@@ -348,7 +350,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
         uint256 fee = token.quoteBurn(alice, GAS_LIMIT);
 
         vm.expectEmit(true, true, true, false);
-        emit Transfer(alice, address(0), 50e18, 1);
+        emit InitiateTransfer(alice, address(0), 50e18, 0, 1);
 
         token.burn{ value: fee }(50e18, abi.encode(GAS_LIMIT, alice));
 
@@ -459,7 +461,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
         vm.deal(alice, fee);
 
         vm.expectEmit(true, true, true, false);
-        emit Transfer(alice, bob, 50e18, 1);
+        emit InitiateTransfer(alice, bob, 50e18, 0, 1);
 
         vm.prank(alice);
         token.transfer{ value: fee }(bob, 50e18, abi.encode(GAS_LIMIT, alice));
@@ -648,7 +650,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
     function test_lzReduce() public view {
         BaseERC20xD token = erc20s[0];
 
-        bytes memory cmd = token.getTransferCmd(alice, 1);
+        bytes memory cmd = token.getReadAvailabilityCmd(alice, 1);
 
         // Mock responses - each chain reports 100e18 available
         bytes[] memory responses = new bytes[](CHAINS - 1);

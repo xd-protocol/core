@@ -182,7 +182,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             }
             responses[count++] = abi.encode(erc20s[i].availableLocalBalanceOf(from, nonce));
         }
-        bytes memory payload = erc20.lzReduce(erc20.getTransferCmd(from, nonce), responses);
+        bytes memory payload = erc20.lzReduce(erc20.getReadAvailabilityCmd(from, nonce), responses);
         if (error.length > 0) {
             vm.expectRevert(error);
         }
