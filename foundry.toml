@@ -7,6 +7,14 @@ gas_limit = "18446744073709551615"
 solc-version = "0.8.28"
 evm_version = "cancun"
 via_ir = true
+additional_compiler_profiles = [
+  { name = "not-optimized", optimizer = false, optimizer_runs = 0 }
+]
+compilation_restrictions = [
+  { paths = "test/**/*", optimizer = false, optimizer_runs = 0 },
+  { paths = "script/**/*", optimizer = false, optimizer_runs = 0 }
+]
+dynamic_test_linking = true
 fs_permissions = [{ access = "read-write", path = "./deployments/"}, { access = "read", path = "./constants/"}]
 
 [fmt]
