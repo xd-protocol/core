@@ -1,7 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import { IBaseWrappedERC20xD } from "./IBaseWrappedERC20xD.sol";
-import { IStakingVaultCallbacks } from "./IStakingVault.sol";
+import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
+import { IBaseERC20xD } from "./IBaseERC20xD.sol";
 
-interface IWrappedERC20xD is IBaseWrappedERC20xD, IStakingVaultCallbacks { }
+interface IWrappedERC20xD is IBaseERC20xD {
+    function underlying() external view returns (address);
+
+    function wrap(address to, uint256 amount) external payable;
+
+    function unwrap(address to, uint256 amount, bytes memory data) external payable returns (MessagingReceipt memory);
+
+    fallback() external payable;
+    receive() external payable;
+}

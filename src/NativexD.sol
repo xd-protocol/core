@@ -1,30 +1,31 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { BaseWrappedERC20xD } from "./mixins/BaseWrappedERC20xD.sol";
+import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
+import { BaseERC20xD } from "./mixins/BaseERC20xD.sol";
 import { INativexD } from "./interfaces/INativexD.sol";
-import { IBaseWrappedERC20xD } from "./interfaces/IBaseWrappedERC20xD.sol";
-import { IStakingVault, IStakingVaultNativeCallbacks } from "./interfaces/IStakingVault.sol";
-import { IStakingVaultQuotable } from "./interfaces/IStakingVaultQuotable.sol";
 import { AddressLib } from "./libraries/AddressLib.sol";
 
 /**
  * @title NativexD
- * @notice A native token wrapper that extends cross-chain functionality for an underlying native asset.
- *         This contract builds upon BaseWrappedERC20xD to enable wrapping and unwrapping operations for the
- *         native cryptocurrency (e.g., ETH), interacting with a staking vault that supports native token
- *         deposits and redemptions.
- * @dev Outgoing operations (wrap) are performed by invoking _deposit() to deposit native tokens into the vault,
- *      while outgoing unwrapping (redeem) operations are executed via _redeem(). The contract also implements
- *      the IStakingVaultNativeCallbacks interface to handle incoming cross-chain messages confirming redemptions.
+ * @notice A cross-chain wrapped token implementation for native assets (e.g., ETH).
+ * @dev This contract extends BaseERC20xD directly to enable wrapping and unwrapping of native tokens.
+ *      All vault integration and redemption logic should be implemented via hooks.
  */
-contract NativexD is BaseWrappedERC20xD, INativexD {
+contract NativexD is BaseERC20xD, INativexD {
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Constant representing the native asset (e.g., ETH). In this context, native is denoted by address(0).
-    address internal constant NATIVE = address(0);
+    address public constant underlying = address(0);
+
+    /*//////////////////////////////////////////////////////////////
+                                 EVENTS
+    //////////////////////////////////////////////////////////////*/
+
+    event Wrap(address indexed to, uint256 amount);
+    event Unwrap(address indexed to, uint256 amount);
 
     /*//////////////////////////////////////////////////////////////
                                CONSTRUCTOR
@@ -32,8 +33,6 @@ contract NativexD is BaseWrappedERC20xD, INativexD {
 
     /**
      * @notice Initializes the NativexD contract.
-     * @dev Forwards parameters to the BaseWrappedERC20xD constructor using NATIVE as the underlying asset.
-     * @param _vault The vault contract's address.
      * @param _name The name of the wrapped native token.
      * @param _symbol The symbol of the wrapped native token.
      * @param _decimals The number of decimals for the wrapped native token.
@@ -42,82 +41,78 @@ contract NativexD is BaseWrappedERC20xD, INativexD {
      * @param _owner The address that will be granted ownership privileges.
      */
     constructor(
-        address _vault,
         string memory _name,
         string memory _symbol,
         uint8 _decimals,
         address _liquidityMatrix,
         address _gateway,
         address _owner
-    ) BaseWrappedERC20xD(NATIVE, _vault, _name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner) { }
-
-    /*//////////////////////////////////////////////////////////////
-                             VIEW FUNCTIONS
-    //////////////////////////////////////////////////////////////*/
-
-    function quoteRedeem(
-        address from,
-        address to,
-        uint256 shares,
-        bytes memory receivingData,
-        uint128 receivingFee,
-        uint256 minAmount,
-        uint128 gasLimit
-    ) public view override(BaseWrappedERC20xD, IBaseWrappedERC20xD) returns (uint256 fee) {
-        return IStakingVaultQuotable(vault).quoteRedeemNative(
-            to, shares, abi.encode(from, to), receivingData, receivingFee, minAmount, gasLimit
-        );
-    }
+    ) BaseERC20xD(_name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner) { }
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Executes a deposit (wrap) operation for the native asset.
-     * @dev Checks that the provided fee is at least the amount to be wrapped.
-     *      Then it calls the depositNative function on the vault with the provided fee.
-     *      This function represents an outgoing operation that wraps native tokens.
-     * @param amount The amount of native tokens to deposit.
-     * @param fee The fee to forward with the deposit call.
-     * @param data Additional data to pass to the vault's deposit function.
-     */
-    function _deposit(uint256 amount, uint256 fee, bytes memory data) internal override returns (uint256 shares) {
-        if (msg.value < amount + fee) revert InsufficientValue();
+    fallback() external payable virtual { }
 
-        return IStakingVault(vault).depositNative{ value: amount + fee }(address(this), amount, data);
-    }
-
-    function _redeem(
-        uint256 shares,
-        bytes memory callbackData,
-        bytes memory receivingData,
-        uint128 receivingFee,
-        bytes memory redeemData,
-        uint256 redeemFee
-    ) internal override {
-        IStakingVault(vault).redeemNative{ value: redeemFee }(
-            address(this), shares, callbackData, receivingData, receivingFee, redeemData
-        );
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                    IStakingVaultNativeCallbacks
-    //////////////////////////////////////////////////////////////*/
+    receive() external payable virtual { }
 
     /**
-     * @notice Callback function invoked by the vault when a native redemption is executed.
-     * @dev This function handles the incoming cross-chain message (incoming operation) confirming a redemption.
-     *      It verifies that the caller is the vault, decodes the original sender and recipient addresses,
-     *      updates internal accounting via _transferFrom, and transfers the redeemed native tokens to the recipient.
-     * @param data Encoded data containing the original sender and recipient addresses.
+     * @notice Wraps native tokens by accepting native value and minting wrapped tokens.
+     * @dev Accepts native tokens via msg.value and mints equivalent wrapped tokens.
+     *      Hooks can be used to implement custom deposit logic (e.g., depositing to vaults).
+     * @param to The destination address to receive the wrapped tokens.
      */
-    function onRedeemNative(uint256 shares, bytes calldata data) external payable {
-        if (msg.sender != vault) revert Forbidden();
+    function wrap(address to) external payable virtual nonReentrant {
+        if (to == address(0)) revert InvalidAddress();
+        if (msg.value == 0) revert InvalidAmount();
 
-        (address from, address to) = abi.decode(data, (address, address));
-        _transferFrom(from, address(0), shares);
+        // Mint wrapped tokens for the native value received
+        _transferFrom(address(0), to, msg.value);
 
-        AddressLib.transferNative(to, msg.value);
+        emit Wrap(to, msg.value);
+    }
+
+    /**
+     * @notice Initiates an unwrap operation to burn wrapped tokens.
+     * @dev Burns wrapped tokens after global availability check. The actual redemption of native
+     *      tokens should be handled by hooks in the afterTransfer callback.
+     * @param to The destination address to receive the unwrapped native tokens.
+     * @param amount The amount of wrapped tokens to unwrap.
+     * @param data Extra data containing LayerZero parameters (gasLimit, refundTo) for cross-chain messaging.
+     * @return receipt A MessagingReceipt confirming the message initiation.
+     */
+    function unwrap(address to, uint256 amount, bytes memory data)
+        external
+        payable
+        virtual
+        nonReentrant
+        returns (MessagingReceipt memory receipt)
+    {
+        if (to == address(0)) revert InvalidAddress();
+
+        // Pass recipient address in callData for hooks to use
+        receipt = _transfer(msg.sender, address(0), amount, abi.encode(to), 0, data);
+
+        emit Unwrap(to, amount);
+    }
+
+    /**
+     * @notice Quotes the fee for wrapping native tokens.
+     * @return fee The fee required for the wrap operation.
+     */
+    function quoteWrap(uint128) external pure virtual returns (uint256) {
+        // Wrap is a local operation, no cross-chain fee needed
+        return 0;
+    }
+
+    /**
+     * @notice Quotes the fee for unwrapping tokens.
+     * @param gasLimit The gas limit for the cross-chain operation.
+     * @return fee The fee required for the unwrap operation.
+     */
+    function quoteUnwrap(uint128 gasLimit) external view virtual returns (uint256) {
+        // Unwrap requires cross-chain messaging for global availability check
+        return quoteTransfer(msg.sender, gasLimit);
     }
 }
