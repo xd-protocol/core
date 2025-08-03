@@ -16,13 +16,14 @@ import { IBaseERC20xD } from "../interfaces/IBaseERC20xD.sol";
 import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
 import { IERC20xDGateway } from "../interfaces/IERC20xDGateway.sol";
 import { IERC20xDHook } from "../interfaces/IERC20xDHook.sol";
+import { ILiquidityMatrixCallbacks } from "../interfaces/ILiquidityMatrixCallbacks.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
 
 /**
  * @title BaseERC20xD
  * @notice An abstract cross-chain ERC20 token implementation that manages global liquidity
  *         and facilitates cross-chain transfer operations.
- * @dev This contract extends BaseERC20 and integrates with LayerZero’s OAppRead protocol and a
+ * @dev This contract extends BaseERC20 and integrates with LayerZero's OAppRead protocol and a
  *      LiquidityMatrix contract to track both local and settled liquidity across chains.
  *
  *      Key functionalities include:
@@ -33,6 +34,7 @@ import { AddressLib } from "../libraries/AddressLib.sol";
  *        liquidity check confirms sufficient availability.
  *      - Supporting cancellation of pending transfers and updating local liquidity via the
  *        LiquidityMatrix.
+ *      - Implementing ILiquidityMatrixCallbacks to receive notifications when remote state is settled.
  *
  *      Outgoing messages (transfers initiated by this contract) are composed and sent to remote chains
  *      for validation, while incoming messages (responses from remote chains) trigger the execution
@@ -41,7 +43,7 @@ import { AddressLib } from "../libraries/AddressLib.sol";
  *      Note: This contract is abstract and requires derived implementations to provide specific logic
  *      for functions such as _compose() and _transferFrom() as well as other operational details.
  */
-abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20xD {
+abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20xD, ILiquidityMatrixCallbacks {
     using AddressLib for address;
     using BytesLib for bytes;
 
@@ -87,6 +89,23 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     );
     event AfterTransferHookFailure(
         address indexed hook, address indexed from, address indexed to, uint256 amount, bytes reason
+    );
+    event OnMapAccountsHookFailure(
+        address indexed hook, uint32 indexed eid, address remoteAccount, address localAccount, bytes reason
+    );
+    event OnSettleLiquidityHookFailure(
+        address indexed hook,
+        uint32 indexed eid,
+        uint256 timestamp,
+        address indexed account,
+        int256 liquidity,
+        bytes reason
+    );
+    event OnSettleTotalLiquidityHookFailure(
+        address indexed hook, uint32 indexed eid, uint256 timestamp, int256 totalLiquidity, bytes reason
+    );
+    event OnSettleDataHookFailure(
+        address indexed hook, uint32 indexed eid, uint256 timestamp, bytes32 indexed key, bytes value, bytes reason
     );
 
     /*//////////////////////////////////////////////////////////////
@@ -136,6 +155,9 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         liquidityMatrix = _liquidityMatrix;
         gateway = _gateway;
         _pendingTransfers.push();
+
+        // Register this contract as an app in the LiquidityMatrix with callbacks enabled
+        ILiquidityMatrix(_liquidityMatrix).registerApp(false, true, address(0));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -271,6 +293,12 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         );
     }
 
+    /**
+     * @dev Retrieves the peer address for a given endpoint ID
+     * @param _eid The endpoint ID to query
+     * @return The peer address as bytes32
+     * @dev Reverts with NoPeer if no peer is set for the endpoint
+     */
     function _getPeerOrRevert(uint32 _eid) internal view virtual returns (bytes32) {
         bytes32 peer = peers[_eid];
         if (peer == bytes32(0)) revert NoPeer(_eid);
@@ -309,6 +337,30 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         gateway = _gateway;
 
         emit UpdateGateway(_gateway);
+    }
+
+    /**
+     * @notice Updates whether the app syncs only mapped accounts
+     * @param syncMappedAccountsOnly If true, only mapped accounts will be synced
+     */
+    function updateSyncMappedAccountsOnly(bool syncMappedAccountsOnly) external onlyOwner {
+        ILiquidityMatrix(liquidityMatrix).updateSyncMappedAccountsOnly(syncMappedAccountsOnly);
+    }
+
+    /**
+     * @notice Updates whether this app uses callbacks from LiquidityMatrix
+     * @param useCallbacks Whether to enable callbacks
+     */
+    function updateUseCallbacks(bool useCallbacks) external onlyOwner {
+        ILiquidityMatrix(liquidityMatrix).updateUseCallbacks(useCallbacks);
+    }
+
+    /**
+     * @notice Updates the authorized settler address for this app
+     * @param settler The new settler address
+     */
+    function updateSettler(address settler) external onlyOwner {
+        ILiquidityMatrix(liquidityMatrix).updateSettler(settler);
     }
 
     /**
@@ -426,6 +478,16 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         return _transfer(msg.sender, to, amount, callData, value, data);
     }
 
+    /**
+     * @dev Internal function to initiate a cross-chain transfer
+     * @param from The sender address
+     * @param to The recipient address
+     * @param amount The amount of tokens to transfer
+     * @param callData Optional calldata for executing on recipient
+     * @param value Native token value to send with callData execution
+     * @param data Extra data for LayerZero messaging
+     * @return receipt The messaging receipt from LayerZero
+     */
     function _transfer(
         address from,
         address to,
@@ -557,6 +619,11 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         }
     }
 
+    /**
+     * @dev Executes a pending transfer after global availability check
+     * @param pending The pending transfer details to execute
+     * @dev Routes to _compose if callData is provided, otherwise to _transferFrom
+     */
     function _executePendingTransfer(PendingTransfer memory pending) internal virtual {
         (address to, bytes memory callData) = (pending.to, pending.callData);
         if (to != address(0) && to.isContract() && callData.length > 0) {
@@ -566,6 +633,15 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         }
     }
 
+    /**
+     * @dev Handles composable transfers with calldata execution
+     * @param from The sender address
+     * @param to The recipient contract address
+     * @param amount The amount of tokens to transfer
+     * @param value Native token value to send with the call
+     * @param callData The calldata to execute on the recipient
+     * @dev Transfers tokens to this contract, sets allowance, executes call, and refunds any remaining tokens
+     */
     function _compose(address from, address to, uint256 amount, uint256 value, bytes memory callData)
         internal
         virtual
@@ -591,6 +667,13 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         }
     }
 
+    /**
+     * @dev Internal transfer function that updates liquidity in the LiquidityMatrix
+     * @param from The sender address (can be address(0) for minting)
+     * @param to The recipient address (can be address(0) for burning)
+     * @param amount The amount of tokens to transfer
+     * @dev Calls beforeTransfer and afterTransfer hooks, updates local liquidity, and emits Transfer event
+     */
     function _transferFrom(address from, address to, uint256 amount) internal virtual {
         address[] memory _hooks = hooks;
         uint256 length = _hooks.length;
@@ -624,5 +707,103 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         }
 
         emit Transfer(from, to, amount);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    ILiquidityMatrixCallbacks
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Called when remote accounts are successfully mapped to local accounts
+     * @dev Allows apps to perform additional logic when account mappings are established
+     * @param eid The endpoint ID of the remote chain
+     * @param remoteAccount The account address on the remote chain
+     * @param localAccount The mapped local account address
+     */
+    function onMapAccounts(uint32 eid, address remoteAccount, address localAccount) external virtual override {
+        // Only allow calls from the LiquidityMatrix contract
+        if (msg.sender != liquidityMatrix) revert Forbidden();
+
+        // Call onMapAccounts on all registered hooks
+        address[] memory _hooks = hooks;
+        uint256 length = _hooks.length;
+        for (uint256 i; i < length; ++i) {
+            try IERC20xDHook(_hooks[i]).onMapAccounts(eid, remoteAccount, localAccount) { }
+            catch (bytes memory reason) {
+                emit OnMapAccountsHookFailure(_hooks[i], eid, remoteAccount, localAccount, reason);
+            }
+        }
+    }
+
+    /**
+     * @notice Called when liquidity for a specific account is settled from a remote chain
+     * @dev Triggered during settleLiquidity if callbacks are enabled for the app
+     * @param eid The endpoint ID of the remote chain
+     * @param timestamp The timestamp of the settled data
+     * @param account The account whose liquidity was updated
+     * @param liquidity The settled liquidity value
+     */
+    function onSettleLiquidity(uint32 eid, uint256 timestamp, address account, int256 liquidity)
+        external
+        virtual
+        override
+    {
+        // Only allow calls from the LiquidityMatrix contract
+        if (msg.sender != liquidityMatrix) revert Forbidden();
+
+        // Call onSettleLiquidity on all registered hooks
+        address[] memory _hooks = hooks;
+        uint256 length = _hooks.length;
+        for (uint256 i; i < length; ++i) {
+            try IERC20xDHook(_hooks[i]).onSettleLiquidity(eid, timestamp, account, liquidity) { }
+            catch (bytes memory reason) {
+                emit OnSettleLiquidityHookFailure(_hooks[i], eid, timestamp, account, liquidity, reason);
+            }
+        }
+    }
+
+    /**
+     * @notice Called when the total liquidity is settled from a remote chain
+     * @dev Triggered after all individual account liquidity updates are processed
+     * @param eid The endpoint ID of the remote chain
+     * @param timestamp The timestamp of the settled data
+     * @param totalLiquidity The total liquidity across all accounts
+     */
+    function onSettleTotalLiquidity(uint32 eid, uint256 timestamp, int256 totalLiquidity) external virtual override {
+        // Only allow calls from the LiquidityMatrix contract
+        if (msg.sender != liquidityMatrix) revert Forbidden();
+
+        // Call onSettleTotalLiquidity on all registered hooks
+        address[] memory _hooks = hooks;
+        uint256 length = _hooks.length;
+        for (uint256 i; i < length; ++i) {
+            try IERC20xDHook(_hooks[i]).onSettleTotalLiquidity(eid, timestamp, totalLiquidity) { }
+            catch (bytes memory reason) {
+                emit OnSettleTotalLiquidityHookFailure(_hooks[i], eid, timestamp, totalLiquidity, reason);
+            }
+        }
+    }
+
+    /**
+     * @notice Called when data is settled from a remote chain
+     * @dev Triggered during settleData if callbacks are enabled for the app
+     * @param eid The endpoint ID of the remote chain
+     * @param timestamp The timestamp of the settled data
+     * @param key The data key that was updated
+     * @param value The settled data value
+     */
+    function onSettleData(uint32 eid, uint256 timestamp, bytes32 key, bytes memory value) external virtual override {
+        // Only allow calls from the LiquidityMatrix contract
+        if (msg.sender != liquidityMatrix) revert Forbidden();
+
+        // Call onSettleData on all registered hooks
+        address[] memory _hooks = hooks;
+        uint256 length = _hooks.length;
+        for (uint256 i; i < length; ++i) {
+            try IERC20xDHook(_hooks[i]).onSettleData(eid, timestamp, key, value) { }
+            catch (bytes memory reason) {
+                emit OnSettleDataHookFailure(_hooks[i], eid, timestamp, key, value, reason);
+            }
+        }
     }
 }
