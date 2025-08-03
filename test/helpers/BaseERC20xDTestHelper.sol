@@ -81,8 +81,6 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
 
         for (uint32 i; i < CHAINS; ++i) {
             vm.deal(address(erc20s[i]), 1000e18);
-            changePrank(address(erc20s[i]), address(erc20s[i]));
-            liquidityMatrices[i].registerApp(false, false, settlers[i]);
 
             uint32[] memory configEids = new uint32[](CHAINS - 1);
             uint16[] memory configConfirmations = new uint16[](CHAINS - 1);
@@ -92,7 +90,6 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
                 configEids[count] = eids[j];
                 configConfirmations[count] = 0;
                 count++;
-                liquidityMatrices[i].updateRemoteApp(eids[j], address(erc20s[j]));
             }
 
             changePrank(owner, owner);
