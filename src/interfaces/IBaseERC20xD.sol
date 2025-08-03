@@ -16,6 +16,7 @@ interface IBaseERC20xD is IERC20Permit {
      * @param amount The amount of tokens to transfer.
      * @param callData Optional calldata for executing a function on the recipient contract.
      * @param value The native cryptocurrency value to send with the callData, if any.
+     * @param data Extra data containing LayerZero parameters (gasLimit, refundTo).
      */
     struct PendingTransfer {
         bool pending;
@@ -24,6 +25,7 @@ interface IBaseERC20xD is IERC20Permit {
         uint256 amount;
         bytes callData;
         uint256 value;
+        bytes data;
     }
 
     function liquidityMatrix() external view returns (address);
