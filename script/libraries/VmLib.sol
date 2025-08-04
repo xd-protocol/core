@@ -49,11 +49,11 @@ library VmLib {
         vm.writeJson(vm.serializeAddress(key, name, facets), path);
     }
 
-    function loadDeployment(Vm vm, string memory name) internal returns (address) {
+    function loadDeployment(Vm vm, string memory name) internal view returns (address) {
         return loadDeployment(vm, block.chainid, name);
     }
 
-    function loadDeployment(Vm vm, uint256 chainId, string memory name) internal returns (address) {
+    function loadDeployment(Vm vm, uint256 chainId, string memory name) internal view returns (address) {
         string memory _chainId = chainId.toString();
         string memory path = string.concat("./deployments/", _chainId, ".json");
         if (!vm.exists(path)) return address(0);
@@ -63,11 +63,11 @@ library VmLib {
         return vm.parseJsonAddress(json, key);
     }
 
-    function loadFacets(Vm vm, string memory name) internal returns (address[] memory) {
+    function loadFacets(Vm vm, string memory name) internal view returns (address[] memory) {
         return loadFacets(vm, block.chainid, name);
     }
 
-    function loadFacets(Vm vm, uint256 chainId, string memory name) internal returns (address[] memory) {
+    function loadFacets(Vm vm, uint256 chainId, string memory name) internal view returns (address[] memory) {
         string memory _chainId = chainId.toString();
         string memory path = string.concat("./facets/", _chainId, ".json");
         if (!vm.exists(path)) revert(string.concat(path, " does not exist"));

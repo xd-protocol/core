@@ -184,9 +184,8 @@ contract VaultRedemptionHook is IERC20xDHook {
      * @notice Initiates cross-chain redemption when underlying is on another chain
      * @param recipient The address to receive the underlying tokens
      * @param amount The amount to redeem
-     * @param data LayerZero parameters (gasLimit, refundTo)
      */
-    function _initiateCrossChainRedemption(address recipient, uint256 amount, bytes memory data) internal {
+    function _initiateCrossChainRedemption(address recipient, uint256 amount, bytes memory /* data */ ) internal {
         // In a real implementation, this would:
         // 1. Decode LayerZero parameters from data
         // 2. Send a cross-chain message to the chain holding the underlying

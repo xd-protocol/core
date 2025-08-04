@@ -98,7 +98,7 @@ contract MerkleTreeLibTest is Test {
                           COMPUTE ROOT TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_computeRoot_emptyTree() public {
+    function test_computeRoot_emptyTree() public pure {
         bytes32[] memory keys = new bytes32[](0);
         bytes32[] memory values = new bytes32[](0);
 
@@ -106,7 +106,7 @@ contract MerkleTreeLibTest is Test {
         assertEq(root, bytes32(0));
     }
 
-    function test_computeRoot_singleNode() public {
+    function test_computeRoot_singleNode() public pure {
         bytes32[] memory keys = new bytes32[](1);
         bytes32[] memory values = new bytes32[](1);
 
@@ -117,7 +117,7 @@ contract MerkleTreeLibTest is Test {
         assertEq(root, keccak256(abi.encodePacked(keys[0], values[0])));
     }
 
-    function test_computeRoot_evenNumberOfNodes() public {
+    function test_computeRoot_evenNumberOfNodes() public pure {
         bytes32[] memory keys = new bytes32[](4);
         bytes32[] memory values = new bytes32[](4);
 
@@ -141,7 +141,7 @@ contract MerkleTreeLibTest is Test {
         assertEq(root, expectedRoot);
     }
 
-    function test_computeRoot_oddNumberOfNodes() public {
+    function test_computeRoot_oddNumberOfNodes() public pure {
         bytes32[] memory keys = new bytes32[](3);
         bytes32[] memory values = new bytes32[](3);
 
@@ -197,7 +197,7 @@ contract MerkleTreeLibTest is Test {
                            GET PROOF TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_getProof_singleNode() public {
+    function test_getProof_singleNode() public pure {
         bytes32[] memory keys = new bytes32[](1);
         bytes32[] memory values = new bytes32[](1);
 
@@ -208,7 +208,7 @@ contract MerkleTreeLibTest is Test {
         assertEq(proof.length, 0);
     }
 
-    function test_getProof_twoNodes() public {
+    function test_getProof_twoNodes() public pure {
         bytes32[] memory keys = new bytes32[](2);
         bytes32[] memory values = new bytes32[](2);
 
@@ -246,7 +246,7 @@ contract MerkleTreeLibTest is Test {
         this.callGetProof(keys, values, 0);
     }
 
-    function test_getProof_powerOfTwo() public {
+    function test_getProof_powerOfTwo() public pure {
         uint256 size = 8; // Power of 2
         bytes32[] memory keys = new bytes32[](size);
         bytes32[] memory values = new bytes32[](size);
@@ -266,7 +266,7 @@ contract MerkleTreeLibTest is Test {
         }
     }
 
-    function test_getProof_nonPowerOfTwo() public {
+    function test_getProof_nonPowerOfTwo() public pure {
         uint256 size = 7; // Not a power of 2
         bytes32[] memory keys = new bytes32[](size);
         bytes32[] memory values = new bytes32[](size);
@@ -290,7 +290,7 @@ contract MerkleTreeLibTest is Test {
                          VERIFY PROOF TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_verifyProof_validProof() public {
+    function test_verifyProof_validProof() public pure {
         bytes32[] memory keys = new bytes32[](4);
         bytes32[] memory values = new bytes32[](4);
 
@@ -305,7 +305,7 @@ contract MerkleTreeLibTest is Test {
         assertTrue(MerkleTreeLib.verifyProof(keys[1], values[1], 1, proof, root));
     }
 
-    function test_verifyProof_invalidProof() public {
+    function test_verifyProof_invalidProof() public pure {
         bytes32[] memory keys = new bytes32[](4);
         bytes32[] memory values = new bytes32[](4);
 
@@ -323,7 +323,7 @@ contract MerkleTreeLibTest is Test {
         assertFalse(MerkleTreeLib.verifyProof(keys[1], values[1], 1, proof, root));
     }
 
-    function test_verifyProof_wrongKey() public {
+    function test_verifyProof_wrongKey() public pure {
         bytes32[] memory keys = new bytes32[](4);
         bytes32[] memory values = new bytes32[](4);
 
@@ -339,7 +339,7 @@ contract MerkleTreeLibTest is Test {
         assertFalse(MerkleTreeLib.verifyProof(keccak256("wrong"), values[1], 1, proof, root));
     }
 
-    function test_verifyProof_wrongValue() public {
+    function test_verifyProof_wrongValue() public pure {
         bytes32[] memory keys = new bytes32[](4);
         bytes32[] memory values = new bytes32[](4);
 
@@ -355,7 +355,7 @@ contract MerkleTreeLibTest is Test {
         assertFalse(MerkleTreeLib.verifyProof(keys[1], keccak256("wrong"), 1, proof, root));
     }
 
-    function test_verifyProof_wrongIndex() public {
+    function test_verifyProof_wrongIndex() public pure {
         bytes32[] memory keys = new bytes32[](4);
         bytes32[] memory values = new bytes32[](4);
 
@@ -371,7 +371,7 @@ contract MerkleTreeLibTest is Test {
         assertFalse(MerkleTreeLib.verifyProof(keys[1], values[1], 2, proof, root));
     }
 
-    function test_verifyProof_wrongRoot() public {
+    function test_verifyProof_wrongRoot() public pure {
         bytes32[] memory keys = new bytes32[](4);
         bytes32[] memory values = new bytes32[](4);
 
@@ -380,14 +380,14 @@ contract MerkleTreeLibTest is Test {
             values[i] = bytes32((i + 1) * 100);
         }
 
-        bytes32 root = MerkleTreeLib.computeRoot(keys, values);
+        MerkleTreeLib.computeRoot(keys, values);
         bytes32[] memory proof = MerkleTreeLib.getProof(keys, values, 1);
 
         // Use wrong root
         assertFalse(MerkleTreeLib.verifyProof(keys[1], values[1], 1, proof, keccak256("wrong root")));
     }
 
-    function test_verifyProof_emptyProof() public {
+    function test_verifyProof_emptyProof() public pure {
         bytes32[] memory keys = new bytes32[](1);
         bytes32[] memory values = new bytes32[](1);
 
@@ -401,7 +401,7 @@ contract MerkleTreeLibTest is Test {
         assertTrue(MerkleTreeLib.verifyProof(keys[0], values[0], 0, proof, root));
     }
 
-    function test_verifyProof_fuzz(uint256 seed) public {
+    function test_verifyProof_fuzz(uint256 seed) public pure {
         uint256 size = (seed % 100) + 1; // 1 to 100 nodes
         bytes32 random = keccak256(abi.encodePacked("RANDOM", seed));
 
@@ -500,7 +500,7 @@ contract MerkleTreeLibTest is Test {
         assertEq(tree.size, size); // Size should not change
     }
 
-    function test_allZeroValues() public {
+    function test_allZeroValues() public pure {
         uint256 size = 4;
         bytes32[] memory keys = new bytes32[](size);
         bytes32[] memory values = new bytes32[](size);
@@ -519,7 +519,7 @@ contract MerkleTreeLibTest is Test {
         }
     }
 
-    function test_identicalKeys_differentValues() public {
+    function test_identicalKeys_differentValues() public pure {
         uint256 size = 4;
         bytes32[] memory keys = new bytes32[](size);
         bytes32[] memory values = new bytes32[](size);

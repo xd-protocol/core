@@ -225,7 +225,7 @@ contract WrappedERC20xDTest is BaseERC20xDTestHelper {
                           QUOTE WRAP/UNWRAP TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_quoteWrap() public {
+    function test_quoteWrap() public view {
         WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
 
         // Quote wrap should always return 0 for local operations
