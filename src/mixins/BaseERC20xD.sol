@@ -592,22 +592,15 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      */
     function _onReadGlobalAvailability(uint256 nonce, int256 globalAvailability) internal virtual {
         PendingTransfer storage pending = _pendingTransfers[nonce];
-        address from = pending.from;
         if (!pending.pending) revert TransferNotPending(nonce);
 
+        address from = pending.from;
         pending.pending = false;
         _pendingNonce[from] = 0;
 
         uint256 amount = pending.amount;
         int256 availability = localBalanceOf(from) + globalAvailability;
         if (availability < int256(amount)) revert InsufficientAvailability(nonce, amount, availability);
-
-        // TODO: refund unused native or not?
-        // uint256 balance = address(this).balance;
-        _executePendingTransfer(pending);
-        // if (address(this).balance > balance - pending.value) {
-        //     AddressLib.transferNative(from, address(this).balance + pending.value - balance);
-        // }
 
         address[] memory _hooks = hooks;
         uint256 length = _hooks.length;
@@ -617,6 +610,8 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
                 emit OnReadGlobalAvailabilityHookFailure(_hooks[i], from, globalAvailability, reason);
             }
         }
+
+        _executePendingTransfer(pending);
     }
 
     /**
