@@ -14,6 +14,12 @@ import { IERC20xDHook } from "src/interfaces/IERC20xDHook.sol";
 import { BaseERC20xDHook } from "src/mixins/BaseERC20xDHook.sol";
 import { AddressLib } from "src/libraries/AddressLib.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { IERC20xDGateway } from "src/interfaces/IERC20xDGateway.sol";
+import { ReadCodecV1, EVMCallRequestV1 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
+import {
+    MessagingReceipt,
+    MessagingFee
+} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 
 contract MockContract {
 // Empty contract for testing contract vs EOA distinction
@@ -74,7 +80,7 @@ contract DividendDistributorHookTest is BaseERC20xDTestHelper {
         }
 
         // Create hook attached to main token
-        hook = new DividendDistributorHook(address(erc20s[0]), address(dividendToken), owner);
+        hook = new DividendDistributorHook(address(erc20s[0]), address(dividendToken), address(gateways[0]), owner);
 
         // Add hook to main token
         vm.startPrank(owner);
@@ -136,10 +142,10 @@ contract DividendDistributorHookTest is BaseERC20xDTestHelper {
     function test_sharesTracking_onlyEOAs() public view {
         // Shares are already set up via wrapping in _setupInitialBalances()
         // Check shares - only EOAs should have shares
-        (uint256 aliceShares,,,,) = hook.getUserDividendInfo(users[0]);
-        (uint256 bobShares,,,,) = hook.getUserDividendInfo(users[1]);
-        (uint256 charlieShares,,,,) = hook.getUserDividendInfo(users[2]);
-        (uint256 contractShares,,,,) = hook.getUserDividendInfo(address(contractAccount));
+        uint256 aliceShares = hook.userBalances(users[0]);
+        uint256 bobShares = hook.userBalances(users[1]);
+        uint256 charlieShares = hook.userBalances(users[2]);
+        uint256 contractShares = hook.userBalances(address(contractAccount));
 
         assertEq(aliceShares, INITIAL_BALANCE);
         assertEq(bobShares, INITIAL_BALANCE / 2);
@@ -154,8 +160,8 @@ contract DividendDistributorHookTest is BaseERC20xDTestHelper {
     function test_sharesTracking_isEOAFlag() public view {
         // Shares are already set up via wrapping in _setupInitialBalances()
         // Check isEOA flag
-        (,,,, bool aliceIsEOA) = hook.getUserDividendInfo(users[0]);
-        (,,,, bool contractIsEOA) = hook.getUserDividendInfo(address(contractAccount));
+        bool aliceIsEOA = !users[0].isContract();
+        bool contractIsEOA = !address(contractAccount).isContract();
 
         assertTrue(aliceIsEOA);
         assertFalse(contractIsEOA);
@@ -206,7 +212,7 @@ contract DividendDistributorHookTest is BaseERC20xDTestHelper {
     function test_dividendDeposit_noSharesReverts() public {
         // Create a new dividend distributor hook with no initial balances
         DividendDistributorHook emptyHook =
-            new DividendDistributorHook(address(erc20s[0]), address(dividendToken), owner);
+            new DividendDistributorHook(address(erc20s[0]), address(dividendToken), address(gateways[0]), owner);
 
         // Add the empty hook to main token
         vm.startPrank(owner);
@@ -408,25 +414,25 @@ contract DividendDistributorHookTest is BaseERC20xDTestHelper {
         _executeTransfer(users[0], nonce, "");
 
         // Check updated shares
-        (uint256 aliceShares,,,,) = hook.getUserDividendInfo(users[0]);
-        (uint256 bobShares,,,,) = hook.getUserDividendInfo(users[1]);
+        uint256 aliceShares = hook.userBalances(users[0]);
+        uint256 bobShares = hook.userBalances(users[1]);
 
         assertEq(aliceShares, INITIAL_BALANCE / 2);
         assertEq(bobShares, INITIAL_BALANCE);
 
         // Check detailed dividend info for debugging
-        (uint256 aliceSharesInfo,, uint256 aliceUnclaimed,,) = hook.getUserDividendInfo(users[0]);
-        (uint256 bobSharesInfo,, uint256 bobUnclaimed,,) = hook.getUserDividendInfo(users[1]);
+        uint256 aliceUnclaimed = hook.unclaimedDividends(users[0]);
+        uint256 bobUnclaimed = hook.unclaimedDividends(users[1]);
 
         // Alice should have her initial pending dividends preserved as unclaimed
         assertEq(aliceUnclaimed, aliceInitialPending);
-        assertEq(aliceSharesInfo, INITIAL_BALANCE / 2);
+        assertEq(aliceShares, INITIAL_BALANCE / 2);
 
         // Bob should have his initial dividends plus new earnings
         uint256 bobInitialPending =
             (INITIAL_BALANCE / 2 * 1500 ether) / (INITIAL_BALANCE + INITIAL_BALANCE / 2 + INITIAL_BALANCE / 4);
         assertApproxEqAbs(bobUnclaimed, bobInitialPending, 1000);
-        assertEq(bobSharesInfo, INITIAL_BALANCE);
+        assertEq(bobShares, INITIAL_BALANCE);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -465,6 +471,161 @@ contract DividendDistributorHookTest is BaseERC20xDTestHelper {
         vm.prank(users[0]);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, users[0]));
         hook.emergencyWithdraw{ value: fee }(users[0], 100 ether, abi.encode(EXTENDED_GAS_LIMIT, users[0]));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                      CROSS-CHAIN DIVIDEND TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_crossChainDividendQuery() public {
+        // Setup peers for cross-chain
+        uint32 localEid = 1;
+        uint32 remoteEid = 2;
+        bytes32 localPeer = bytes32(uint256(uint160(address(hook))));
+        bytes32 remotePeer = bytes32(uint256(uint160(address(hook))));
+        vm.startPrank(owner);
+        hook.setPeer(localEid, localPeer);
+        hook.setPeer(remoteEid, remotePeer);
+        vm.stopPrank();
+
+        // Setup chain configs in gateway
+        uint32[] memory chainEids = new uint32[](2);
+        chainEids[0] = 1; // local
+        chainEids[1] = remoteEid;
+        uint16[] memory confirmations = new uint16[](2);
+        confirmations[0] = 15;
+        confirmations[1] = 15;
+
+        vm.mockCall(
+            address(gateways[0]),
+            abi.encodeWithSelector(IERC20xDGateway.chainConfigs.selector),
+            abi.encode(chainEids, confirmations)
+        );
+
+        // Mock getCmd response
+        bytes memory expectedCmd = abi.encode("test_cmd");
+        vm.mockCall(
+            address(gateways[0]), abi.encodeWithSelector(IERC20xDGateway.getCmd.selector), abi.encode(expectedCmd)
+        );
+
+        // Mock quote
+        uint256 expectedFee = 0.1 ether;
+        vm.mockCall(
+            address(gateways[0]), abi.encodeWithSelector(IERC20xDGateway.quoteRead.selector), abi.encode(expectedFee)
+        );
+
+        // Test quote function
+        uint256 fee = hook.quoteGlobalDividendQuery(200_000);
+        assertEq(fee, expectedFee);
+
+        // Mock read call
+        vm.mockCall(
+            address(gateways[0]),
+            abi.encodeWithSelector(IERC20xDGateway.read.selector),
+            abi.encode(MessagingReceipt(bytes32(uint256(1)), 1, MessagingFee(0, 0)))
+        );
+
+        // Query global dividends
+        vm.deal(users[0], expectedFee);
+        vm.startPrank(users[0]);
+        uint256 queryId = hook.queryGlobalDividends(users[0], "");
+        vm.stopPrank();
+
+        assertEq(queryId, 1);
+        (address queryUser, bool pending) = hook.pendingQueries(queryId);
+        assertTrue(pending);
+        assertEq(queryUser, users[0]);
+    }
+
+    function test_lzReduce_dividendInfo() public {
+        // Create mock command and responses
+        uint16 cmdLabel = 100; // CMD_READ_DIVIDEND_INFO
+        address user = users[0];
+
+        // Create EVMCallRequestV1
+        EVMCallRequestV1[] memory requests = new EVMCallRequestV1[](2);
+        requests[0] = EVMCallRequestV1({
+            appRequestLabel: 1,
+            targetEid: 1,
+            isBlockNum: false,
+            blockNumOrTimestamp: 0,
+            confirmations: 0,
+            to: address(hook),
+            callData: abi.encodeWithSelector(hook.pendingDividends.selector, user)
+        });
+        requests[1] = requests[0];
+
+        bytes memory cmd = ReadCodecV1.encode(cmdLabel, requests);
+
+        // Create responses
+        bytes[] memory responses = new bytes[](2);
+        // Response format: just pending amount (uint256)
+        responses[0] = abi.encode(15e18);
+        responses[1] = abi.encode(35e18);
+
+        // Call lzReduce
+        bytes memory result = hook.lzReduce(cmd, responses);
+
+        // Decode result
+        (uint16 resultCmd, address resultUser, uint256 totalPending) = abi.decode(result, (uint16, address, uint256));
+
+        assertEq(resultCmd, cmdLabel);
+        assertEq(resultUser, user);
+        assertEq(totalPending, 50e18); // 15e18 + 35e18
+    }
+
+    function test_onRead_dividendInfo() public {
+        // Setup a pending query
+        uint32 localEid = 1;
+        uint32 remoteEid = 2;
+        bytes32 localPeer = bytes32(uint256(uint160(address(hook))));
+        bytes32 remotePeer = bytes32(uint256(uint160(address(hook))));
+        vm.startPrank(owner);
+        hook.setPeer(localEid, localPeer);
+        hook.setPeer(remoteEid, remotePeer);
+        vm.stopPrank();
+
+        // Mock gateway calls for query setup
+        uint32[] memory chainEids = new uint32[](1);
+        chainEids[0] = 1;
+        uint16[] memory confirmations = new uint16[](1);
+        confirmations[0] = 15;
+
+        vm.mockCall(
+            address(gateways[0]),
+            abi.encodeWithSelector(IERC20xDGateway.chainConfigs.selector),
+            abi.encode(chainEids, confirmations)
+        );
+        vm.mockCall(address(gateways[0]), abi.encodeWithSelector(IERC20xDGateway.getCmd.selector), abi.encode(""));
+        vm.mockCall(
+            address(gateways[0]),
+            abi.encodeWithSelector(IERC20xDGateway.read.selector),
+            abi.encode(MessagingReceipt(bytes32(0), 0, MessagingFee(0, 0)))
+        );
+
+        // Create a pending query
+        vm.deal(users[0], 1 ether);
+        vm.startPrank(users[0]);
+        uint256 queryId = hook.queryGlobalDividends(users[0], "");
+        vm.stopPrank();
+
+        // Create message
+        uint16 cmdLabel = 100;
+        address user = users[0];
+        uint256 totalPending = 50e18;
+        bytes memory message = abi.encode(cmdLabel, user, totalPending);
+
+        // Expect event
+        vm.expectEmit(address(hook));
+        emit DividendDistributorHook.GlobalDividendInfo(user, totalPending, queryId);
+
+        // Call onRead from gateway
+        vm.prank(address(gateways[0]));
+        hook.onRead(message);
+
+        // Verify query is no longer pending
+        (, bool pending) = hook.pendingQueries(queryId);
+        assertFalse(pending);
     }
 
     /*//////////////////////////////////////////////////////////////
