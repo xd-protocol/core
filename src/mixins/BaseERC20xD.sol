@@ -1,12 +1,6 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { ReadCodecV1, EVMCallRequestV1 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
-import {
-    MessagingReceipt,
-    ILayerZeroEndpointV2
-} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
-import { AddressCast } from "@layerzerolabs/lz-evm-protocol-v2/contracts/libs/AddressCast.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { BytesLib } from "solidity-bytes-utils/contracts/BytesLib.sol";
 import { IERC20 } from "forge-std/interfaces/IERC20.sol";
@@ -17,6 +11,7 @@ import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
 import { IERC20xDGateway } from "../interfaces/IERC20xDGateway.sol";
 import { IERC20xDHook } from "../interfaces/IERC20xDHook.sol";
 import { ILiquidityMatrixCallbacks } from "../interfaces/ILiquidityMatrixCallbacks.sol";
+import { IERC20xDGatewayCallbacks } from "../interfaces/IERC20xDGatewayCallbacks.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
 
 /**
@@ -55,8 +50,6 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     address public liquidityMatrix;
     address public gateway;
 
-    mapping(uint32 eid => bytes32 peer) public peers;
-
     bool internal _composing;
     PendingTransfer[] internal _pendingTransfers;
     mapping(address acount => uint256) internal _pendingNonce;
@@ -69,7 +62,6 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    event PeerSet(uint32 eid, bytes32 peer);
     event UpdateLiquidityMatrix(address indexed liquidityMatrix);
     event UpdateGateway(address indexed gateway);
     event InitiateTransfer(
@@ -113,8 +105,6 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     //////////////////////////////////////////////////////////////*/
 
     error InvalidRequests();
-    error InvalidCmd();
-    error NoPeer(uint32 eid);
     error Unsupported();
     error Forbidden();
     error TransferNotPending(uint256 nonce);
@@ -124,7 +114,6 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     error InsufficientValue();
     error TransferPending();
     error Overflow();
-    error RefundFailure(uint256 nonce);
     error InsufficientAvailability(uint256 nonce, uint256 amount, int256 availabillity);
     error CallFailure(address to, bytes reason);
     error NotComposing();
@@ -233,8 +222,9 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @return fee The estimated messaging fee for the request.
      */
     function quoteTransfer(address from, uint128 gasLimit) public view returns (uint256 fee) {
-        bytes memory cmd = getReadAvailabilityCmd(from, _pendingTransfers.length);
-        return IERC20xDGateway(gateway).quoteRead(cmd, gasLimit);
+        return IERC20xDGateway(gateway).quoteRead(
+            address(this), abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from), gasLimit
+        );
     }
 
     /**
@@ -243,81 +233,30 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @param account The owner of available balance to read.
      * @return balance The balance that can be spent on current chain.
      */
-    function availableLocalBalanceOf(address account, uint256 /* dummy */ ) public view returns (int256 balance) {
+    function availableLocalBalanceOf(address account) public view returns (int256 balance) {
         uint256 nonce = _pendingNonce[account];
         PendingTransfer storage pending = _pendingTransfers[nonce];
         return localBalanceOf(account) - int256(pending.pending ? pending.amount : 0);
     }
 
-    /**
-     * @notice Processes the responses from LayerZero's read protocol, aggregating results based on the command label.
-     * @param _cmd The encoded command specifying the request details.
-     * @param _responses An array of responses corresponding to each read request.
-     * @return The aggregated result.
-     */
-    function lzReduce(bytes calldata _cmd, bytes[] calldata _responses) external pure returns (bytes memory) {
-        (uint16 appCmdLabel, EVMCallRequestV1[] memory requests,) = ReadCodecV1.decode(_cmd);
-        if (appCmdLabel == CMD_READ_AVAILABILITY) {
-            if (requests.length == 0) revert InvalidRequests();
-            // decode nonce from callData for availableLocalBalanceOf(address account, uint256 nonce)
-            uint256 nonce = uint256(bytes32(requests[0].callData.slice(36, 32)));
+    function reduce(IERC20xDGatewayCallbacks.Request[] calldata requests, bytes calldata, bytes[] calldata responses)
+        external
+        pure
+        returns (bytes memory)
+    {
+        if (requests.length == 0) revert InvalidRequests();
 
-            int256 availability;
-            for (uint256 i; i < _responses.length; ++i) {
-                int256 balance = abi.decode(_responses[i], (int256));
-                availability += balance;
-            }
-            return abi.encode(appCmdLabel, nonce, availability);
-        } else {
-            revert InvalidCmd();
+        int256 availability;
+        for (uint256 i; i < responses.length; ++i) {
+            int256 balance = abi.decode(responses[i], (int256));
+            availability += balance;
         }
-    }
-
-    /**
-     * @notice Constructs the command payload for initiating a cross-chain transfer read request.
-     * @param from The address initiating the cross-chain transfer.
-     * @param nonce The unique identifier for the transfer.
-     * @return cmd The encoded command data.
-     * @dev Constructs read requests for each configured chain in the LiquidityMatrix.
-     */
-    function getReadAvailabilityCmd(address from, uint256 nonce) public view returns (bytes memory) {
-        (uint32[] memory eids,) = IERC20xDGateway(gateway).chainConfigs();
-        address[] memory targets = new address[](eids.length);
-        for (uint256 i; i < eids.length; ++i) {
-            bytes32 peer = _getPeerOrRevert(eids[i]);
-            targets[i] = AddressCast.toAddress(peer);
-        }
-
-        return IERC20xDGateway(gateway).getCmd(
-            CMD_READ_AVAILABILITY, targets, abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from, nonce)
-        );
-    }
-
-    /**
-     * @dev Retrieves the peer address for a given endpoint ID
-     * @param _eid The endpoint ID to query
-     * @return The peer address as bytes32
-     * @dev Reverts with NoPeer if no peer is set for the endpoint
-     */
-    function _getPeerOrRevert(uint32 _eid) internal view virtual returns (bytes32) {
-        bytes32 peer = peers[_eid];
-        if (peer == bytes32(0)) revert NoPeer(_eid);
-        return peer;
+        return abi.encode(availability);
     }
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @notice Sets the peer address for a specific endpoint ID
-     * @param _eid The endpoint ID of the peer chain
-     * @param _peer The peer address as bytes32
-     */
-    function setPeer(uint32 _eid, bytes32 _peer) public virtual onlyOwner {
-        peers[_eid] = _peer;
-        emit PeerSet(_eid, _peer);
-    }
 
     /**
      * @notice Updates the liquidity matrix contract address
@@ -337,6 +276,10 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         gateway = _gateway;
 
         emit UpdateGateway(_gateway);
+    }
+
+    function updateReadTarget(bytes32 chainIdentifier, bytes32 target) external onlyOwner {
+        IERC20xDGateway(gateway).updateReadTarget(chainIdentifier, target);
     }
 
     /**
@@ -423,15 +366,9 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @param to The recipient address on the target chain.
      * @param amount The amount of tokens to transfer.
      * @param data Extra data.
-     * @return receipt The messaging receipt from LayerZero, confirming the request details.
-     *         Includes the `guid` and `block` parameters for tracking.
      * @dev Emits a `InitiateTransfer` event upon successful initiation.
      */
-    function transfer(address to, uint256 amount, bytes memory data)
-        public
-        payable
-        returns (MessagingReceipt memory receipt)
-    {
+    function transfer(address to, uint256 amount, bytes memory data) public payable returns (bytes32 guid) {
         return transfer(to, amount, "", 0, data);
     }
 
@@ -443,14 +380,12 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @param amount The amount of tokens to transfer.
      * @param callData Optional calldata for executing a function on the recipient contract.
      * @param data Extra data.
-     * @return receipt The messaging receipt from LayerZero, confirming the request details.
-     *         Includes the `guid` and `block` parameters for tracking.
      * @dev Emits a `InitiateTransfer` event upon successful initiation.
      */
     function transfer(address to, uint256 amount, bytes memory callData, bytes memory data)
         public
         payable
-        returns (MessagingReceipt memory receipt)
+        returns (bytes32 guid)
     {
         return transfer(to, amount, callData, 0, data);
     }
@@ -464,14 +399,12 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @param callData Optional calldata for executing a function on the recipient contract.
      * @param value Native cryptocurrency to be sent when calling the recipient with `callData`.
      * @param data Extra data.
-     * @return receipt The messaging receipt from LayerZero, confirming the request details.
-     *         Includes the `guid` and `block` parameters for tracking.
      * @dev Emits a `InitiateTransfer` event upon successful initiation.
      */
     function transfer(address to, uint256 amount, bytes memory callData, uint256 value, bytes memory data)
         public
         payable
-        returns (MessagingReceipt memory receipt)
+        returns (bytes32 guid)
     {
         if (to == address(0)) revert InvalidAddress();
 
@@ -486,7 +419,6 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @param callData Optional calldata for executing on recipient
      * @param value Native token value to send with callData execution
      * @param data Extra data for LayerZero messaging
-     * @return receipt The messaging receipt from LayerZero
      */
     function _transfer(
         address from,
@@ -495,7 +427,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         bytes memory callData,
         uint256 value,
         bytes memory data
-    ) internal virtual returns (MessagingReceipt memory receipt) {
+    ) internal virtual returns (bytes32 guid) {
         if (amount == 0) revert InvalidAmount();
         if (amount > uint256(type(int256).max)) revert Overflow();
         if (amount > balanceOf(from)) revert InsufficientBalance();
@@ -508,8 +440,9 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         _pendingTransfers.push(PendingTransfer(true, from, to, amount, callData, value, data));
         _pendingNonce[from] = nonce;
 
-        bytes memory cmd = getReadAvailabilityCmd(from, nonce);
-        receipt = IERC20xDGateway(gateway).read{ value: msg.value - value }(cmd, data);
+        guid = IERC20xDGateway(gateway).read{ value: msg.value - value }(
+            abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from, nonce), abi.encode(nonce), data
+        );
 
         address[] memory _hooks = hooks;
         uint256 length = _hooks.length;
@@ -571,16 +504,13 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @dev Only callable by the gateway contract
      * @param _message The encoded message containing the read response
      */
-    function onRead(bytes calldata _message) external {
+    function onRead(bytes calldata _message, bytes calldata _extra) external {
         if (msg.sender != gateway) revert Forbidden();
 
-        uint16 appCmdLabel = abi.decode(_message, (uint16));
-        if (appCmdLabel == CMD_READ_AVAILABILITY) {
-            (, uint256 nonce, int256 globalAvailability) = abi.decode(_message, (uint16, uint256, int256));
-            _onReadGlobalAvailability(nonce, globalAvailability);
-        } else {
-            revert InvalidCmd();
-        }
+        int256 globalAvailability = abi.decode(_message, (int256));
+        uint256 nonce = abi.decode(_extra, (uint256));
+
+        _onReadGlobalAvailability(nonce, globalAvailability);
     }
 
     /**
@@ -621,7 +551,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      */
     function _executePendingTransfer(PendingTransfer memory pending) internal virtual {
         (address to, bytes memory callData) = (pending.to, pending.callData);
-        if (to != address(0) && to.isContract() && callData.length > 0) {
+        if (to != address(0) /*to.isContract() &&*/ && callData.length > 0) {
             _compose(pending.from, to, pending.amount, pending.value, callData, pending.data);
         } else {
             _transferFrom(pending.from, to, pending.amount, pending.data);
