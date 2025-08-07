@@ -12,13 +12,14 @@ import { Synchronizer } from "src/Synchronizer.sol";
 import { ERC20xDGateway } from "src/gateways/ERC20xDGateway.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
+import { IERC20xDGatewayCallbacks } from "src/interfaces/IERC20xDGatewayCallbacks.sol";
 import { LiquidityMatrixTestHelper } from "./LiquidityMatrixTestHelper.sol";
 import { SettlerMock } from "../mocks/SettlerMock.sol";
 
 abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
     uint8 public constant CHAINS = 8;
     uint16 public constant CMD_TRANSFER = 1;
-    uint96 public constant GAS_LIMIT = 500_000;
+    uint128 public constant GAS_LIMIT = 500_000;
 
     uint32[CHAINS] eids;
     address[CHAINS] syncers;
@@ -95,10 +96,15 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             changePrank(owner, owner);
             synchronizers[i].configChains(configEids, configConfirmations);
 
-            // Set peers for ERC20xD contracts
+            // Register ERC20xD with gateway
+            gateways[i].registerReader(address(erc20s[i]));
+        }
+
+        // Set read targets for ERC20xD contracts
+        for (uint32 i; i < CHAINS; ++i) {
             for (uint32 j; j < CHAINS; ++j) {
                 if (i != j) {
-                    erc20s[i].setPeer(eids[j], bytes32(uint256(uint160(address(erc20s[j])))));
+                    erc20s[i].updateReadTarget(bytes32(uint256(eids[j])), bytes32(uint256(uint160(address(erc20s[j])))));
                 }
             }
         }
@@ -165,20 +171,43 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
         vm.stopPrank();
     }
 
-    function _executeTransfer(BaseERC20xD erc20, address from, uint256 nonce, bytes memory error) internal {
+    function _executeTransfer(BaseERC20xD erc20, address user, bytes memory error) internal {
+        address[] memory readers = new address[](CHAINS);
+        for (uint256 i; i < readers.length; ++i) {
+            readers[i] = address(erc20s[i]);
+        }
+        _executeRead(
+            address(erc20), readers, abi.encodeWithSelector(BaseERC20xD.availableLocalBalanceOf.selector, user), error
+        );
+    }
+
+    function _executeRead(address reader, address[] memory readers, bytes memory callData, bytes memory error)
+        internal
+    {
+        IERC20xDGatewayCallbacks.Request[] memory requests = new IERC20xDGatewayCallbacks.Request[](CHAINS - 1);
         bytes[] memory responses = new bytes[](CHAINS - 1);
         uint32 eid;
         address gateway;
         uint256 count;
         for (uint256 i; i < CHAINS; ++i) {
-            if (erc20s[i] == erc20) {
+            if (readers[i] == reader) {
                 eid = eids[i];
                 gateway = address(gateways[i]);
                 continue;
             }
-            responses[count++] = abi.encode(erc20s[i].availableLocalBalanceOf(from, nonce));
+            requests[count] = IERC20xDGatewayCallbacks.Request({
+                chainIdentifier: bytes32(uint256(eids[i])),
+                timestamp: uint64(block.timestamp),
+                target: address(readers[i])
+            });
+            (, bytes memory response) = readers[i].call(callData);
+            responses[count] = response;
+            count++;
         }
-        bytes memory payload = erc20.lzReduce(erc20.getReadAvailabilityCmd(from, nonce), responses);
+
+        // Simulate the gateway calling reduce and then onRead
+        bytes memory payload = IERC20xDGatewayCallbacks(reader).reduce(requests, callData, responses);
+
         if (error.length > 0) {
             vm.expectRevert(error);
         }
