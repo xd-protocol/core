@@ -172,9 +172,10 @@ contract WrappedERC20xDHooksTest is Test {
             address(underlying), "Wrapped USDC", "wUSDC", 6, address(liquidityMatrix), address(gateway), owner
         );
 
-        // Set peer for local chain (chain ID 1 from gateway mock)
+        // Set read target for local chain (chain ID 1 from gateway mock)
         vm.prank(owner);
-        wrappedToken.setPeer(1, bytes32(uint256(uint160(address(wrappedToken)))));
+        // gateway.registerReader(address(wrappedToken)); // Mock gateway doesn't have this
+        wrappedToken.updateReadTarget(bytes32(uint256(1)), bytes32(uint256(uint160(address(wrappedToken)))));
 
         // Deploy hooks
         redemptionHook = new SimpleRedemptionHook(address(wrappedToken), address(underlying));
@@ -200,10 +201,9 @@ contract WrappedERC20xDHooksTest is Test {
 
     function _simulateGatewayResponse(uint256 nonce, int256 globalAvailability) internal {
         // Simulate the gateway calling onRead with the global availability response
-        // CMD_READ_AVAILABILITY = 1
-        bytes memory message = abi.encode(uint16(1), nonce, globalAvailability);
+        bytes memory message = abi.encode(globalAvailability);
         vm.prank(address(gateway));
-        wrappedToken.onRead(message);
+        wrappedToken.onRead(message, abi.encode(nonce));
     }
 
     /*//////////////////////////////////////////////////////////////

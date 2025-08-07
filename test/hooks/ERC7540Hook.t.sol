@@ -190,8 +190,7 @@ contract ERC7540HookTest is BaseERC20xDTestHelper {
         );
 
         // Execute the unwrap transfer
-        uint256 nonce = erc20s[chainId].pendingNonce(user);
-        _executeTransfer(erc20s[chainId], user, nonce, "");
+        _executeTransfer(erc20s[chainId], user, "");
 
         // Verify wrapped tokens were burned
         assertEq(erc20s[chainId].balanceOf(user), 0);
@@ -218,8 +217,7 @@ contract ERC7540HookTest is BaseERC20xDTestHelper {
         );
 
         // Execute the unwrap transfer
-        uint256 nonce = erc20s[chainId].pendingNonce(user);
-        _executeTransfer(erc20s[chainId], user, nonce, "");
+        _executeTransfer(erc20s[chainId], user, "");
 
         // Verify balances
         assertEq(erc20s[chainId].balanceOf(user), wrapAmount - unwrapAmount);
@@ -255,8 +253,7 @@ contract ERC7540HookTest is BaseERC20xDTestHelper {
         token.transfer{ value: fee }(recipient, transferAmount, abi.encode(TEST_GAS_LIMIT, sender));
 
         // Execute the transfer
-        uint256 nonce = token.pendingNonce(sender);
-        _executeTransfer(token, sender, nonce, "");
+        _executeTransfer(token, sender, "");
 
         // Verify final balances
         assertEq(token.localBalanceOf(sender), int256(wrapAmount - transferAmount));
@@ -301,8 +298,7 @@ contract ERC7540HookTest is BaseERC20xDTestHelper {
         );
 
         // Execute the unwrap transfer
-        uint256 nonce = erc20s[chainId].pendingNonce(user);
-        _executeTransfer(erc20s[chainId], user, nonce, "");
+        _executeTransfer(erc20s[chainId], user, "");
 
         uint256 redeemRequestId = 2;
         assertEq(vaults[chainId].pendingRedeemRequest(redeemRequestId, user), amount);
@@ -339,16 +335,14 @@ contract ERC7540HookTest is BaseERC20xDTestHelper {
         vm.deal(users[0], fee0);
         vm.prank(users[0]);
         erc20s[0].transfer{ value: fee0 }(users[2], 30 * 1e18, abi.encode(TEST_GAS_LIMIT, users[0]));
-        uint256 nonce0 = erc20s[0].pendingNonce(users[0]);
-        _executeTransfer(erc20s[0], users[0], nonce0, "");
+        _executeTransfer(erc20s[0], users[0], "");
 
         // User1 transfers on chain 1
         uint256 fee1 = erc20s[1].quoteTransfer(users[2], TEST_GAS_LIMIT);
         vm.deal(users[1], fee1);
         vm.prank(users[1]);
         erc20s[1].transfer{ value: fee1 }(users[2], 50 * 1e18, abi.encode(TEST_GAS_LIMIT, users[1]));
-        uint256 nonce1 = erc20s[1].pendingNonce(users[1]);
-        _executeTransfer(erc20s[1], users[1], nonce1, "");
+        _executeTransfer(erc20s[1], users[1], "");
 
         // Verify balances
         assertEq(erc20s[0].localBalanceOf(users[0]), int256(70 * 1e18));
@@ -444,8 +438,7 @@ contract ERC7540HookTest is BaseERC20xDTestHelper {
         );
 
         // Execute the unwrap transfer
-        uint256 nonce = erc20s[chainId].pendingNonce(user);
-        _executeTransfer(erc20s[chainId], user, nonce, "");
+        _executeTransfer(erc20s[chainId], user, "");
 
         // Test view functions
         assertEq(hooks[chainId].pendingDepositRequest(user, 1), 100 * 1e18);
