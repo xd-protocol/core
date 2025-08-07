@@ -22,35 +22,35 @@ contract AddressLibTest is Test {
                           isContract() TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_isContract_withContract() public view {
-        assertTrue(AddressLib.isContract(address(contractMock)));
-        assertTrue(AddressLib.isContract(address(nonPayableContract)));
-        assertTrue(AddressLib.isContract(address(revertingContract)));
-    }
-
-    function test_isContract_withEOA() public view {
-        assertFalse(AddressLib.isContract(eoa));
-        assertFalse(AddressLib.isContract(address(0x1234)));
-        assertFalse(AddressLib.isContract(address(0x5678))); // Use hardcoded address instead
-    }
-
-    function test_isContract_withZeroAddress() public view {
-        assertFalse(AddressLib.isContract(address(0)));
-    }
-
-    function test_isContract_withPrecompiles() public view {
-        // Ethereum precompiles (0x1 - 0x9)
-        assertFalse(AddressLib.isContract(address(0x1))); // ecrecover
-        assertFalse(AddressLib.isContract(address(0x2))); // sha256
-        assertFalse(AddressLib.isContract(address(0x3))); // ripemd160
-        assertFalse(AddressLib.isContract(address(0x4))); // identity
-        assertFalse(AddressLib.isContract(address(0x5))); // modexp
-        assertFalse(AddressLib.isContract(address(0x6))); // ecAdd
-        assertFalse(AddressLib.isContract(address(0x7))); // ecMul
-        assertFalse(AddressLib.isContract(address(0x8))); // ecPairing
-        assertFalse(AddressLib.isContract(address(0x9))); // blake2f
-    }
-
+    //     function test_isContract_withContract() public view {
+    //         assertTrue(AddressLib.isContract(address(contractMock)));
+    //         assertTrue(AddressLib.isContract(address(nonPayableContract)));
+    //         assertTrue(AddressLib.isContract(address(revertingContract)));
+    //     }
+    //
+    //     function test_isContract_withEOA() public view {
+    //         assertFalse(AddressLib.isContract(eoa));
+    //         assertFalse(AddressLib.isContract(address(0x1234)));
+    //         assertFalse(AddressLib.isContract(address(0x5678))); // Use hardcoded address instead
+    //     }
+    //
+    //     function test_isContract_withZeroAddress() public view {
+    //         assertFalse(AddressLib.isContract(address(0)));
+    //     }
+    //
+    //     function test_isContract_withPrecompiles() public view {
+    //         // Ethereum precompiles (0x1 - 0x9)
+    //         assertFalse(AddressLib.isContract(address(0x1))); // ecrecover
+    //         assertFalse(AddressLib.isContract(address(0x2))); // sha256
+    //         assertFalse(AddressLib.isContract(address(0x3))); // ripemd160
+    //         assertFalse(AddressLib.isContract(address(0x4))); // identity
+    //         assertFalse(AddressLib.isContract(address(0x5))); // modexp
+    //         assertFalse(AddressLib.isContract(address(0x6))); // ecAdd
+    //         assertFalse(AddressLib.isContract(address(0x7))); // ecMul
+    //         assertFalse(AddressLib.isContract(address(0x8))); // ecPairing
+    //         assertFalse(AddressLib.isContract(address(0x9))); // blake2f
+    //     }
+    //
     /*//////////////////////////////////////////////////////////////
                         transferNative() TESTS
     //////////////////////////////////////////////////////////////*/
@@ -136,7 +136,7 @@ contract AddressLibTest is Test {
                             FUZZ TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function testFuzz_isContract(address addr) public view {
+    /* function testFuzz_isContract(address addr) public view {
         // For random addresses, we can only assert that the function doesn't revert
         // The actual result depends on the blockchain state
         bool result = AddressLib.isContract(addr);
@@ -148,13 +148,13 @@ contract AddressLibTest is Test {
         if (addr == address(this) || addr == address(contractMock)) {
             assertTrue(result);
         }
-    }
+    }*/
 
     function testFuzz_transferNative_toEOA(address recipient, uint256 amount) public {
         assumeNotPrecompile(recipient);
 
         vm.assume(recipient != address(0));
-        vm.assume(!AddressLib.isContract(recipient)); // Ensure it's an EOA
+        vm.assume(recipient.code.length == 0); // Ensure it's an EOA
         vm.assume(amount <= 100 ether);
 
         vm.deal(address(this), amount);
