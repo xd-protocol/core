@@ -27,6 +27,16 @@ import { ISynchronizer } from "../interfaces/ISynchronizer.sol";
 contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
     using OptionsBuilder for bytes;
 
+    struct ReaderState {
+        uint16 cmdLabel;
+        mapping(uint32 eid => bytes32) targets;
+    }
+
+    struct ReadRequest {
+        address reader;
+        bytes extra;
+    }
+
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
@@ -36,22 +46,44 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
 
     uint32 public transferCalldataSize = 32;
 
-    mapping(uint32 eid => uint64) internal _transferDelays;
-    mapping(bytes32 guid => address) internal _readers;
+    mapping(address app => ReaderState) public readerStates;
+    mapping(uint16 cmdLabel => address app) public getReader;
+    mapping(uint32 eid => uint64) public transferDelays;
+
+    uint16 internal _lastCmdLabel;
+    mapping(bytes32 guid => ReadRequest) public requests;
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
+    event RegisterReader(address indexed app, uint16 indexed cmdLabel);
     event UpdateTransferDelay(uint32 indexed eid, uint64 delay);
     event UpdateTransferCalldataSize(uint128 size);
+    event UpdateReadTarget(address indexed app, uint32 indexed eid, bytes32 indexed target);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
+    error Forbidden();
+    error InvalidReader();
+    error InvalidTarget();
     error InvalidLengths();
+    error InvalidChainIdentifier();
+    error InvalidLzReadOptions();
     error InvalidGuid();
+    error InvalidCmdLabel();
+    error InvalidRequests();
+
+    /*//////////////////////////////////////////////////////////////
+                             MODIFIERS
+    //////////////////////////////////////////////////////////////*/
+
+    modifier onlyReader() {
+        if (readerStates[msg.sender].cmdLabel == 0) revert Forbidden();
+        _;
+    }
 
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
@@ -83,20 +115,16 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
         return ISynchronizer(synchronizer).chainConfigs();
     }
 
-    function transferDelay(uint32 eid) external view returns (uint256) {
-        return _transferDelays[eid];
-    }
-
     /**
      * @notice Quotes the messaging fee for sending a read request with specific calldata.
      * @param gasLimit The gas limit to allocate for actual transfer after lzRead.
      * @return fee The estimated messaging fee for the request.
      */
-    function quoteRead(bytes memory cmd, uint128 gasLimit) public view returns (uint256 fee) {
+    function quoteRead(address app, bytes memory callData, uint128 gasLimit) public view returns (uint256 fee) {
         (uint32[] memory eids,) = chainConfigs();
         MessagingFee memory _fee = _quote(
             READ_CHANNEL,
-            cmd,
+            _getCmd(app, callData),
             OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, uint32(transferCalldataSize * eids.length), 0),
             false
         );
@@ -104,49 +132,40 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
     }
 
     /**
-     * @notice Constructs the command payload for initiating a cross-chain transfer read request.
-     * @return cmd The encoded command data.
-     * @dev Constructs read requests for each configured chain in the LiquidityMatrix.
+     * @notice Processes and aggregates responses from LayerZero's read protocol
+     * @param _cmd The encoded command from LayerZero
+     * @param _responses Array of responses from each chain
+     * @return The aggregated result from the callback contract
      */
-    function getCmd(uint16 cmdLabel, address[] memory targets, bytes memory callData)
-        public
-        view
-        returns (bytes memory)
-    {
-        (uint32[] memory _eids, uint16[] memory _confirmations) = chainConfigs();
-        EVMCallRequestV1[] memory readRequests = new EVMCallRequestV1[](_eids.length);
+    function lzReduce(bytes calldata _cmd, bytes[] calldata _responses) external view returns (bytes memory) {
+        // Decode the command using ReadCodecV1
+        (uint16 _cmdLabel, EVMCallRequestV1[] memory _requests,) = ReadCodecV1.decode(_cmd);
+        address app = getReader[_cmdLabel];
+        if (app == address(0)) revert InvalidCmdLabel();
+        if (_requests.length == 0) revert InvalidRequests();
 
-        uint64 timestamp = uint64(block.timestamp);
-        for (uint256 i; i < _eids.length; i++) {
-            uint32 eid = _eids[i];
-            readRequests[i] = EVMCallRequestV1({
-                appRequestLabel: uint16(i + 1),
-                targetEid: eid,
-                isBlockNum: false,
-                blockNumOrTimestamp: timestamp + _transferDelays[eid],
-                confirmations: _confirmations[i],
-                to: targets[i],
-                callData: callData
-            });
+        IERC20xDGatewayCallbacks.Request[] memory __requests = new IERC20xDGatewayCallbacks.Request[](_requests.length);
+        for (uint256 i; i < _requests.length; i++) {
+            EVMCallRequestV1 memory request = _requests[i];
+            __requests[i] = IERC20xDGatewayCallbacks.Request(
+                bytes32(uint256(request.targetEid)), request.blockNumOrTimestamp, request.to
+            );
         }
 
-        return ReadCodecV1.encode(cmdLabel, readRequests, _computeSettings(msg.sender));
-    }
-
-    function _computeSettings(address to) internal view virtual returns (EVMCallComputeV1 memory) {
-        return EVMCallComputeV1({
-            computeSetting: 1, // lzReduce()
-            targetEid: ILayerZeroEndpointV2(endpoint).eid(),
-            isBlockNum: false,
-            blockNumOrTimestamp: uint64(block.timestamp),
-            confirmations: 0,
-            to: to
-        });
+        return IERC20xDGatewayCallbacks(app).reduce(__requests, _requests[0].callData, _responses);
     }
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
+
+    function registerReader(address app) external onlyOwner {
+        uint16 cmdLabel = _lastCmdLabel + 1;
+        _lastCmdLabel = cmdLabel;
+        readerStates[app].cmdLabel = cmdLabel;
+
+        emit RegisterReader(app, cmdLabel);
+    }
 
     /**
      * @notice Updates the cross-chain transfer delays for specified endpoint IDs.
@@ -162,7 +181,7 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
             uint32 eid = eids[i];
             uint64 delay = delays[i];
 
-            _transferDelays[eid] = delay;
+            transferDelays[eid] = delay;
 
             emit UpdateTransferDelay(eid, delay);
         }
@@ -174,15 +193,30 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
         emit UpdateTransferCalldataSize(size);
     }
 
-    function read(bytes memory cmd, bytes memory data) external payable returns (MessagingReceipt memory receipt) {
+    function updateReadTarget(bytes32 chainIdentifier, bytes32 target) external onlyReader {
+        if (uint256(chainIdentifier) >= type(uint32).max) revert InvalidChainIdentifier();
+
+        uint32 eid = uint32(uint256(chainIdentifier));
+        readerStates[msg.sender].targets[eid] = target;
+
+        emit UpdateReadTarget(msg.sender, eid, target);
+    }
+
+    function read(bytes memory callData, bytes memory extra, bytes memory data)
+        external
+        payable
+        onlyReader
+        returns (bytes32 guid)
+    {
         // directly use endpoint.send() to bypass _payNative() check in _lzSend()
+        if (data.length < 64) revert InvalidLzReadOptions();
         (uint128 gasLimit, address refundTo) = abi.decode(data, (uint128, address));
         (uint32[] memory eids,) = chainConfigs();
-        receipt = endpoint.send{ value: msg.value }(
+        MessagingReceipt memory receipt = endpoint.send{ value: msg.value }(
             MessagingParams(
                 READ_CHANNEL,
                 _getPeerOrRevert(READ_CHANNEL),
-                cmd,
+                _getCmd(msg.sender, callData),
                 OptionsBuilder.newOptions().addExecutorLzReadOption(
                     gasLimit, transferCalldataSize * uint32(eids.length), 0
                 ),
@@ -190,7 +224,8 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
             ),
             payable(refundTo)
         );
-        _readers[receipt.guid] = msg.sender;
+        requests[receipt.guid] = ReadRequest(msg.sender, extra);
+        return receipt.guid;
     }
 
     function _lzReceive(
@@ -201,12 +236,53 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
         bytes calldata /* _extraData */
     ) internal virtual override nonReentrant {
         if (_origin.srcEid == READ_CHANNEL) {
-            address to = _readers[_guid];
-            if (to == address(0)) revert InvalidGuid();
+            ReadRequest memory request = requests[_guid];
+            if (request.reader == address(0)) revert InvalidGuid();
 
-            delete _readers[_guid];
+            delete requests[_guid];
 
-            IERC20xDGatewayCallbacks(to).onRead(_message);
+            IERC20xDGatewayCallbacks(request.reader).onRead(_message, request.extra);
         }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                           INTERNAL FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    function _getCmd(address app, bytes memory callData) public view returns (bytes memory) {
+        ReaderState storage state = readerStates[app];
+        if (state.cmdLabel == 0) revert InvalidReader();
+
+        (uint32[] memory _eids, uint16[] memory _confirmations) = chainConfigs();
+        EVMCallRequestV1[] memory readRequests = new EVMCallRequestV1[](_eids.length);
+
+        uint64 timestamp = uint64(block.timestamp);
+        for (uint256 i; i < _eids.length; i++) {
+            uint32 eid = _eids[i];
+            address target = AddressCast.toAddress(state.targets[eid]);
+            if (target == address(0)) revert InvalidTarget();
+            readRequests[i] = EVMCallRequestV1({
+                appRequestLabel: uint16(i + 1),
+                targetEid: eid,
+                isBlockNum: false,
+                blockNumOrTimestamp: timestamp + transferDelays[eid],
+                confirmations: _confirmations[i],
+                to: target,
+                callData: callData
+            });
+        }
+
+        return ReadCodecV1.encode(state.cmdLabel, readRequests, _computeSettings());
+    }
+
+    function _computeSettings() internal view virtual returns (EVMCallComputeV1 memory) {
+        return EVMCallComputeV1({
+            computeSetting: 1, // lzReduce()
+            targetEid: ILayerZeroEndpointV2(endpoint).eid(),
+            isBlockNum: false,
+            blockNumOrTimestamp: uint64(block.timestamp),
+            confirmations: 0,
+            to: address(this) // Always target gateway for lzReduce
+         });
     }
 }
