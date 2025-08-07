@@ -6,19 +6,20 @@ import { IBaseERC20xD } from "../interfaces/IBaseERC20xD.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { ReadCodecV1, EVMCallRequestV1 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
-import { AddressCast } from "@layerzerolabs/lz-evm-protocol-v2/contracts/libs/AddressCast.sol";
+import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import { BytesLib } from "solidity-bytes-utils/contracts/BytesLib.sol";
 import { IERC20xDGateway } from "../interfaces/IERC20xDGateway.sol";
 import { IERC20xDGatewayCallbacks } from "../interfaces/IERC20xDGatewayCallbacks.sol";
+import { console2 } from "forge-std/console2.sol";
 
 /**
  * @title DividendDistributorHook
- * @notice A hook that distributes dividends to ERC20xD token holders (EOAs only)
+ * @notice A hook that distributes dividends to ERC20xD token holders
  * @dev Uses a cumulative dividend per share model to track and distribute rewards
  *
  *      Key mechanics:
- *      - Only EOAs (not contracts) can receive dividends
+ *      - Only registered accounts can receive dividends
  *      - Tracks balance changes via onSettleLiquidity hook
  *      - Receives dividend deposits when tokens are transferred to this contract
  *      - Distributes dividends using ERC20xD cross-chain transfers
@@ -26,7 +27,7 @@ import { IERC20xDGatewayCallbacks } from "../interfaces/IERC20xDGatewayCallbacks
  *      - Implements cross-chain dividend aggregation using LayerZero read protocol
  *
  *      The contract maintains:
- *      - Total shares (sum of all EOA balances)
+ *      - Total shares (sum of all registered accounts' balances)
  *      - Cumulative dividends per share (scaled by PRECISION)
  *      - User checkpoints for claimed dividends
  *      - Unclaimed dividend tracking per user
@@ -35,6 +36,8 @@ import { IERC20xDGatewayCallbacks } from "../interfaces/IERC20xDGatewayCallbacks
 contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCallbacks {
     using AddressLib for address;
     using BytesLib for bytes;
+    using ECDSA for bytes32;
+    using MessageHashUtils for bytes32;
 
     /*//////////////////////////////////////////////////////////////
                                 CONSTANTS
@@ -43,9 +46,6 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
     /// @notice Precision factor for dividend calculations (1e18)
     uint256 public constant PRECISION = 1e18;
 
-    /// @notice Command label for reading global dividend info
-    uint16 internal constant CMD_READ_DIVIDEND_INFO = 100;
-
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
@@ -53,20 +53,23 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
     /// @notice The ERC20xD token used for dividend distributions
     IBaseERC20xD public immutable dividendToken;
 
-    /// @notice Total amount of shares (token supply held by EOAs)
-    uint256 public totalShares;
+    /// @notice Total amount of shares (token supply held by registered accounts)
+    uint256 public totalSupply;
+
+    /// @notice User's balance at last update
+    mapping(address => uint256) public balanceOf;
 
     /// @notice Cumulative dividends per share, scaled by PRECISION
     uint256 public cumulativeDividendsPerShare;
+
+    /// @notice Tracks those who are registered for dividends.
+    mapping(address => bool) public isRegistered;
 
     /// @notice User's last claimed dividend checkpoint
     mapping(address => uint256) public userDividendCheckpoints;
 
     /// @notice Unclaimed dividends for each user
     mapping(address => uint256) public unclaimedDividends;
-
-    /// @notice User's balance at last update (only EOAs)
-    mapping(address => uint256) public userBalances;
 
     /// @notice Total dividends distributed
     uint256 public totalDividendsDistributed;
@@ -80,27 +83,15 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
     /// @notice Gateway contract for cross-chain reads
     address public gateway;
 
-    /// @notice Peer dividend hook addresses on other chains
-    mapping(uint32 eid => bytes32 peer) public peers;
-
-    /// @notice Pending global dividend queries
-    mapping(uint256 => PendingDividendQuery) public pendingQueries;
-    uint256 public queryNonce;
-
-    struct PendingDividendQuery {
-        address user;
-        bool pending;
-    }
-
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
+    event RegisterForDividends(address indexed user);
     event DividendDeposited(uint256 amount, uint256 newCumulativePerShare);
     event DividendClaimed(address indexed user, uint256 amount);
-    event SharesUpdated(address indexed user, uint256 oldShares, uint256 newShares, bool isEOA);
+    event SharesUpdated(address indexed user, uint256 oldShares, uint256 newShares, bool registered);
     event EmergencyWithdraw(address indexed to, uint256 amount);
-    event GlobalDividendInfo(address indexed user, uint256 totalPending, uint256 queryId);
     event PeerSet(uint32 eid, bytes32 peer);
     event GatewayUpdated(address gateway);
 
@@ -110,14 +101,12 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
 
     error InvalidDividendToken();
     error NoDividends();
-    error NoShares();
+    error InsufficientDividends();
     error TransferFailed();
-    error Unauthorized();
+    error AlreadyRegistered();
+    error InvalidSignature();
     error InvalidAmount();
     error InvalidGateway();
-    error NoPeer(uint32 eid);
-    error QueryNotPending();
-    error InvalidCmd();
     error InvalidRequests();
 
     /*//////////////////////////////////////////////////////////////
@@ -126,11 +115,6 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
 
     modifier onlyToken() {
         if (msg.sender != token) revert Forbidden();
-        _;
-    }
-
-    modifier onlyEOA() {
-        if (msg.sender.isContract()) revert Forbidden();
         _;
     }
 
@@ -165,8 +149,8 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
      * @param user The user to check
      * @return The amount of pending dividends
      */
-    function pendingDividends(address user) external view returns (uint256) {
-        uint256 shares = userBalances[user];
+    function pendingDividends(address user) public view returns (uint256) {
+        uint256 shares = balanceOf[user];
         if (shares == 0) return unclaimedDividends[user];
 
         uint256 dividendsDelta = cumulativeDividendsPerShare - userDividendCheckpoints[user];
@@ -179,7 +163,13 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
      * @notice Quotes the fee required to claim dividends
      * @return fee The LayerZero fee required for claiming
      */
-    function quoteClaim(uint128 gasLimit) external view returns (uint256 fee) {
+    function quoteRequestClaimDividends(address user, uint128 gasLimit) external view returns (uint256 fee) {
+        return IERC20xDGateway(gateway).quoteRead(
+            address(this), abi.encodeWithSelector(this.pendingDividends.selector, user), gasLimit
+        );
+    }
+
+    function quoteTransferDividends(uint128 gasLimit) external view returns (uint256 fee) {
         return dividendToken.quoteTransfer(address(this), gasLimit);
     }
 
@@ -191,29 +181,27 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
         return dividendToken.balanceOf(address(this));
     }
 
-    /**
-     * @notice Quotes the fee for querying global dividend info
-     * @param gasLimit Gas limit for the callback
-     * @return fee The LayerZero fee required
-     */
-    function quoteGlobalDividendQuery(uint128 gasLimit) external view returns (uint256 fee) {
-        bytes memory cmd = _getGlobalDividendCmd(msg.sender);
-        return IERC20xDGateway(gateway).quoteRead(cmd, gasLimit);
+    function reduce(
+        IERC20xDGatewayCallbacks.Request[] calldata requests,
+        bytes calldata callData,
+        bytes[] calldata responses
+    ) external view returns (bytes memory) {
+        if (requests.length == 0 || responses.length == 0) revert InvalidRequests();
+
+        // parse user from callData `pendingDividends(address user)`
+        address user = address(bytes20(callData[16:36]));
+        uint256 totalPending = pendingDividends(user);
+        for (uint256 i; i < responses.length; ++i) {
+            uint256 pending = abi.decode(responses[i], (uint256));
+            totalPending += pending;
+        }
+
+        return abi.encode(totalPending);
     }
 
     /*//////////////////////////////////////////////////////////////
                            ADMIN FUNCTIONS
     //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @notice Sets the peer dividend hook address for a specific chain
-     * @param eid The endpoint ID of the peer chain
-     * @param peer The peer dividend hook address
-     */
-    function setPeer(uint32 eid, bytes32 peer) external onlyOwner {
-        peers[eid] = peer;
-        emit PeerSet(eid, peer);
-    }
 
     /**
      * @notice Updates the gateway contract address
@@ -223,6 +211,10 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
         if (_gateway == address(0)) revert InvalidGateway();
         gateway = _gateway;
         emit GatewayUpdated(_gateway);
+    }
+
+    function updateReadTarget(bytes32 chainIdentifier, bytes32 target) external onlyOwner {
+        IERC20xDGateway(gateway).updateReadTarget(chainIdentifier, target);
     }
 
     /**
@@ -247,6 +239,22 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
                       LOGIC (MUTABLE FUNCTIONS)
     //////////////////////////////////////////////////////////////*/
 
+    function registerForDividends(bytes memory signature) external {
+        if (isRegistered[msg.sender]) revert AlreadyRegistered();
+
+        bytes32 message = keccak256(abi.encode(msg.sender, address(this))).toEthSignedMessageHash();
+        address signer = message.recover(signature);
+
+        if (signer != msg.sender) revert InvalidSignature();
+        isRegistered[msg.sender] = true;
+
+        emit RegisterForDividends(msg.sender);
+    }
+
+    function distributeDividends() external {
+        _distributeDividends();
+    }
+
     /**
      * @notice Deposits dividend tokens to be distributed to shareholders
      * @dev This function is called during the compose phase of a cross-chain transfer.
@@ -266,135 +274,30 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
         _distributeDividends();
     }
 
-    /**
-     * @notice Claims accumulated dividends for the caller
-     * @dev Requires msg.value to cover cross-chain transfer fees
-     * @return amount The amount of dividends claimed
-     */
-    function claimDividends(bytes memory data) external payable onlyEOA returns (uint256 amount) {
-        amount = _updateAndGetPendingDividends(msg.sender);
+    function requestClaimDividends(bytes memory transferData, uint256 transferFee, bytes memory data)
+        external
+        payable
+        returns (bytes32 guid)
+    {
+        uint256 amount = _updateAndGetPendingDividends(msg.sender);
 
         if (amount == 0) revert NoDividends();
 
-        // Reset unclaimed dividends
-        unclaimedDividends[msg.sender] = 0;
-
-        // Update checkpoint
-        userDividendCheckpoints[msg.sender] = cumulativeDividendsPerShare;
-
-        // Update total claimed
-        totalDividendsClaimed += amount;
-
-        // Update lastDividendBalance to account for the claim
-        lastDividendBalance -= amount;
-
-        // Transfer dividends using ERC20xD transfer with global availability checks
-        dividendToken.transfer{ value: msg.value }(msg.sender, amount, data);
-
-        emit DividendClaimed(msg.sender, amount);
-    }
-
-    /**
-     * @notice Queries global dividend information across all chains
-     * @param user The user to query dividends for
-     * @param data LayerZero parameters
-     * @return queryId The ID of the pending query
-     */
-    function queryGlobalDividends(address user, bytes memory data) external payable returns (uint256 queryId) {
-        queryId = ++queryNonce;
-        pendingQueries[queryId] = PendingDividendQuery(user, true);
-
-        bytes memory cmd = _getGlobalDividendCmd(user);
-        IERC20xDGateway(gateway).read{ value: msg.value }(cmd, data);
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                        CROSS-CHAIN FUNCTIONS
-    //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @notice Returns the peer address for a given endpoint ID
-     * @param _eid The endpoint ID to query
-     * @return The peer address as bytes32
-     * @dev Reverts with NoPeer if no peer is set for the endpoint
-     */
-    function _getPeerOrRevert(uint32 _eid) internal view returns (bytes32) {
-        bytes32 peer = peers[_eid];
-        if (peer == bytes32(0)) revert NoPeer(_eid);
-        return peer;
-    }
-
-    /**
-     * @notice Constructs the command for querying global dividend info
-     * @param user The user to query for
-     * @return The encoded command
-     */
-    function _getGlobalDividendCmd(address user) internal view returns (bytes memory) {
-        (uint32[] memory eids,) = IERC20xDGateway(gateway).chainConfigs();
-        address[] memory targets = new address[](eids.length);
-
-        for (uint256 i; i < eids.length; ++i) {
-            bytes32 peer = _getPeerOrRevert(eids[i]);
-            targets[i] = AddressCast.toAddress(peer);
-        }
-
-        return IERC20xDGateway(gateway).getCmd(
-            CMD_READ_DIVIDEND_INFO, targets, abi.encodeWithSelector(this.pendingDividends.selector, user)
+        bytes memory extra = abi.encode(msg.sender, amount, transferData, transferFee);
+        guid = IERC20xDGateway(gateway).read{ value: msg.value - transferFee }(
+            abi.encodeWithSelector(this.pendingDividends.selector, msg.sender, transferFee), extra, data
         );
     }
 
-    /**
-     * @notice Processes responses from LayerZero's read protocol
-     * @param _cmd The encoded command
-     * @param _responses Array of responses from each chain
-     * @return The encoded aggregated result
-     */
-    function lzReduce(bytes calldata _cmd, bytes[] calldata _responses) external pure returns (bytes memory) {
-        (uint16 cmdLabel, EVMCallRequestV1[] memory requests,) = ReadCodecV1.decode(_cmd);
-
-        if (cmdLabel == CMD_READ_DIVIDEND_INFO) {
-            if (requests.length == 0) revert InvalidRequests();
-
-            // Decode user from the selector call
-            address user = abi.decode(requests[0].callData.slice(4, 32), (address));
-
-            uint256 totalPending;
-            for (uint256 i; i < _responses.length; ++i) {
-                uint256 pending = abi.decode(_responses[i], (uint256));
-                totalPending += pending;
-            }
-
-            return abi.encode(cmdLabel, user, totalPending);
-        } else {
-            revert InvalidCmd();
-        }
-    }
-
-    /**
-     * @notice Callback for LayerZero read responses
-     * @param _message The encoded message containing the read response
-     */
-    function onRead(bytes calldata _message) external {
+    function onRead(bytes calldata _message, bytes calldata _extra) external {
         if (msg.sender != gateway) revert Forbidden();
 
-        uint16 cmdLabel = abi.decode(_message, (uint16));
-        if (cmdLabel == CMD_READ_DIVIDEND_INFO) {
-            (, address user, uint256 totalPending) = abi.decode(_message, (uint16, address, uint256));
+        (uint256 totalPending) = abi.decode(_message, (uint256));
+        (address user, uint256 amount, bytes memory transferData, uint256 transferFee) =
+            abi.decode(_extra, (address, uint256, bytes, uint256));
+        if (amount > totalPending) revert InsufficientDividends();
 
-            // Find the query ID for this user
-            uint256 queryId;
-            for (uint256 i = 1; i <= queryNonce; ++i) {
-                if (pendingQueries[i].pending && pendingQueries[i].user == user) {
-                    queryId = i;
-                    pendingQueries[i].pending = false;
-                    break;
-                }
-            }
-
-            emit GlobalDividendInfo(user, totalPending, queryId);
-        } else {
-            revert InvalidCmd();
-        }
+        _transferDividends(user, amount, transferData, transferFee);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -409,7 +312,7 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
         uint256 currentBalance = dividendToken.balanceOf(address(this));
 
         if (currentBalance <= lastDividendBalance) return;
-        if (totalShares == 0) {
+        if (totalSupply == 0) {
             // Update balance but don't distribute if no shares
             lastDividendBalance = currentBalance;
             return;
@@ -419,7 +322,7 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
         lastDividendBalance = currentBalance;
 
         // Update cumulative dividends per share
-        cumulativeDividendsPerShare += (newDividends * PRECISION) / totalShares;
+        cumulativeDividendsPerShare += (newDividends * PRECISION) / totalSupply;
         totalDividendsDistributed += newDividends;
 
         emit DividendDeposited(newDividends, cumulativeDividendsPerShare);
@@ -431,7 +334,7 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
      * @return The total pending dividends
      */
     function _updateAndGetPendingDividends(address user) internal returns (uint256) {
-        uint256 shares = userBalances[user];
+        uint256 shares = balanceOf[user];
         if (shares == 0) return unclaimedDividends[user];
 
         uint256 checkpoint = userDividendCheckpoints[user];
@@ -445,16 +348,15 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
     }
 
     /**
-     * @notice Updates shares for a user (only EOAs can have shares)
+     * @notice Updates shares for a user (only registered accounts can have shares)
      * @param user The user to update
      * @param newBalance The new balance (shares)
      */
     function _updateShares(address user, uint256 newBalance) internal {
-        // Only EOAs can have shares
-        bool isEOA = !user.isContract();
-        uint256 effectiveBalance = isEOA ? newBalance : 0;
+        bool registered = isRegistered[user];
+        uint256 effectiveBalance = registered ? newBalance : 0;
 
-        uint256 oldBalance = userBalances[user];
+        uint256 oldBalance = balanceOf[user];
         if (oldBalance == effectiveBalance) return;
 
         // Update pending dividends before changing shares
@@ -463,17 +365,36 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
         }
 
         // Update total shares
-        totalShares = totalShares + effectiveBalance - oldBalance;
+        totalSupply = totalSupply + effectiveBalance - oldBalance;
 
         // Update user balance
-        userBalances[user] = effectiveBalance;
+        balanceOf[user] = effectiveBalance;
 
         // Update checkpoint for new shareholders
         if (oldBalance == 0 && effectiveBalance > 0) {
             userDividendCheckpoints[user] = cumulativeDividendsPerShare;
         }
 
-        emit SharesUpdated(user, oldBalance, effectiveBalance, isEOA);
+        emit SharesUpdated(user, oldBalance, effectiveBalance, registered);
+    }
+
+    function _transferDividends(address user, uint256 amount, bytes memory data, uint256 fee) internal {
+        // Reset unclaimed dividends
+        unclaimedDividends[user] = 0;
+
+        // Update checkpoint
+        userDividendCheckpoints[user] = cumulativeDividendsPerShare;
+
+        // Update total claimed
+        totalDividendsClaimed += amount;
+
+        // Update lastDividendBalance to account for the claim
+        lastDividendBalance -= amount;
+
+        // Transfer dividends using ERC20xD transfer with global availability checks
+        dividendToken.transfer{ value: fee }(user, amount, data);
+
+        emit DividendClaimed(user, amount);
     }
 
     /*//////////////////////////////////////////////////////////////
