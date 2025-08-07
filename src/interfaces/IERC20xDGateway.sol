@@ -1,19 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
-
 interface IERC20xDGateway {
     function chainConfigs() external view returns (uint32[] memory eids, uint16[] memory confirmations);
 
-    function transferDelay(uint32 eid) external view returns (uint256);
+    function quoteRead(address app, bytes memory callData, uint128 gasLimit) external view returns (uint256 fee);
 
-    function quoteRead(bytes memory cmd, uint128 gasLimit) external view returns (uint256 fee);
+    function updateReadTarget(bytes32 chainIdentifier, bytes32 target) external;
 
-    function getCmd(uint16 cmdLabel, address[] memory targets, bytes memory callData)
+    function read(bytes memory callData, bytes memory extra, bytes memory data)
         external
-        view
-        returns (bytes memory);
-
-    function read(bytes memory cmd, bytes memory data) external payable returns (MessagingReceipt memory receipt);
+        payable
+        returns (bytes32 guid);
 }

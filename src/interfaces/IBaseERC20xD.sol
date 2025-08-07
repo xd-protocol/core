@@ -1,13 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {
-    ILayerZeroEndpointV2,
-    MessagingReceipt
-} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { IERC20Permit } from "./IERC20Permit.sol";
+import { IERC20xDGatewayCallbacks } from "./IERC20xDGatewayCallbacks.sol";
 
-interface IBaseERC20xD is IERC20Permit {
+interface IBaseERC20xD is IERC20Permit, IERC20xDGatewayCallbacks {
     /**
      * @notice Represents a pending cross-chain transfer.
      * @param pending Indicates if the transfer is still pending.
@@ -32,8 +29,6 @@ interface IBaseERC20xD is IERC20Permit {
 
     function gateway() external view returns (address);
 
-    function peers(uint32 eid) external view returns (bytes32);
-
     function pendingNonce(address account) external view returns (uint256);
 
     function pendingTransfer(address account) external view returns (PendingTransfer memory);
@@ -44,34 +39,23 @@ interface IBaseERC20xD is IERC20Permit {
 
     function quoteTransfer(address from, uint128 gasLimit) external view returns (uint256);
 
-    function availableLocalBalanceOf(address account, uint256 dummy) external view returns (int256);
-
-    function lzReduce(bytes calldata _cmd, bytes[] calldata _responses) external pure returns (bytes memory);
-
-    function getReadAvailabilityCmd(address from, uint256 nonce) external view returns (bytes memory);
-
-    function setPeer(uint32 eid, bytes32 peer) external;
+    function availableLocalBalanceOf(address account) external view returns (int256);
 
     function updateLiquidityMatrix(address newLiquidityMatrix) external;
 
     function updateGateway(address newGateway) external;
 
-    function transfer(address to, uint256 amount, bytes memory data)
-        external
-        payable
-        returns (MessagingReceipt memory);
+    function transfer(address to, uint256 amount, bytes memory data) external payable returns (bytes32 guid);
 
     function transfer(address to, uint256 amount, bytes memory callData, bytes memory data)
         external
         payable
-        returns (MessagingReceipt memory);
+        returns (bytes32 guid);
 
     function transfer(address to, uint256 amount, bytes memory callData, uint256 value, bytes memory data)
         external
         payable
-        returns (MessagingReceipt memory);
+        returns (bytes32 guid);
 
     function cancelPendingTransfer() external;
-
-    function onRead(bytes calldata _message) external;
 }
