@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { BaseERC20xD } from "./mixins/BaseERC20xD.sol";
 import { IERC20xD } from "./interfaces/IERC20xD.sol";
 
@@ -32,10 +31,6 @@ contract ERC20xD is BaseERC20xD, IERC20xD {
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function quoteMint(address from, uint128 gasLimit) public view returns (uint256 fee) {
-        return quoteTransfer(from, gasLimit);
-    }
-
     function quoteBurn(address from, uint128 gasLimit) public view returns (uint256 fee) {
         return quoteTransfer(from, gasLimit);
     }
@@ -43,6 +38,10 @@ contract ERC20xD is BaseERC20xD, IERC20xD {
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
+
+    fallback() external payable virtual { }
+
+    receive() external payable virtual { }
 
     /**
      * @notice Mints tokens.
@@ -60,7 +59,7 @@ contract ERC20xD is BaseERC20xD, IERC20xD {
      * @param data Additional data for the transfer call.
      * @dev This function should be called by derived contracts with appropriate access control.
      */
-    function burn(uint256 amount, bytes calldata data) external payable returns (MessagingReceipt memory receipt) {
+    function burn(uint256 amount, bytes calldata data) external payable returns (bytes32 guid) {
         return _transfer(msg.sender, address(0), amount, "", 0, data);
     }
 }

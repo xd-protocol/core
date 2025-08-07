@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { ERC20, SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 import { BaseERC20xD } from "./mixins/BaseERC20xD.sol";
 import { IWrappedERC20xD } from "./interfaces/IWrappedERC20xD.sol";
@@ -93,19 +92,18 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
      * @param to The destination address to receive the unwrapped tokens.
      * @param amount The amount of wrapped tokens to unwrap.
      * @param data Extra data containing LayerZero parameters (gasLimit, refundTo) for cross-chain messaging.
-     * @return receipt A MessagingReceipt confirming the message initiation.
      */
     function unwrap(address to, uint256 amount, bytes memory data)
         external
         payable
         virtual
         nonReentrant
-        returns (MessagingReceipt memory receipt)
+        returns (bytes32 guid)
     {
         if (to == address(0)) revert InvalidAddress();
 
         // Pass recipient address in callData for hooks to use
-        receipt = _transfer(msg.sender, address(0), amount, abi.encode(to), 0, data);
+        guid = _transfer(msg.sender, address(0), amount, abi.encode(to), 0, data);
 
         emit Unwrap(to, amount);
     }
