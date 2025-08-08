@@ -7,7 +7,8 @@ import {
     MessagingReceipt
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
-import { ISynchronizer } from "src/interfaces/ISynchronizer.sol";
+import { IGateway } from "src/interfaces/IGateway.sol";
+import { IGatewayApp } from "src/interfaces/IGatewayApp.sol";
 import { MerkleTreeLib } from "src/libraries/MerkleTreeLib.sol";
 import { AddressCast } from "@layerzerolabs/lz-evm-protocol-v2/contracts/libs/AddressCast.sol";
 import { ILayerZeroReceiver } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppReceiver.sol";
@@ -188,26 +189,31 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
         timestamps = new uint256[](_remotes.length);
 
         uint128 gasLimit = 200_000 * uint128(_remotes.length);
-        uint32 calldataSize = 128 * uint32(_remotes.length);
 
-        // Get the synchronizer from LiquidityMatrix
-        address synchronizerAddr = _local.synchronizer();
-        ISynchronizer synchronizer = ISynchronizer(synchronizerAddr);
-
-        uint256 fee = synchronizer.quoteSync(gasLimit, calldataSize);
-        synchronizer.sync{ value: fee }(gasLimit, calldataSize);
+        // Use LiquidityMatrix's sync directly (it's now a gateway app)
+        uint256 fee = _local.quoteSync(gasLimit);
+        _local.sync{ value: fee }(abi.encode(gasLimit, msg.sender));
         skip(1);
 
         bytes[] memory responses = new bytes[](_remotes.length);
+        uint32[] memory remoteEids = new uint32[](_remotes.length);
+        address[] memory remotes = new address[](_remotes.length);
         for (uint256 i; i < _remotes.length; ++i) {
             (liquidityRoots[i], dataRoots[i], timestamps[i]) = _remotes[i].getMainRoots();
             responses[i] = abi.encode(liquidityRoots[i], dataRoots[i], timestamps[i]);
+            remoteEids[i] = uint32(i + 2);
+            remotes[i] = address(_remotes[i]);
         }
-        // In test environment, directly call onReceiveRoots through the synchronizer
-        // This simulates the LayerZero message delivery
-        changePrank(synchronizerAddr, synchronizerAddr);
-        for (uint256 i; i < _remotes.length; ++i) {
-            _local.onReceiveRoots(_eid(_remotes[i]), liquidityRoots[i], dataRoots[i], timestamps[i]);
+
+        // Save current prank state and temporarily stop it
+        (, address currentTxOrigin, address currentMsgSender) = vm.readCallers();
+        vm.stopPrank();
+
+        _executeSync(address(_local.gateway()), EID_LOCAL, address(_local), remoteEids, remotes);
+
+        // Restore the original prank state if there was one
+        if (currentMsgSender != address(0)) {
+            vm.startPrank(currentTxOrigin, currentMsgSender);
         }
 
         for (uint256 i; i < _remotes.length; ++i) {
@@ -268,17 +274,15 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
 
             uint128 gasLimit = uint128(150_000 * to.length);
 
-            // Get the synchronizer to quote the fee
-            address synchronizerAddr = _local.synchronizer();
-            ISynchronizer synchronizer = ISynchronizer(synchronizerAddr);
-            uint256 fee =
-                synchronizer.quoteRequestMapRemoteAccounts(toEid, _localApp, remoteApps[i], from, to, gasLimit);
+            // Quote the fee for mapping accounts
+            uint256 fee = _local.quoteRequestMapRemoteAccounts(toEid, _localApp, remoteApps[i], from, to, gasLimit);
 
-            _local.requestMapRemoteAccounts{ value: fee }(toEid, remoteApps[i], from, to, gasLimit);
+            _local.requestMapRemoteAccounts{ value: fee }(
+                toEid, remoteApps[i], from, to, abi.encode(gasLimit, _localApp)
+            );
 
-            // Get the remote synchronizer address
-            address remoteSynchronizer = _remote.synchronizer();
-            verifyPackets(toEid, remoteSynchronizer);
+            // Verify packets sent to the remote gateway - this delivers the message
+            this.verifyPackets(toEid, addressToBytes32(address(_remote.gateway())));
 
             for (uint256 j; j < to.length; ++j) {
                 assertEq(
@@ -300,11 +304,11 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
     }
 
     function _eid(address addr) internal view virtual returns (uint32) {
-        // For synchronizer addresses, we need to check which endpoint they're associated with
+        // For LiquidityMatrix addresses, we need to check which endpoint they're associated with
         // This is a simplified approach for testing
-        if (address(local) != address(0) && addr == address(local.synchronizer())) {
+        if (address(local) != address(0) && addr == address(local)) {
             return EID_LOCAL;
-        } else if (address(remote) != address(0) && addr == address(remote.synchronizer())) {
+        } else if (address(remote) != address(0) && addr == address(remote)) {
             return EID_REMOTE;
         } else {
             revert("Unknown address");
@@ -317,5 +321,32 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
         bytes32[] memory values = new bytes32[](1);
         values[0] = appRoot;
         return MerkleTreeLib.getProof(keys, values, mainIndex);
+    }
+
+    function _executeSync(
+        address gateway,
+        uint32 localEid,
+        address localReader,
+        uint32[] memory remoteEids,
+        address[] memory remoteReaders
+    ) internal {
+        if (remoteEids.length != remoteReaders.length) revert("Invalid lengths");
+
+        bytes memory callData = abi.encodeWithSelector(ILiquidityMatrix.getMainRoots.selector);
+        IGatewayApp.Request[] memory requests = new IGatewayApp.Request[](remoteReaders.length);
+        bytes[] memory responses = new bytes[](remoteReaders.length);
+        for (uint256 i; i < remoteReaders.length; ++i) {
+            requests[i] = IGatewayApp.Request({
+                chainIdentifier: bytes32(uint256(remoteEids[i])),
+                timestamp: uint64(block.timestamp),
+                target: address(remoteReaders[i])
+            });
+            (, bytes memory response) = remoteReaders[i].call(callData);
+            responses[i] = response;
+        }
+
+        // Simulate the gateway calling reduce and then onRead
+        bytes memory payload = IGatewayApp(localReader).reduce(requests, callData, responses);
+        this.verifyPackets(localEid, addressToBytes32(address(gateway)), 0, address(0), payload);
     }
 }

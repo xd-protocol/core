@@ -8,11 +8,10 @@ import {
     EVMCallComputeV1
 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
-import { Synchronizer } from "src/Synchronizer.sol";
 import { LayerZeroGateway } from "src/gateways/LayerZeroGateway.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
-import { IGatewayReader } from "src/interfaces/IGatewayReader.sol";
+import { IGatewayApp } from "src/interfaces/IGatewayApp.sol";
 import { LiquidityMatrixTestHelper } from "./LiquidityMatrixTestHelper.sol";
 import { SettlerMock } from "../mocks/SettlerMock.sol";
 
@@ -24,7 +23,6 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
     uint32[CHAINS] eids;
     address[CHAINS] syncers;
     ILiquidityMatrix[CHAINS] liquidityMatrices;
-    Synchronizer[CHAINS] synchronizers;
     LayerZeroGateway[CHAINS] gateways;
     address[CHAINS] settlers;
     BaseERC20xD[CHAINS] erc20s;
@@ -50,21 +48,22 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             liquidityMatrices[i] = new LiquidityMatrix(owner);
             _liquidityMatrices[i] = address(liquidityMatrices[i]);
 
-            // Create Synchronizer with LayerZero integration
-            synchronizers[i] = new Synchronizer(
-                DEFAULT_CHANNEL_ID, endpoints[eids[i]], address(liquidityMatrices[i]), syncers[i], owner
-            );
-
-            // Set synchronizer in LiquidityMatrix
-            liquidityMatrices[i].setSynchronizer(address(synchronizers[i]));
-
-            // Create gateway with endpoint
+            // Create gateway with endpoint first (needed by Synchronizer)
             gateways[i] =
                 new LayerZeroGateway(DEFAULT_CHANNEL_ID, endpoints[eids[i]], address(liquidityMatrices[i]), owner);
             _gateways[i] = address(gateways[i]);
+
+            // Set gateway and syncer in LiquidityMatrix
+            liquidityMatrices[i].setGateway(address(gateways[i]));
+            liquidityMatrices[i].setSyncer(syncers[i]);
+
+            // Register LiquidityMatrix as an app with the gateway
+            gateways[i].registerApp(address(liquidityMatrices[i]));
+
             settlers[i] = address(new SettlerMock(address(liquidityMatrices[i])));
             erc20s[i] = _newBaseERC20xD(i);
             _erc20s[i] = address(erc20s[i]);
+            // gateways[i].registerApp(_erc20s[i]);
 
             liquidityMatrices[i].updateSettlerWhitelisted(settlers[i], true);
 
@@ -76,12 +75,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             vm.deal(settlers[i], 1000e18);
         }
 
-        // Wire synchronizers (they have the OApp functionality)
-        address[] memory _synchronizers = new address[](CHAINS);
-        for (uint32 i; i < CHAINS; ++i) {
-            _synchronizers[i] = address(synchronizers[i]);
-        }
-        wireOApps(_synchronizers);
+        // Wire gateways (they have the OApp functionality)
         wireOApps(_gateways);
 
         for (uint32 i; i < CHAINS; ++i) {
@@ -98,10 +92,24 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             }
 
             changePrank(owner, owner);
-            synchronizers[i].configChains(configEids, configConfirmations);
+            gateways[i].configChains(configEids, configConfirmations);
 
             // Register ERC20xD with gateway
-            gateways[i].registerReader(address(erc20s[i]));
+            gateways[i].registerApp(address(erc20s[i]));
+
+            // Configure chains in LiquidityMatrix
+            liquidityMatrices[i].configureChains(configEids);
+        }
+
+        // Set read targets for LiquidityMatrices (they need to read each other)
+        for (uint32 i; i < CHAINS; ++i) {
+            for (uint32 j; j < CHAINS; ++j) {
+                if (i != j) {
+                    liquidityMatrices[i].updateReadTarget(
+                        bytes32(uint256(eids[j])), bytes32(uint256(uint160(address(liquidityMatrices[j]))))
+                    );
+                }
+            }
         }
 
         // Set read targets for ERC20xD contracts
@@ -134,9 +142,9 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
     }
 
     function _eid(address addr) internal view override returns (uint32) {
-        // For synchronizer addresses, check which endpoint they're associated with
+        // For gateway addresses, check which endpoint they're associated with
         for (uint32 i = 0; i < CHAINS; ++i) {
-            if (address(liquidityMatrices[i]) != address(0) && addr == address(synchronizers[i])) {
+            if (address(liquidityMatrices[i]) != address(0) && addr == address(gateways[i])) {
                 return eids[i];
             }
         }
@@ -188,7 +196,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
     function _executeRead(address reader, address[] memory readers, bytes memory callData, bytes memory error)
         internal
     {
-        IGatewayReader.Request[] memory requests = new IGatewayReader.Request[](CHAINS - 1);
+        IGatewayApp.Request[] memory requests = new IGatewayApp.Request[](CHAINS - 1);
         bytes[] memory responses = new bytes[](CHAINS - 1);
         uint32 eid;
         address gateway;
@@ -199,7 +207,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
                 gateway = address(gateways[i]);
                 continue;
             }
-            requests[count] = IGatewayReader.Request({
+            requests[count] = IGatewayApp.Request({
                 chainIdentifier: bytes32(uint256(eids[i])),
                 timestamp: uint64(block.timestamp),
                 target: address(readers[i])
@@ -210,7 +218,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
         }
 
         // Simulate the gateway calling reduce and then onRead
-        bytes memory payload = IGatewayReader(reader).reduce(requests, callData, responses);
+        bytes memory payload = IGatewayApp(reader).reduce(requests, callData, responses);
 
         if (error.length > 0) {
             vm.expectRevert(error);
