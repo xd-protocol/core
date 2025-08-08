@@ -8,9 +8,11 @@ import { AddressLib } from "./libraries/AddressLib.sol";
 import { MerkleTreeLib } from "./libraries/MerkleTreeLib.sol";
 import { SnapshotsLib } from "./libraries/SnapshotsLib.sol";
 import { ILiquidityMatrix } from "./interfaces/ILiquidityMatrix.sol";
+import { IGateway } from "./interfaces/IGateway.sol";
+import { IGatewayApp } from "./interfaces/IGatewayApp.sol";
+import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { ILiquidityMatrixCallbacks } from "./interfaces/ILiquidityMatrixCallbacks.sol";
 import { ILiquidityMatrixAccountMapper } from "./interfaces/ILiquidityMatrixAccountMapper.sol";
-import { ISynchronizer } from "./interfaces/ISynchronizer.sol";
 
 /**
  * @title LiquidityMatrix
@@ -112,7 +114,7 @@ import { ISynchronizer } from "./interfaces/ISynchronizer.sol";
  *    - Allows querying of the current roots of the main liquidity and data trees.
  *    - Enables synchronization across chains or with off-chain systems.
  */
-contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
+contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGatewayApp {
     using ArrayLib for uint256[];
     using AddressLib for address;
     using MerkleTreeLib for MerkleTreeLib.Tree;
@@ -181,7 +183,19 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
     mapping(uint32 eid => mapping(uint256 timestamp => bytes32)) internal _liquidityRoots;
     mapping(uint32 eid => mapping(uint256 timestamp => bytes32)) internal _dataRoots;
 
-    address public synchronizer;
+    // Command identifiers for different message types
+    uint16 internal constant CMD_SYNC = 1;
+    uint16 internal constant MAP_REMOTE_ACCOUNTS = 1;
+
+    // Gateway for cross-chain operations
+    IGateway public gateway;
+    // Address authorized to initiate sync operations
+    address public syncer;
+    // Rate limiting: timestamp of last sync request
+    uint256 internal _lastSyncRequestTimestamp;
+    // Chain configuration
+    uint32[] internal _configuredChains;
+    mapping(uint32 => bool) internal _isConfiguredChain;
 
     /*//////////////////////////////////////////////////////////////
                               MODIFIERS
@@ -199,8 +213,20 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
         _;
     }
 
-    modifier onlySynchronizer() {
-        if (msg.sender != synchronizer) revert Forbidden();
+    modifier onlyGateway() {
+        if (msg.sender != address(gateway)) revert Forbidden();
+        _;
+    }
+
+    modifier onlySyncer() {
+        if (msg.sender != syncer) revert Forbidden();
+        _;
+    }
+
+    modifier onlyAppOrMatrix() {
+        // Direct calls must be from registered apps
+        (bool registered,,,) = this.getAppSetting(msg.sender);
+        if (!registered) revert Forbidden();
         _;
     }
 
@@ -545,10 +571,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
         liquidity = _appStates[app].totalLiquidity.getLastAsInt();
 
         // Add remote liquidity from all configured chains
-        ISynchronizer sync = ISynchronizer(synchronizer);
-        uint256 length = sync.eidsLength();
+        uint256 length = _configuredChains.length;
         for (uint256 i; i < length; ++i) {
-            uint32 eid = sync.eidAt(i);
+            uint32 eid = _configuredChains[i];
             uint256 timestamp = _remoteStates[app][eid].lastSettledLiquidityTimestamp;
             if (timestamp == 0) continue;
             liquidity += _remoteStates[app][eid].totalLiquidity.getAsInt(timestamp);
@@ -565,10 +590,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
         liquidity = _appStates[app].totalLiquidity.getLastAsInt();
 
         // Add remote liquidity from all configured chains where both roots are settled
-        ISynchronizer sync = ISynchronizer(synchronizer);
-        uint256 length = sync.eidsLength();
+        uint256 length = _configuredChains.length;
         for (uint256 i; i < length; ++i) {
-            uint32 eid = sync.eidAt(i);
+            uint32 eid = _configuredChains[i];
             uint256 timestamp = _remoteStates[app][eid].lastFinalizedTimestamp;
             if (timestamp == 0) continue;
             liquidity += _remoteStates[app][eid].totalLiquidity.getAsInt(timestamp);
@@ -585,10 +609,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
         liquidity = _appStates[app].totalLiquidity.getAsInt(timestamp);
 
         // Add remote liquidity
-        ISynchronizer sync = ISynchronizer(synchronizer);
-        uint256 length = sync.eidsLength();
+        uint256 length = _configuredChains.length;
         for (uint256 i; i < length; ++i) {
-            uint32 eid = sync.eidAt(i);
+            uint32 eid = _configuredChains[i];
             liquidity += _remoteStates[app][eid].totalLiquidity.getAsInt(timestamp);
         }
     }
@@ -603,10 +626,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
         liquidity = _appStates[app].liquidity[account].getLastAsInt();
 
         // Add remote liquidity from all configured chains
-        ISynchronizer sync = ISynchronizer(synchronizer);
-        uint256 length = sync.eidsLength();
+        uint256 length = _configuredChains.length;
         for (uint256 i; i < length; ++i) {
-            uint32 eid = sync.eidAt(i);
+            uint32 eid = _configuredChains[i];
             uint256 timestamp = _remoteStates[app][eid].lastSettledLiquidityTimestamp;
             if (timestamp == 0) continue;
             liquidity += _remoteStates[app][eid].liquidity[account].getAsInt(timestamp);
@@ -623,10 +645,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
         liquidity = _appStates[app].liquidity[account].getLastAsInt();
 
         // Add remote liquidity from all configured chains where both roots are settled
-        ISynchronizer sync = ISynchronizer(synchronizer);
-        uint256 length = sync.eidsLength();
+        uint256 length = _configuredChains.length;
         for (uint256 i; i < length; ++i) {
-            uint32 eid = sync.eidAt(i);
+            uint32 eid = _configuredChains[i];
             uint256 timestamp = _remoteStates[app][eid].lastFinalizedTimestamp;
             if (timestamp == 0) continue;
             liquidity += _remoteStates[app][eid].liquidity[account].getAsInt(timestamp);
@@ -644,10 +665,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
         liquidity = _appStates[app].liquidity[account].getAsInt(timestamp);
 
         // Add remote liquidity
-        ISynchronizer sync = ISynchronizer(synchronizer);
-        uint256 length = sync.eidsLength();
+        uint256 length = _configuredChains.length;
         for (uint256 i; i < length; ++i) {
-            uint32 eid = sync.eidAt(i);
+            uint32 eid = _configuredChains[i];
             liquidity += _remoteStates[app][eid].liquidity[account].getAsInt(timestamp);
         }
     }
@@ -898,41 +918,72 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
     }
 
     /**
-     * @notice Sets the synchronizer contract address
-     * @dev Only callable by owner. The synchronizer handles all cross-chain communication.
-     * @param _synchronizer Address of the synchronizer contract
+     * @notice Sets the gateway contract address
+     * @dev Only callable by owner. The gateway handles all cross-chain communication.
+     * @param _gateway Address of the gateway contract
      */
-    function setSynchronizer(address _synchronizer) external onlyOwner {
-        synchronizer = _synchronizer;
-        emit UpdateSynchronizer(_synchronizer);
+    function setGateway(address _gateway) external onlyOwner {
+        gateway = IGateway(_gateway);
+        emit SetGateway(_gateway);
     }
 
     /**
-     * @notice Requests mapping of remote accounts to local accounts on another chain
-     * @dev Forwards the request to the synchronizer for cross-chain messaging
-     * @param eid Target chain endpoint ID
-     * @param remoteApp Address of the app on the remote chain
-     * @param locals Array of local account addresses to map
-     * @param remotes Array of remote account addresses to map
-     * @param gasLimit Gas limit for the cross-chain message
+     * @notice Sets the syncer address
+     * @dev Only callable by owner. Syncer is authorized to initiate sync operations.
+     * @param _syncer Address authorized to sync
      */
-    function requestMapRemoteAccounts(
-        uint32 eid,
-        address remoteApp,
-        address[] memory locals,
-        address[] memory remotes,
-        uint128 gasLimit
-    ) external payable onlyApp {
-        if (remotes.length != locals.length) revert InvalidLengths();
-        for (uint256 i; i < locals.length; ++i) {
-            (address local, address remote) = (locals[i], remotes[i]);
-            if (local == address(0) || remote == address(0)) revert InvalidAddress();
-        }
+    function setSyncer(address _syncer) external onlyOwner {
+        syncer = _syncer;
+        emit SetSyncer(_syncer);
+    }
 
-        // Forward to synchronizer
-        ISynchronizer(synchronizer).requestMapRemoteAccounts{ value: msg.value }(
-            eid, remoteApp, locals, remotes, gasLimit
-        );
+    /**
+     * @notice Updates the read target for a specific chain
+     * @dev Updates where to read from on the remote chain
+     * @param chainIdentifier The chain identifier
+     * @param target The target address on the remote chain
+     */
+    function updateReadTarget(bytes32 chainIdentifier, bytes32 target) external onlyOwner {
+        gateway.updateReadTarget(chainIdentifier, target);
+    }
+
+    /**
+     * @notice Configures the chains to sync with
+     * @dev Sets which chains this LiquidityMatrix will sync with
+     * @param eids Array of endpoint IDs to configure
+     */
+    function configureChains(uint32[] calldata eids) external onlyOwner {
+        // Clear existing configuration
+        for (uint256 i; i < _configuredChains.length; ++i) {
+            _isConfiguredChain[_configuredChains[i]] = false;
+        }
+        delete _configuredChains;
+
+        // Set new configuration
+        for (uint256 i; i < eids.length; ++i) {
+            if (!_isConfiguredChain[eids[i]]) {
+                _configuredChains.push(eids[i]);
+                _isConfiguredChain[eids[i]] = true;
+            }
+        }
+    }
+
+    /**
+     * @notice Returns the configured chains
+     * @return Array of configured endpoint IDs
+     */
+    function getConfiguredChains() external view returns (uint32[] memory) {
+        return _configuredChains;
+    }
+
+    /**
+     * @notice Sets the synchronizer address (deprecated, use setGateway)
+     * @dev Kept for backward compatibility
+     * @param _synchronizer Address of the synchronizer contract
+     */
+    function setSynchronizer(address _synchronizer) external onlyOwner {
+        // This is deprecated, but kept for compatibility
+        emit UpdateSynchronizer(_synchronizer);
     }
 
     /**
@@ -943,10 +994,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
      * @param dataRoot The data Merkle root from the remote chain
      * @param timestamp The timestamp when the roots were generated
      */
-    function onReceiveRoots(uint32 eid, bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp)
-        external
-        onlySynchronizer
-    {
+    function onReceiveRoots(uint32 eid, bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp) external {
+        // Allow calls from gateway or from this contract (via onRead)
+        if (msg.sender != address(gateway) && msg.sender != address(this)) revert Forbidden();
         if (_rootTimestamps[eid].length == 0 || _rootTimestamps[eid][_rootTimestamps[eid].length - 1] != timestamp) {
             _rootTimestamps[eid].insertSorted(timestamp);
         }
@@ -1062,10 +1112,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
      * @param _localApp Local app address that should process this request
      * @param _message Encoded remote and local account arrays
      */
-    function onReceiveMapRemoteAccountRequests(uint32 _fromEid, address _localApp, bytes memory _message)
-        external
-        onlySynchronizer
-    {
+    function onReceiveMapRemoteAccountRequests(uint32 _fromEid, address _localApp, bytes memory _message) external {
+        // Allow calls from gateway or from this contract (via onReceive)
+        if (msg.sender != address(gateway) && msg.sender != address(this)) revert Forbidden();
         (address[] memory remotes, address[] memory locals) = abi.decode(_message, (address[], address[]));
 
         // Verify the app is registered
@@ -1105,5 +1154,180 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix {
 
             emit MapRemoteAccount(_localApp, _fromEid, remote, local);
         }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                         SYNC FUNCTIONALITY
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Initiates a sync operation to fetch roots from all configured chains
+     * @dev Only callable by the authorized syncer. Rate limited to once per block.
+     * @param data Encoded (gasLimit, refundTo) for the cross-chain operation
+     * @return receipt The messaging receipt from the gateway
+     */
+    function sync(bytes memory data) external payable onlySyncer returns (MessagingReceipt memory receipt) {
+        // Rate limiting: only one sync per block
+        if (block.timestamp <= _lastSyncRequestTimestamp) revert AlreadyRequested();
+        _lastSyncRequestTimestamp = block.timestamp;
+
+        // Build callData for getMainRoots
+        bytes memory callData = abi.encodeWithSelector(ILiquidityMatrix.getMainRoots.selector);
+
+        // Store command type in extra for callback
+        bytes memory extra = abi.encode(CMD_SYNC);
+
+        // Use gateway.read() for the sync operation
+        bytes32 guid = gateway.read{ value: msg.value }(callData, extra, 256 * 3, data);
+
+        emit Sync(msg.sender);
+
+        // Return a receipt with the guid for compatibility
+        receipt.guid = guid;
+        return receipt;
+    }
+
+    /**
+     * @notice Quotes the messaging fee for syncing all configured chains
+     * @param gasLimit The gas limit for the operation
+     * @return fee The estimated messaging fee in native token
+     */
+    function quoteSync(uint128 gasLimit) external view returns (uint256 fee) {
+        bytes memory callData = abi.encodeWithSelector(ILiquidityMatrix.getMainRoots.selector);
+        return gateway.quoteRead(address(this), callData, 256 * 3, gasLimit);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                      IGATEAPP IMPLEMENTATION
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Processes responses from the gateway's read protocol
+     * @dev Implementation of IGatewayApp.reduce
+     * @param requests Array of request information for each chain
+     * @param callData The original callData sent in the read request
+     * @param responses Array of responses from each chain
+     * @return The aggregated result containing synced chain roots and timestamps
+     */
+    function reduce(IGatewayApp.Request[] calldata requests, bytes calldata callData, bytes[] calldata responses)
+        external
+        pure
+        returns (bytes memory)
+    {
+        // Only process if this is a sync command (check callData selector)
+        bytes4 selector = bytes4(callData);
+        if (selector == ILiquidityMatrix.getMainRoots.selector) {
+            uint32[] memory eids = new uint32[](requests.length);
+            bytes32[] memory liquidityRoots = new bytes32[](requests.length);
+            bytes32[] memory dataRoots = new bytes32[](requests.length);
+            uint256[] memory timestamps = new uint256[](requests.length);
+
+            for (uint256 i; i < eids.length; ++i) {
+                eids[i] = uint32(uint256(requests[i].chainIdentifier));
+                (liquidityRoots[i], dataRoots[i], timestamps[i]) = abi.decode(responses[i], (bytes32, bytes32, uint256));
+            }
+
+            return abi.encode(CMD_SYNC, eids, liquidityRoots, dataRoots, timestamps);
+        } else {
+            revert InvalidCmd();
+        }
+    }
+
+    /**
+     * @notice Receives the aggregated result from the gateway after a read operation
+     * @dev Implementation of IGatewayApp.onRead
+     * @param message The aggregated message containing roots from all chains
+     * @param extra Extra data passed during the read request (contains command type)
+     */
+    function onRead(bytes calldata message, bytes calldata extra) external onlyGateway {
+        uint16 cmdType = abi.decode(extra, (uint16));
+        if (cmdType == CMD_SYNC) {
+            (
+                ,
+                uint32[] memory eids,
+                bytes32[] memory liquidityRoots,
+                bytes32[] memory dataRoots,
+                uint256[] memory timestamps
+            ) = abi.decode(message, (uint16, uint32[], bytes32[], bytes32[], uint256[]));
+
+            // Process each chain's roots
+            for (uint256 i; i < eids.length; ++i) {
+                this.onReceiveRoots(eids[i], liquidityRoots[i], dataRoots[i], timestamps[i]);
+            }
+        }
+    }
+
+    /**
+     * @notice Handles incoming messages from the gateway
+     * @dev Implementation of IGatewayApp.onReceive
+     * @param sourceChainId The source chain identifier
+     * @param message The message payload
+     */
+    function onReceive(bytes32 sourceChainId, bytes calldata message) external onlyGateway {
+        // Decode message type
+        uint16 msgType = abi.decode(message, (uint16));
+
+        if (msgType == MAP_REMOTE_ACCOUNTS) {
+            uint32 eid = uint32(uint256(sourceChainId));
+            (,, address toApp, address[] memory remotes, address[] memory locals) =
+                abi.decode(message, (uint16, address, address, address[], address[]));
+
+            // Process account mapping request
+            this.onReceiveMapRemoteAccountRequests(eid, toApp, abi.encode(remotes, locals));
+        }
+    }
+
+    /**
+     * @notice Quotes the fee for mapping remote accounts
+     * @param eid Target chain endpoint ID
+     * @param localAccount Address of the local account
+     * @param remoteApp Address of the app on the remote chain
+     * @param remotes Array of remote account addresses
+     * @param locals Array of local account addresses to map to
+     * @param gasLimit Gas limit for the cross-chain message
+     * @return fee The estimated messaging fee
+     */
+    function quoteRequestMapRemoteAccounts(
+        uint32 eid,
+        address localAccount,
+        address remoteApp,
+        address[] memory remotes,
+        address[] memory locals,
+        uint128 gasLimit
+    ) external view returns (uint256 fee) {
+        // Encode message
+        bytes memory message = abi.encode(MAP_REMOTE_ACCOUNTS, localAccount, remoteApp, remotes, locals);
+
+        // Quote the fee from gateway
+        return gateway.quoteSendMessage(eid, address(this), message, gasLimit);
+    }
+
+    /**
+     * @notice Requests mapping of remote accounts to local accounts on another chain
+     * @dev Uses the gateway to send cross-chain messages
+     * @param eid Target chain endpoint ID
+     * @param remoteApp Address of the app on the remote chain
+     * @param locals Array of local account addresses to map
+     * @param remotes Array of remote account addresses to map
+     */
+    function requestMapRemoteAccounts(
+        uint32 eid,
+        address remoteApp,
+        address[] memory locals,
+        address[] memory remotes,
+        bytes memory data
+    ) external payable onlyAppOrMatrix returns (bytes32 guid) {
+        // Validate input arrays
+        if (remotes.length != locals.length) revert InvalidLengths();
+        for (uint256 i; i < locals.length; ++i) {
+            (address local, address remote) = (locals[i], remotes[i]);
+            if (local == address(0) || remote == address(0)) revert InvalidAddress();
+        }
+
+        // Send cross-chain message via gateway
+        bytes memory message = abi.encode(MAP_REMOTE_ACCOUNTS, msg.sender, remoteApp, locals, remotes);
+        guid = gateway.sendMessage{ value: msg.value }(eid, message, data);
+
+        emit RequestMapRemoteAccounts(msg.sender, eid, remoteApp, remotes, locals);
     }
 }
