@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
+import { OApp } from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
 import { OAppRead } from "@layerzerolabs/oapp-evm/contracts/oapp/OAppRead.sol";
 import { Origin } from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
 import {
@@ -20,20 +21,19 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { BytesLib } from "solidity-bytes-utils/contracts/BytesLib.sol";
 import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
 import { IGateway } from "../interfaces/IGateway.sol";
-import { IGatewayReader } from "../interfaces/IGatewayReader.sol";
+import { IGatewayApp } from "../interfaces/IGatewayApp.sol";
 import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
-import { ISynchronizer } from "../interfaces/ISynchronizer.sol";
 
-contract LayerZeroGateway is OAppRead, ReentrancyGuard, IGateway {
+contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     using OptionsBuilder for bytes;
 
-    struct ReaderState {
+    struct AppState {
         uint16 cmdLabel;
         mapping(uint32 eid => bytes32) targets;
     }
 
     struct ReadRequest {
-        address reader;
+        address app;
         bytes extra;
     }
 
@@ -44,10 +44,12 @@ contract LayerZeroGateway is OAppRead, ReentrancyGuard, IGateway {
     uint32 public immutable READ_CHANNEL;
     address public immutable liquidityMatrix;
 
-    uint32 public transferCalldataSize = 32;
+    // Chain configuration
+    uint32[] internal _targetEids;
+    mapping(uint32 => uint16) internal _chainConfigConfirmations;
 
-    mapping(address app => ReaderState) public readerStates;
-    mapping(uint16 cmdLabel => address app) public getReader;
+    mapping(address app => AppState) public appStates;
+    mapping(uint16 cmdLabel => address app) public getApp;
     mapping(uint32 eid => uint64) public transferDelays;
 
     uint16 internal _lastCmdLabel;
@@ -57,17 +59,17 @@ contract LayerZeroGateway is OAppRead, ReentrancyGuard, IGateway {
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    event RegisterReader(address indexed app, uint16 indexed cmdLabel);
+    event RegisterApp(address indexed app, uint16 indexed cmdLabel);
     event UpdateTransferDelay(uint32 indexed eid, uint64 delay);
-    event UpdateTransferCalldataSize(uint128 size);
     event UpdateReadTarget(address indexed app, uint32 indexed eid, bytes32 indexed target);
+    event MessageSent(uint32 indexed eid, bytes32 indexed guid, bytes message);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
     error Forbidden();
-    error InvalidReader();
+    error InvalidApp();
     error InvalidTarget();
     error InvalidLengths();
     error InvalidChainIdentifier();
@@ -75,13 +77,14 @@ contract LayerZeroGateway is OAppRead, ReentrancyGuard, IGateway {
     error InvalidGuid();
     error InvalidCmdLabel();
     error InvalidRequests();
+    error DuplicateTargetEid();
 
     /*//////////////////////////////////////////////////////////////
                              MODIFIERS
     //////////////////////////////////////////////////////////////*/
 
-    modifier onlyReader() {
-        if (readerStates[msg.sender].cmdLabel == 0) revert Forbidden();
+    modifier onlyApp() {
+        if (appStates[msg.sender].cmdLabel == 0) revert Forbidden();
         _;
     }
 
@@ -111,8 +114,20 @@ contract LayerZeroGateway is OAppRead, ReentrancyGuard, IGateway {
     //////////////////////////////////////////////////////////////*/
 
     function chainConfigs() public view returns (uint32[] memory eids, uint16[] memory confirmations) {
-        address synchronizer = ILiquidityMatrix(liquidityMatrix).synchronizer();
-        return ISynchronizer(synchronizer).chainConfigs();
+        uint256 length = _targetEids.length;
+        eids = _targetEids;
+        confirmations = new uint16[](length);
+        for (uint256 i; i < length; i++) {
+            confirmations[i] = _chainConfigConfirmations[_targetEids[i]];
+        }
+    }
+
+    function eidsLength() public view returns (uint256) {
+        return _targetEids.length;
+    }
+
+    function eidAt(uint256 index) public view returns (uint32) {
+        return _targetEids[index];
     }
 
     /**
@@ -120,12 +135,16 @@ contract LayerZeroGateway is OAppRead, ReentrancyGuard, IGateway {
      * @param gasLimit The gas limit to allocate for actual transfer after lzRead.
      * @return fee The estimated messaging fee for the request.
      */
-    function quoteRead(address app, bytes memory callData, uint128 gasLimit) public view returns (uint256 fee) {
+    function quoteRead(address app, bytes memory callData, uint32 returnDataSize, uint128 gasLimit)
+        public
+        view
+        returns (uint256 fee)
+    {
         (uint32[] memory eids,) = chainConfigs();
         MessagingFee memory _fee = _quote(
             READ_CHANNEL,
             _getCmd(app, callData),
-            OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, uint32(transferCalldataSize * eids.length), 0),
+            OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, uint32(returnDataSize * eids.length), 0),
             false
         );
         return _fee.nativeFee;
@@ -140,30 +159,49 @@ contract LayerZeroGateway is OAppRead, ReentrancyGuard, IGateway {
     function lzReduce(bytes calldata _cmd, bytes[] calldata _responses) external view returns (bytes memory) {
         // Decode the command using ReadCodecV1
         (uint16 _cmdLabel, EVMCallRequestV1[] memory _requests,) = ReadCodecV1.decode(_cmd);
-        address app = getReader[_cmdLabel];
+        address app = getApp[_cmdLabel];
         if (app == address(0)) revert InvalidCmdLabel();
         if (_requests.length == 0) revert InvalidRequests();
 
-        IGatewayReader.Request[] memory __requests = new IGatewayReader.Request[](_requests.length);
+        IGatewayApp.Request[] memory __requests = new IGatewayApp.Request[](_requests.length);
         for (uint256 i; i < _requests.length; i++) {
             EVMCallRequestV1 memory request = _requests[i];
             __requests[i] =
-                IGatewayReader.Request(bytes32(uint256(request.targetEid)), request.blockNumOrTimestamp, request.to);
+                IGatewayApp.Request(bytes32(uint256(request.targetEid)), request.blockNumOrTimestamp, request.to);
         }
 
-        return IGatewayReader(app).reduce(__requests, _requests[0].callData, _responses);
+        return IGatewayApp(app).reduce(__requests, _requests[0].callData, _responses);
     }
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    function registerReader(address app) external onlyOwner {
+    function registerApp(address app) external onlyOwner {
         uint16 cmdLabel = _lastCmdLabel + 1;
         _lastCmdLabel = cmdLabel;
-        readerStates[app].cmdLabel = cmdLabel;
+        appStates[app].cmdLabel = cmdLabel;
 
-        emit RegisterReader(app, cmdLabel);
+        emit RegisterApp(app, cmdLabel);
+    }
+
+    function configChains(uint32[] memory eids, uint16[] memory confirmations) external onlyOwner {
+        if (eids.length != confirmations.length) revert InvalidLengths();
+
+        // Clear existing configuration mappings
+        for (uint256 i; i < _targetEids.length; i++) {
+            delete _chainConfigConfirmations[_targetEids[i]];
+        }
+
+        // Validate for duplicates and populate new configuration
+        for (uint256 i; i < eids.length; i++) {
+            for (uint256 j = i + 1; j < eids.length; j++) {
+                if (eids[i] == eids[j]) revert DuplicateTargetEid();
+            }
+            _chainConfigConfirmations[eids[i]] = confirmations[i];
+        }
+
+        _targetEids = eids;
     }
 
     /**
@@ -186,44 +224,70 @@ contract LayerZeroGateway is OAppRead, ReentrancyGuard, IGateway {
         }
     }
 
-    function updateTransferCalldataSize(uint32 size) external onlyOwner {
-        transferCalldataSize = size;
-
-        emit UpdateTransferCalldataSize(size);
-    }
-
-    function updateReadTarget(bytes32 chainIdentifier, bytes32 target) external onlyReader {
+    function updateReadTarget(bytes32 chainIdentifier, bytes32 target) external onlyApp {
         if (uint256(chainIdentifier) >= type(uint32).max) revert InvalidChainIdentifier();
 
         uint32 eid = uint32(uint256(chainIdentifier));
-        readerStates[msg.sender].targets[eid] = target;
+        appStates[msg.sender].targets[eid] = target;
 
         emit UpdateReadTarget(msg.sender, eid, target);
     }
 
-    function read(bytes memory callData, bytes memory extra, bytes memory data)
+    function read(bytes memory callData, bytes memory extra, uint32 returnDataSize, bytes memory data)
         external
         payable
-        onlyReader
+        onlyApp
         returns (bytes32 guid)
     {
-        // directly use endpoint.send() to bypass _payNative() check in _lzSend()
         if (data.length < 64) revert InvalidLzReadOptions();
         (uint128 gasLimit, address refundTo) = abi.decode(data, (uint128, address));
         (uint32[] memory eids,) = chainConfigs();
+        // directly use endpoint.send() to bypass _payNative() check in _lzSend()
         MessagingReceipt memory receipt = endpoint.send{ value: msg.value }(
             MessagingParams(
                 READ_CHANNEL,
                 _getPeerOrRevert(READ_CHANNEL),
                 _getCmd(msg.sender, callData),
-                OptionsBuilder.newOptions().addExecutorLzReadOption(
-                    gasLimit, transferCalldataSize * uint32(eids.length), 0
-                ),
+                OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, uint32(returnDataSize * eids.length), 0),
                 false
             ),
             payable(refundTo)
         );
         requests[receipt.guid] = ReadRequest(msg.sender, extra);
+        return receipt.guid;
+    }
+
+    function quoteSendMessage(uint32 eid, address app, bytes memory message, uint128 gasLimit)
+        public
+        view
+        returns (uint256 fee)
+    {
+        address target = AddressCast.toAddress(appStates[app].targets[eid]);
+        if (target == address(0)) revert InvalidTarget();
+        MessagingFee memory _fee = _quote(
+            eid, abi.encode(target, message), OptionsBuilder.newOptions().addExecutorLzReceiveOption(gasLimit, 0), false
+        );
+        return _fee.nativeFee;
+    }
+
+    function sendMessage(uint32 eid, bytes memory message, bytes memory data)
+        external
+        payable
+        onlyApp
+        returns (bytes32 guid)
+    {
+        address target = AddressCast.toAddress(appStates[msg.sender].targets[eid]);
+        if (target == address(0)) revert InvalidTarget();
+        (uint128 gasLimit, address refundTo) = abi.decode(data, (uint128, address));
+        MessagingReceipt memory receipt = _lzSend(
+            eid,
+            abi.encode(target, message),
+            OptionsBuilder.newOptions().addExecutorLzReceiveOption(gasLimit, 0),
+            MessagingFee(msg.value, 0),
+            refundTo
+        );
+
+        emit MessageSent(eid, receipt.guid, message);
         return receipt.guid;
     }
 
@@ -235,12 +299,21 @@ contract LayerZeroGateway is OAppRead, ReentrancyGuard, IGateway {
         bytes calldata /* _extraData */
     ) internal virtual override nonReentrant {
         if (_origin.srcEid == READ_CHANNEL) {
+            // Handle read responses
             ReadRequest memory request = requests[_guid];
-            if (request.reader == address(0)) revert InvalidGuid();
+            if (request.app == address(0)) revert InvalidGuid();
 
             delete requests[_guid];
 
-            IGatewayReader(request.reader).onRead(_message, request.extra);
+            IGatewayApp(request.app).onRead(_message, request.extra);
+        } else {
+            // Handle regular messages - forward to the target app
+            // The message should contain the target app address
+            uint32 eid = _origin.srcEid;
+            (address target, bytes memory data) = abi.decode(_message, (address, bytes));
+
+            // Forward to the target app
+            IGatewayApp(target).onReceive(bytes32(uint256(eid)), data);
         }
     }
 
@@ -249,8 +322,8 @@ contract LayerZeroGateway is OAppRead, ReentrancyGuard, IGateway {
     //////////////////////////////////////////////////////////////*/
 
     function _getCmd(address app, bytes memory callData) public view returns (bytes memory) {
-        ReaderState storage state = readerStates[app];
-        if (state.cmdLabel == 0) revert InvalidReader();
+        AppState storage state = appStates[app];
+        if (state.cmdLabel == 0) revert InvalidApp();
 
         (uint32[] memory _eids, uint16[] memory _confirmations) = chainConfigs();
         EVMCallRequestV1[] memory readRequests = new EVMCallRequestV1[](_eids.length);
