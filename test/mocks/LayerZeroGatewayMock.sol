@@ -11,12 +11,12 @@ contract LayerZeroGatewayMock {
 
     mapping(address => mapping(uint32 => bytes32)) public readTargets;
 
-    function read(bytes memory, bytes memory, bytes memory) external payable returns (bytes32) {
+    function read(bytes memory, bytes memory, uint32, bytes memory) external payable returns (bytes32) {
         require(msg.value >= FEE, "Insufficient fee");
         return bytes32(uint256(1));
     }
 
-    function quoteRead(address, bytes memory, uint128) external pure returns (uint256) {
+    function quoteRead(address, bytes memory, uint32, uint128) external pure returns (uint256) {
         return FEE;
     }
 

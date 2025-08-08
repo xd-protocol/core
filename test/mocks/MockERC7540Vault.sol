@@ -95,7 +95,7 @@ contract MockERC7540Vault is ERC20 {
         return assets;
     }
 
-    function withdraw(uint256 assets, address receiver, address owner) external returns (uint256 shares) {
+    function withdraw(uint256 assets, address, address owner) external returns (uint256 shares) {
         shares = assets;
         _burn(owner, shares);
         return shares;
@@ -109,7 +109,7 @@ contract MockERC7540Vault is ERC20 {
         return shares;
     }
 
-    function redeem(uint256 shares, address receiver, address owner) external returns (uint256 assets) {
+    function redeem(uint256 shares, address, address owner) external returns (uint256 assets) {
         assets = shares;
         _burn(owner, shares);
         return assets;
