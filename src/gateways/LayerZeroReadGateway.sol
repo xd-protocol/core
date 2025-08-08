@@ -19,12 +19,12 @@ import { AddressCast } from "@layerzerolabs/lz-evm-protocol-v2/contracts/libs/Ad
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { BytesLib } from "solidity-bytes-utils/contracts/BytesLib.sol";
 import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
-import { IERC20xDGateway } from "../interfaces/IERC20xDGateway.sol";
-import { IERC20xDGatewayCallbacks } from "../interfaces/IERC20xDGatewayCallbacks.sol";
+import { IGateway } from "../interfaces/IGateway.sol";
+import { IGatewayReader } from "../interfaces/IGatewayReader.sol";
 import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
 import { ISynchronizer } from "../interfaces/ISynchronizer.sol";
 
-contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
+contract LayerZeroReadGateway is OAppRead, ReentrancyGuard, IGateway {
     using OptionsBuilder for bytes;
 
     struct ReaderState {
@@ -144,15 +144,14 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
         if (app == address(0)) revert InvalidCmdLabel();
         if (_requests.length == 0) revert InvalidRequests();
 
-        IERC20xDGatewayCallbacks.Request[] memory __requests = new IERC20xDGatewayCallbacks.Request[](_requests.length);
+        IGatewayReader.Request[] memory __requests = new IGatewayReader.Request[](_requests.length);
         for (uint256 i; i < _requests.length; i++) {
             EVMCallRequestV1 memory request = _requests[i];
-            __requests[i] = IERC20xDGatewayCallbacks.Request(
-                bytes32(uint256(request.targetEid)), request.blockNumOrTimestamp, request.to
-            );
+            __requests[i] =
+                IGatewayReader.Request(bytes32(uint256(request.targetEid)), request.blockNumOrTimestamp, request.to);
         }
 
-        return IERC20xDGatewayCallbacks(app).reduce(__requests, _requests[0].callData, _responses);
+        return IGatewayReader(app).reduce(__requests, _requests[0].callData, _responses);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -241,7 +240,7 @@ contract ERC20xDGateway is OAppRead, ReentrancyGuard, IERC20xDGateway {
 
             delete requests[_guid];
 
-            IERC20xDGatewayCallbacks(request.reader).onRead(_message, request.extra);
+            IGatewayReader(request.reader).onRead(_message, request.extra);
         }
     }
 

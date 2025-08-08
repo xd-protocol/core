@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-interface IERC20xDGatewayCallbacks {
+interface IGatewayReader {
     struct Request {
         bytes32 chainIdentifier;
         uint64 timestamp;

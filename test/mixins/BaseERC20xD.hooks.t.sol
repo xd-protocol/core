@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import { Test } from "forge-std/Test.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { IERC20xDHook } from "src/interfaces/IERC20xDHook.sol";
-import { IERC20xDGateway } from "src/interfaces/IERC20xDGateway.sol";
+import { IGateway } from "src/interfaces/IGateway.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import {
@@ -13,7 +13,7 @@ import {
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { ERC20xDMock } from "../mocks/ERC20xDMock.sol";
 import { LiquidityMatrixMock } from "../mocks/LiquidityMatrixMock.sol";
-import { ERC20xDGatewayMock } from "../mocks/ERC20xDGatewayMock.sol";
+import { LayerZeroReadGatewayMock } from "../mocks/LayerZeroReadGatewayMock.sol";
 import { HookMock } from "../mocks/HookMock.sol";
 
 // Contract to track the order of hook calls using a shared counter
@@ -78,7 +78,7 @@ contract OrderTrackingHook is IERC20xDHook {
 contract BaseERC20xDHooksTest is Test {
     ERC20xDMock token;
     LiquidityMatrixMock liquidityMatrix;
-    ERC20xDGatewayMock gateway;
+    LayerZeroReadGatewayMock gateway;
     HookMock hook1;
     HookMock hook2;
     HookMock hook3;
@@ -128,7 +128,7 @@ contract BaseERC20xDHooksTest is Test {
         liquidityMatrix = new LiquidityMatrixMock();
 
         // Deploy mock gateway
-        gateway = new ERC20xDGatewayMock();
+        gateway = new LayerZeroReadGatewayMock();
 
         // Deploy token
         token = new ERC20xDMock("Test", "TEST", 18, address(liquidityMatrix), address(gateway), owner);

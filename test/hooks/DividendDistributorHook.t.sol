@@ -15,7 +15,7 @@ import { BaseERC20xDHook } from "src/mixins/BaseERC20xDHook.sol";
 import { AddressLib } from "src/libraries/AddressLib.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import { IERC20xDGateway } from "src/interfaces/IERC20xDGateway.sol";
+import { IGateway } from "src/interfaces/IGateway.sol";
 import { ReadCodecV1, EVMCallRequestV1 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
 import {
     MessagingReceipt,

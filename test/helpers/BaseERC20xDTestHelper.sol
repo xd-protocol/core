@@ -9,10 +9,10 @@ import {
 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
 import { Synchronizer } from "src/Synchronizer.sol";
-import { ERC20xDGateway } from "src/gateways/ERC20xDGateway.sol";
+import { LayerZeroReadGateway } from "src/gateways/LayerZeroReadGateway.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
-import { IERC20xDGatewayCallbacks } from "src/interfaces/IERC20xDGatewayCallbacks.sol";
+import { IGatewayReader } from "src/interfaces/IGatewayReader.sol";
 import { LiquidityMatrixTestHelper } from "./LiquidityMatrixTestHelper.sol";
 import { SettlerMock } from "../mocks/SettlerMock.sol";
 
@@ -25,7 +25,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
     address[CHAINS] syncers;
     ILiquidityMatrix[CHAINS] liquidityMatrices;
     Synchronizer[CHAINS] synchronizers;
-    ERC20xDGateway[CHAINS] gateways;
+    LayerZeroReadGateway[CHAINS] gateways;
     address[CHAINS] settlers;
     BaseERC20xD[CHAINS] erc20s;
 
@@ -60,7 +60,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
 
             // Create gateway with endpoint
             gateways[i] =
-                new ERC20xDGateway(DEFAULT_CHANNEL_ID, endpoints[eids[i]], address(liquidityMatrices[i]), owner);
+                new LayerZeroReadGateway(DEFAULT_CHANNEL_ID, endpoints[eids[i]], address(liquidityMatrices[i]), owner);
             _gateways[i] = address(gateways[i]);
             settlers[i] = address(new SettlerMock(address(liquidityMatrices[i])));
             erc20s[i] = _newBaseERC20xD(i);
@@ -188,7 +188,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
     function _executeRead(address reader, address[] memory readers, bytes memory callData, bytes memory error)
         internal
     {
-        IERC20xDGatewayCallbacks.Request[] memory requests = new IERC20xDGatewayCallbacks.Request[](CHAINS - 1);
+        IGatewayReader.Request[] memory requests = new IGatewayReader.Request[](CHAINS - 1);
         bytes[] memory responses = new bytes[](CHAINS - 1);
         uint32 eid;
         address gateway;
@@ -199,7 +199,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
                 gateway = address(gateways[i]);
                 continue;
             }
-            requests[count] = IERC20xDGatewayCallbacks.Request({
+            requests[count] = IGatewayReader.Request({
                 chainIdentifier: bytes32(uint256(eids[i])),
                 timestamp: uint64(block.timestamp),
                 target: address(readers[i])
@@ -210,7 +210,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
         }
 
         // Simulate the gateway calling reduce and then onRead
-        bytes memory payload = IERC20xDGatewayCallbacks(reader).reduce(requests, callData, responses);
+        bytes memory payload = IGatewayReader(reader).reduce(requests, callData, responses);
 
         if (error.length > 0) {
             vm.expectRevert(error);

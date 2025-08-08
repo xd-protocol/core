@@ -6,7 +6,7 @@ import {
     MessagingFee
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 
-contract ERC20xDGatewayMock {
+contract LayerZeroReadGatewayMock {
     uint256 public constant FEE = 0.01 ether;
 
     mapping(address => mapping(uint32 => bytes32)) public readTargets;

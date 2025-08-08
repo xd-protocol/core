@@ -2,9 +2,9 @@
 pragma solidity ^0.8.0;
 
 import { IERC20Permit } from "./IERC20Permit.sol";
-import { IERC20xDGatewayCallbacks } from "./IERC20xDGatewayCallbacks.sol";
+import { IGatewayReader } from "./IGatewayReader.sol";
 
-interface IBaseERC20xD is IERC20Permit, IERC20xDGatewayCallbacks {
+interface IBaseERC20xD is IERC20Permit, IGatewayReader {
     /**
      * @notice Represents a pending cross-chain transfer.
      * @param pending Indicates if the transfer is still pending.

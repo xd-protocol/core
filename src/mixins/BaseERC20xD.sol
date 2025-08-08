@@ -8,10 +8,10 @@ import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
 import { BaseERC20 } from "./BaseERC20.sol";
 import { IBaseERC20xD } from "../interfaces/IBaseERC20xD.sol";
 import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
-import { IERC20xDGateway } from "../interfaces/IERC20xDGateway.sol";
+import { IGateway } from "../interfaces/IGateway.sol";
 import { IERC20xDHook } from "../interfaces/IERC20xDHook.sol";
 import { ILiquidityMatrixCallbacks } from "../interfaces/ILiquidityMatrixCallbacks.sol";
-import { IERC20xDGatewayCallbacks } from "../interfaces/IERC20xDGatewayCallbacks.sol";
+import { IGatewayReader } from "../interfaces/IGatewayReader.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
 
 /**
@@ -222,7 +222,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @return fee The estimated messaging fee for the request.
      */
     function quoteTransfer(address from, uint128 gasLimit) public view returns (uint256 fee) {
-        return IERC20xDGateway(gateway).quoteRead(
+        return IGateway(gateway).quoteRead(
             address(this), abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from), gasLimit
         );
     }
@@ -239,7 +239,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         return localBalanceOf(account) - int256(pending.pending ? pending.amount : 0);
     }
 
-    function reduce(IERC20xDGatewayCallbacks.Request[] calldata requests, bytes calldata, bytes[] calldata responses)
+    function reduce(IGatewayReader.Request[] calldata requests, bytes calldata, bytes[] calldata responses)
         external
         pure
         returns (bytes memory)
@@ -279,7 +279,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     }
 
     function updateReadTarget(bytes32 chainIdentifier, bytes32 target) external onlyOwner {
-        IERC20xDGateway(gateway).updateReadTarget(chainIdentifier, target);
+        IGateway(gateway).updateReadTarget(chainIdentifier, target);
     }
 
     /**
@@ -440,7 +440,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         _pendingTransfers.push(PendingTransfer(true, from, to, amount, callData, value, data));
         _pendingNonce[from] = nonce;
 
-        guid = IERC20xDGateway(gateway).read{ value: msg.value - value }(
+        guid = IGateway(gateway).read{ value: msg.value - value }(
             abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from, nonce), abi.encode(nonce), data
         );
 

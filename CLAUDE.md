@@ -47,10 +47,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **ERC20xD**: Cross-chain token implementation that:
 - Extends BaseERC20xD for core cross-chain functionality
 - Integrates with LiquidityMatrix for balance tracking
-- Uses ERC20xDGateway for cross-chain reads
+- Uses LayerZeroReadGateway for cross-chain reads
 - Supports hooks for extensibility
 
-**ERC20xDGateway**: Registration-based gateway for cross-chain operations:
+**LayerZeroReadGateway**: Registration-based gateway for cross-chain operations:
 - Apps register as "readers" with unique cmdLabels
 - Manages read targets (remote contract addresses per chain)
 - Implements LayerZero's read protocol with lzReduce for aggregation

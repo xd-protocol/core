@@ -9,8 +9,8 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import { BytesLib } from "solidity-bytes-utils/contracts/BytesLib.sol";
-import { IERC20xDGateway } from "../interfaces/IERC20xDGateway.sol";
-import { IERC20xDGatewayCallbacks } from "../interfaces/IERC20xDGatewayCallbacks.sol";
+import { IGateway } from "../interfaces/IGateway.sol";
+import { IGatewayReader } from "../interfaces/IGatewayReader.sol";
 import { console2 } from "forge-std/console2.sol";
 
 /**
@@ -33,7 +33,7 @@ import { console2 } from "forge-std/console2.sol";
  *      - Unclaimed dividend tracking per user
  *      - Cross-chain dividend queries
  */
-contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCallbacks {
+contract DividendDistributorHook is BaseERC20xDHook, Ownable, IGatewayReader {
     using AddressLib for address;
     using BytesLib for bytes;
     using ECDSA for bytes32;
@@ -164,7 +164,7 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
      * @return fee The LayerZero fee required for claiming
      */
     function quoteRequestClaimDividends(address user, uint128 gasLimit) external view returns (uint256 fee) {
-        return IERC20xDGateway(gateway).quoteRead(
+        return IGateway(gateway).quoteRead(
             address(this), abi.encodeWithSelector(this.pendingDividends.selector, user), gasLimit
         );
     }
@@ -181,11 +181,11 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
         return dividendToken.balanceOf(address(this));
     }
 
-    function reduce(
-        IERC20xDGatewayCallbacks.Request[] calldata requests,
-        bytes calldata callData,
-        bytes[] calldata responses
-    ) external view returns (bytes memory) {
+    function reduce(IGatewayReader.Request[] calldata requests, bytes calldata callData, bytes[] calldata responses)
+        external
+        view
+        returns (bytes memory)
+    {
         if (requests.length == 0 || responses.length == 0) revert InvalidRequests();
 
         // parse user from callData `pendingDividends(address user)`
@@ -214,7 +214,7 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
     }
 
     function updateReadTarget(bytes32 chainIdentifier, bytes32 target) external onlyOwner {
-        IERC20xDGateway(gateway).updateReadTarget(chainIdentifier, target);
+        IGateway(gateway).updateReadTarget(chainIdentifier, target);
     }
 
     /**
@@ -284,7 +284,7 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IERC20xDGatewayCal
         if (amount == 0) revert NoDividends();
 
         bytes memory extra = abi.encode(msg.sender, amount, transferData, transferFee);
-        guid = IERC20xDGateway(gateway).read{ value: msg.value - transferFee }(
+        guid = IGateway(gateway).read{ value: msg.value - transferFee }(
             abi.encodeWithSelector(this.pendingDividends.selector, msg.sender, transferFee), extra, data
         );
     }
