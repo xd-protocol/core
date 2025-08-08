@@ -63,8 +63,8 @@ contract DividendDistributorHookTest is BaseERC20xDTestHelper {
         vm.stopPrank();
         vm.startPrank(owner);
         for (uint256 i; i < CHAINS; ++i) {
-            gateways[i].registerReader(address(dividendTokens[i]));
-            gateways[i].registerReader(address(hooks[i]));
+            gateways[i].registerApp(address(dividendTokens[i]));
+            gateways[i].registerApp(address(hooks[i]));
             for (uint256 j; j < CHAINS; ++j) {
                 if (i == j) continue;
                 dividendTokens[i].updateReadTarget(

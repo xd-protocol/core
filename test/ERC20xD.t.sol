@@ -13,7 +13,7 @@ import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
 import { ERC20xD } from "src/ERC20xD.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
-import { IGatewayReader } from "src/interfaces/IGatewayReader.sol";
+import { IGatewayApp } from "src/interfaces/IGatewayApp.sol";
 import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { OptionsBuilder } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
@@ -450,9 +450,9 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
         BaseERC20xD token = erc20s[0];
 
         // Create mock requests
-        IGatewayReader.Request[] memory requests = new IGatewayReader.Request[](CHAINS - 1);
+        IGatewayApp.Request[] memory requests = new IGatewayApp.Request[](CHAINS - 1);
         for (uint256 i = 0; i < requests.length; i++) {
-            requests[i] = IGatewayReader.Request({
+            requests[i] = IGatewayApp.Request({
                 chainIdentifier: bytes32(uint256(i + 2)),
                 timestamp: uint64(block.timestamp),
                 target: address(erc20s[i + 1])
@@ -475,7 +475,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
     function test_reduce_revertInvalidRequests() public {
         BaseERC20xD token = erc20s[0];
 
-        IGatewayReader.Request[] memory requests = new IGatewayReader.Request[](0);
+        IGatewayApp.Request[] memory requests = new IGatewayApp.Request[](0);
         bytes[] memory responses = new bytes[](0);
         bytes memory callData = abi.encodeWithSelector(token.availableLocalBalanceOf.selector, alice);
 

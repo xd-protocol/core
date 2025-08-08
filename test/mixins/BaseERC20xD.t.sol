@@ -12,7 +12,7 @@ import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
 import { ERC20xD } from "src/ERC20xD.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
-import { IGatewayReader } from "src/interfaces/IGatewayReader.sol";
+import { IGatewayApp } from "src/interfaces/IGatewayApp.sol";
 import { BaseERC20xDTestHelper } from "../helpers/BaseERC20xDTestHelper.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { OptionsBuilder } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
@@ -232,13 +232,13 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         BaseERC20xD token = erc20s[0];
 
         // Create mock requests
-        IGatewayReader.Request[] memory requests = new IGatewayReader.Request[](2);
-        requests[0] = IGatewayReader.Request({
+        IGatewayApp.Request[] memory requests = new IGatewayApp.Request[](2);
+        requests[0] = IGatewayApp.Request({
             chainIdentifier: bytes32(uint256(1)),
             timestamp: uint64(block.timestamp),
             target: address(erc20s[1])
         });
-        requests[1] = IGatewayReader.Request({
+        requests[1] = IGatewayApp.Request({
             chainIdentifier: bytes32(uint256(2)),
             timestamp: uint64(block.timestamp),
             target: address(erc20s[2])
