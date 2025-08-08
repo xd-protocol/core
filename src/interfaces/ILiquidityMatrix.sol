@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
+import { IGateway } from "./IGateway.sol";
+
 interface ILiquidityMatrix {
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
@@ -16,6 +19,8 @@ interface ILiquidityMatrix {
     error LocalAccountAlreadyMapped(uint32 eid, address local);
     error LiquidityAlreadySettled();
     error DataAlreadySettled();
+    error AlreadyRequested();
+    error InvalidCmd();
 
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
@@ -48,12 +53,18 @@ interface ILiquidityMatrix {
 
     event UpdateRemoteApp(address indexed app, uint32 indexed eid, address indexed remoteApp);
     event MapRemoteAccount(address indexed app, uint32 indexed eid, address indexed remote, address local);
+    event RequestMapRemoteAccounts(
+        address indexed app, uint32 indexed eid, address indexed remoteApp, address[] remotes, address[] locals
+    );
 
     event OnReceiveRoots(
         uint32 indexed eid, bytes32 indexed liquidityRoot, bytes32 indexed dataRoot, uint256 timestamp
     );
 
     event UpdateSynchronizer(address indexed synchronizer);
+    event SetGateway(address indexed gateway);
+    event SetSyncer(address indexed syncer);
+    event Sync(address indexed caller);
 
     event SettleLiquidity(uint32 indexed eid, address indexed app, bytes32 indexed liquidityRoot, uint256 timestamp);
     event SettleData(uint32 indexed eid, address indexed app, bytes32 indexed dataRoot, uint256 timestamp);
@@ -91,13 +102,6 @@ interface ILiquidityMatrix {
     /*//////////////////////////////////////////////////////////////
                         LOCAL VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @notice Returns the address of the synchronizer contract
-     * @dev The synchronizer handles all cross-chain communication
-     * @return The synchronizer contract address
-     */
-    function synchronizer() external view returns (address);
 
     /**
      * @notice Gets the current main tree roots and timestamp
@@ -564,21 +568,89 @@ interface ILiquidityMatrix {
     function setSynchronizer(address _synchronizer) external;
 
     /**
+     * @notice Sets the gateway contract address
+     * @dev Only callable by owner. The gateway handles all cross-chain communication.
+     * @param _gateway Address of the gateway contract
+     */
+    function setGateway(address _gateway) external;
+
+    /**
+     * @notice Returns the gateway contract
+     * @return The gateway contract
+     */
+    function gateway() external view returns (IGateway);
+
+    /**
+     * @notice Sets the syncer address
+     * @dev Only callable by owner. The syncer can initiate sync operations.
+     * @param _syncer Address of the syncer
+     */
+    function setSyncer(address _syncer) external;
+
+    /**
+     * @notice Configures the chains to sync with
+     * @dev Sets which chains this LiquidityMatrix will sync with
+     * @param eids Array of endpoint IDs to configure
+     */
+    function configureChains(uint32[] calldata eids) external;
+
+    /**
+     * @notice Updates the read target for a specific chain
+     * @dev Updates where to read from on the remote chain
+     * @param chainIdentifier The chain identifier
+     * @param target The target address on the remote chain
+     */
+    function updateReadTarget(bytes32 chainIdentifier, bytes32 target) external;
+
+    /**
+     * @notice Initiates a sync operation to fetch roots from all configured chains
+     * @dev Only callable by the authorized syncer. Rate limited to once per block.
+     * @param data Encoded (gasLimit, refundTo) for the cross-chain operation
+     * @return receipt The messaging receipt from the gateway
+     */
+    function sync(bytes memory data) external payable returns (MessagingReceipt memory receipt);
+
+    /**
+     * @notice Quotes the messaging fee for syncing all configured chains
+     * @param gasLimit The gas limit for the operation
+     * @return fee The estimated messaging fee in native token
+     */
+    function quoteSync(uint128 gasLimit) external view returns (uint256 fee);
+
+    /**
+     * @notice Quotes the fee for mapping remote accounts
+     * @param eid Target chain endpoint ID
+     * @param localApp Address of the local app
+     * @param remoteApp Address of the app on the remote chain
+     * @param remotes Array of remote account addresses
+     * @param locals Array of local account addresses to map to
+     * @param gasLimit Gas limit for the cross-chain message
+     * @return fee The estimated messaging fee
+     */
+    function quoteRequestMapRemoteAccounts(
+        uint32 eid,
+        address localApp,
+        address remoteApp,
+        address[] memory remotes,
+        address[] memory locals,
+        uint128 gasLimit
+    ) external view returns (uint256 fee);
+
+    /**
      * @notice Requests to map remote accounts to local accounts
      * @dev Sends a cross-chain message via the synchronizer
      * @param eid Target chain endpoint ID
      * @param remoteApp Address of the app on the remote chain
      * @param remotes Array of remote account addresses
      * @param locals Array of local account addresses to map to
-     * @param gasLimit Gas limit for the cross-chain message
      */
     function requestMapRemoteAccounts(
         uint32 eid,
         address remoteApp,
         address[] memory remotes,
         address[] memory locals,
-        uint128 gasLimit
-    ) external payable;
+        bytes memory data
+    ) external payable returns (bytes32 guid);
 
     /**
      * @notice Receives and stores roots from a remote chain

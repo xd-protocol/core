@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-interface IGatewayReader {
+interface IGatewayApp {
     struct Request {
         bytes32 chainIdentifier;
         uint64 timestamp;
@@ -14,4 +14,6 @@ interface IGatewayReader {
         returns (bytes memory);
 
     function onRead(bytes calldata _message, bytes calldata _extra) external;
+
+    function onReceive(bytes32 sourceChainId, bytes calldata message) external;
 }
