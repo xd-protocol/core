@@ -24,7 +24,7 @@ import { IGatewayReader } from "../interfaces/IGatewayReader.sol";
 import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
 import { ISynchronizer } from "../interfaces/ISynchronizer.sol";
 
-contract LayerZeroReadGateway is OAppRead, ReentrancyGuard, IGateway {
+contract LayerZeroGateway is OAppRead, ReentrancyGuard, IGateway {
     using OptionsBuilder for bytes;
 
     struct ReaderState {
@@ -90,7 +90,7 @@ contract LayerZeroReadGateway is OAppRead, ReentrancyGuard, IGateway {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Initializes the ERC20xDGateway contract with the necessary configurations.
+     * @notice Initializes the LayerZeroGateway contract with the necessary configurations.
      * @param _readChannel The read channel ID for LayerZero communication.
      * @param _endpoint The LayerZero endpoint address.
      * @param _liquidityMatrix The LiquidityMatrix contract address.

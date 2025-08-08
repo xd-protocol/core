@@ -9,7 +9,7 @@ import {
 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
 import { Synchronizer } from "src/Synchronizer.sol";
-import { LayerZeroReadGateway } from "src/gateways/LayerZeroReadGateway.sol";
+import { LayerZeroGateway } from "src/gateways/LayerZeroGateway.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { IGatewayReader } from "src/interfaces/IGatewayReader.sol";
@@ -25,7 +25,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
     address[CHAINS] syncers;
     ILiquidityMatrix[CHAINS] liquidityMatrices;
     Synchronizer[CHAINS] synchronizers;
-    LayerZeroReadGateway[CHAINS] gateways;
+    LayerZeroGateway[CHAINS] gateways;
     address[CHAINS] settlers;
     BaseERC20xD[CHAINS] erc20s;
 
@@ -60,7 +60,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
 
             // Create gateway with endpoint
             gateways[i] =
-                new LayerZeroReadGateway(DEFAULT_CHANNEL_ID, endpoints[eids[i]], address(liquidityMatrices[i]), owner);
+                new LayerZeroGateway(DEFAULT_CHANNEL_ID, endpoints[eids[i]], address(liquidityMatrices[i]), owner);
             _gateways[i] = address(gateways[i]);
             settlers[i] = address(new SettlerMock(address(liquidityMatrices[i])));
             erc20s[i] = _newBaseERC20xD(i);

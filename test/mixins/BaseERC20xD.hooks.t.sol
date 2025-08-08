@@ -13,7 +13,7 @@ import {
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { ERC20xDMock } from "../mocks/ERC20xDMock.sol";
 import { LiquidityMatrixMock } from "../mocks/LiquidityMatrixMock.sol";
-import { LayerZeroReadGatewayMock } from "../mocks/LayerZeroReadGatewayMock.sol";
+import { LayerZeroGatewayMock } from "../mocks/LayerZeroGatewayMock.sol";
 import { HookMock } from "../mocks/HookMock.sol";
 
 // Contract to track the order of hook calls using a shared counter
@@ -78,7 +78,7 @@ contract OrderTrackingHook is IERC20xDHook {
 contract BaseERC20xDHooksTest is Test {
     ERC20xDMock token;
     LiquidityMatrixMock liquidityMatrix;
-    LayerZeroReadGatewayMock gateway;
+    LayerZeroGatewayMock gateway;
     HookMock hook1;
     HookMock hook2;
     HookMock hook3;
@@ -128,7 +128,7 @@ contract BaseERC20xDHooksTest is Test {
         liquidityMatrix = new LiquidityMatrixMock();
 
         // Deploy mock gateway
-        gateway = new LayerZeroReadGatewayMock();
+        gateway = new LayerZeroGatewayMock();
 
         // Deploy token
         token = new ERC20xDMock("Test", "TEST", 18, address(liquidityMatrix), address(gateway), owner);

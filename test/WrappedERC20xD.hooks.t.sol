@@ -7,7 +7,7 @@ import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { IERC20xDHook } from "src/interfaces/IERC20xDHook.sol";
 import { ERC20Mock } from "./mocks/ERC20Mock.sol";
 import { LiquidityMatrixMock } from "./mocks/LiquidityMatrixMock.sol";
-import { LayerZeroReadGatewayMock } from "./mocks/LayerZeroReadGatewayMock.sol";
+import { LayerZeroGatewayMock } from "./mocks/LayerZeroGatewayMock.sol";
 import { SafeTransferLib, ERC20 } from "solmate/utils/SafeTransferLib.sol";
 
 // Hook that releases underlying tokens on burn
@@ -147,7 +147,7 @@ contract WrappedERC20xDHooksTest is Test {
     WrappedERC20xD public wrappedToken;
     ERC20Mock public underlying;
     LiquidityMatrixMock public liquidityMatrix;
-    LayerZeroReadGatewayMock public gateway;
+    LayerZeroGatewayMock public gateway;
 
     SimpleRedemptionHook public redemptionHook;
     FailingRedemptionHook public failingHook;
@@ -164,7 +164,7 @@ contract WrappedERC20xDHooksTest is Test {
     function setUp() public {
         // Deploy mocks
         liquidityMatrix = new LiquidityMatrixMock();
-        gateway = new LayerZeroReadGatewayMock();
+        gateway = new LayerZeroGatewayMock();
         underlying = new ERC20Mock("USDC", "USDC", 6);
 
         // Deploy wrapped token
