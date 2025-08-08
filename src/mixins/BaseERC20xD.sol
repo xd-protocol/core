@@ -11,7 +11,7 @@ import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
 import { IGateway } from "../interfaces/IGateway.sol";
 import { IERC20xDHook } from "../interfaces/IERC20xDHook.sol";
 import { ILiquidityMatrixCallbacks } from "../interfaces/ILiquidityMatrixCallbacks.sol";
-import { IGatewayReader } from "../interfaces/IGatewayReader.sol";
+import { IGatewayApp } from "../interfaces/IGatewayApp.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
 
 /**
@@ -223,7 +223,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      */
     function quoteTransfer(address from, uint128 gasLimit) public view returns (uint256 fee) {
         return IGateway(gateway).quoteRead(
-            address(this), abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from), gasLimit
+            address(this), abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from), 256, gasLimit
         );
     }
 
@@ -239,7 +239,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         return localBalanceOf(account) - int256(pending.pending ? pending.amount : 0);
     }
 
-    function reduce(IGatewayReader.Request[] calldata requests, bytes calldata, bytes[] calldata responses)
+    function reduce(IGatewayApp.Request[] calldata requests, bytes calldata, bytes[] calldata responses)
         external
         pure
         returns (bytes memory)
@@ -441,7 +441,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         _pendingNonce[from] = nonce;
 
         guid = IGateway(gateway).read{ value: msg.value - value }(
-            abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from, nonce), abi.encode(nonce), data
+            abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from, nonce), abi.encode(nonce), 256, data
         );
 
         address[] memory _hooks = hooks;
@@ -743,5 +743,17 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
                 emit OnSettleDataHookFailure(_hooks[i], eid, timestamp, key, value, reason);
             }
         }
+    }
+
+    /**
+     * @notice Handles incoming messages from the gateway
+     * @dev Implementation of IGatewayApp.onReceive
+     */
+    function onReceive(bytes32, bytes calldata) external virtual override {
+        // Only allow calls from the gateway contract
+        if (msg.sender != gateway) revert Forbidden();
+
+        // BaseERC20xD doesn't process incoming messages by default
+        // Derived contracts can override this to handle specific message types
     }
 }
