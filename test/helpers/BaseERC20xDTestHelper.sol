@@ -67,8 +67,12 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             _erc20s[i] = address(erc20s[i]);
 
             liquidityMatrices[i].updateSettlerWhitelisted(settlers[i], true);
+
             vm.label(address(liquidityMatrices[i]), string.concat("LiquidityMatrix", vm.toString(i)));
+            vm.label(address(gateways[i]), string.concat("Gateway", vm.toString(i)));
+            vm.label(address(settlers[i]), string.concat("Settler", vm.toString(i)));
             vm.label(address(erc20s[i]), string.concat("ERC20xD", vm.toString(i)));
+
             vm.deal(settlers[i], 1000e18);
         }
 
