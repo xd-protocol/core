@@ -10,8 +10,7 @@ import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import { BytesLib } from "solidity-bytes-utils/contracts/BytesLib.sol";
 import { IGateway } from "../interfaces/IGateway.sol";
-import { IGatewayReader } from "../interfaces/IGatewayReader.sol";
-import { console2 } from "forge-std/console2.sol";
+import { IGatewayApp } from "../interfaces/IGatewayApp.sol";
 
 /**
  * @title DividendDistributorHook
@@ -33,7 +32,7 @@ import { console2 } from "forge-std/console2.sol";
  *      - Unclaimed dividend tracking per user
  *      - Cross-chain dividend queries
  */
-contract DividendDistributorHook is BaseERC20xDHook, Ownable, IGatewayReader {
+contract DividendDistributorHook is BaseERC20xDHook, Ownable, IGatewayApp {
     using AddressLib for address;
     using BytesLib for bytes;
     using ECDSA for bytes32;
@@ -165,7 +164,7 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IGatewayReader {
      */
     function quoteRequestClaimDividends(address user, uint128 gasLimit) external view returns (uint256 fee) {
         return IGateway(gateway).quoteRead(
-            address(this), abi.encodeWithSelector(this.pendingDividends.selector, user), gasLimit
+            address(this), abi.encodeWithSelector(this.pendingDividends.selector, user), 256, gasLimit
         );
     }
 
@@ -181,7 +180,7 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IGatewayReader {
         return dividendToken.balanceOf(address(this));
     }
 
-    function reduce(IGatewayReader.Request[] calldata requests, bytes calldata callData, bytes[] calldata responses)
+    function reduce(IGatewayApp.Request[] calldata requests, bytes calldata callData, bytes[] calldata responses)
         external
         view
         returns (bytes memory)
@@ -285,7 +284,7 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IGatewayReader {
 
         bytes memory extra = abi.encode(msg.sender, amount, transferData, transferFee);
         guid = IGateway(gateway).read{ value: msg.value - transferFee }(
-            abi.encodeWithSelector(this.pendingDividends.selector, msg.sender, transferFee), extra, data
+            abi.encodeWithSelector(this.pendingDividends.selector, msg.sender, transferFee), extra, 256, data
         );
     }
 
@@ -298,6 +297,17 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IGatewayReader {
         if (amount > totalPending) revert InsufficientDividends();
 
         _transferDividends(user, amount, transferData, transferFee);
+    }
+
+    /**
+     * @notice Handles incoming messages from the gateway
+     * @dev Implementation of IGatewayApp.onReceive
+     */
+    function onReceive(bytes32, bytes calldata) external view {
+        if (msg.sender != gateway) revert Forbidden();
+
+        // DividendDistributorHook doesn't process incoming messages
+        // It only uses read operations for cross-chain dividend queries
     }
 
     /*//////////////////////////////////////////////////////////////
