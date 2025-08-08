@@ -6,9 +6,8 @@ import {
     MessagingReceipt
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
-import { Synchronizer } from "src/Synchronizer.sol";
+import { LayerZeroGateway } from "src/gateways/LayerZeroGateway.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
-import { ISynchronizer } from "src/interfaces/ISynchronizer.sol";
 import { MerkleTreeLib } from "src/libraries/MerkleTreeLib.sol";
 import { Test, console } from "forge-std/Test.sol";
 import { AppMock } from "./mocks/AppMock.sol";
@@ -24,7 +23,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
     uint32[CHAINS] eids;
     address[CHAINS] syncers;
     ILiquidityMatrix[CHAINS] liquidityMatrices;
-    Synchronizer[CHAINS] synchronizers;
+    LayerZeroGateway[CHAINS] gateways;
     address[CHAINS] apps;
     Storage[CHAINS] storages;
 
@@ -43,16 +42,18 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
             // Create LiquidityMatrix (only takes owner)
             liquidityMatrices[i] = new LiquidityMatrix(owner);
 
-            // Create Synchronizer with LayerZero integration
-            // Note: endpoints array is 1-indexed, so we use eids[i] which starts at 1
-            synchronizers[i] = new Synchronizer(
-                DEFAULT_CHANNEL_ID, endpoints[eids[i]], address(liquidityMatrices[i]), syncers[i], owner
-            );
+            // Create Gateway first
+            gateways[i] =
+                new LayerZeroGateway(DEFAULT_CHANNEL_ID, endpoints[eids[i]], address(liquidityMatrices[i]), owner);
 
-            // Set synchronizer in LiquidityMatrix
-            liquidityMatrices[i].setSynchronizer(address(synchronizers[i]));
+            // Set gateway and syncer in LiquidityMatrix
+            liquidityMatrices[i].setGateway(address(gateways[i]));
+            liquidityMatrices[i].setSyncer(syncers[i]);
 
-            oapps[i] = address(synchronizers[i]);
+            // Register LiquidityMatrix as an app with the gateway
+            gateways[i].registerApp(address(liquidityMatrices[i]));
+
+            oapps[i] = address(gateways[i]);
             apps[i] = address(new AppMock(address(liquidityMatrices[i])));
         }
 
@@ -74,7 +75,16 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
             }
 
             changePrank(owner, owner);
-            synchronizers[i].configChains(configEids, configConfirmations);
+            gateways[i].configChains(configEids, configConfirmations);
+
+            // Set read targets for LiquidityMatrix to read each other
+            for (uint32 j; j < CHAINS; ++j) {
+                if (i != j) {
+                    liquidityMatrices[i].updateReadTarget(
+                        bytes32(uint256(eids[j])), bytes32(uint256(uint160(address(liquidityMatrices[j]))))
+                    );
+                }
+            }
             initialize(storages[i]);
         }
 
@@ -548,7 +558,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         locals[0] = users[1];
         bytes memory message = abi.encode(remotes, locals);
 
-        changePrank(address(synchronizers[0]), address(synchronizers[0]));
+        changePrank(address(gateways[0]), address(gateways[0]));
         liquidityMatrices[0].onReceiveMapRemoteAccountRequests(eids[1], apps[0], message);
 
         // Now mapping exists
@@ -572,7 +582,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         locals[0] = users[1];
         bytes memory message = abi.encode(remotes, locals);
 
-        changePrank(address(synchronizers[0]), address(synchronizers[0]));
+        changePrank(address(gateways[0]), address(gateways[0]));
         liquidityMatrices[0].onReceiveMapRemoteAccountRequests(eids[1], apps[0], message);
 
         // Now local account is mapped
@@ -2009,7 +2019,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         assertFalse(liquidityMatrices[0].isFinalized(app, eid, block.timestamp + 1000));
 
         // Setup: First sync some roots
-        changePrank(address(synchronizers[0]), address(synchronizers[0]));
+        changePrank(address(gateways[0]), address(gateways[0]));
         liquidityMatrices[0].onReceiveRoots(
             eid, keccak256("liquidity_root_1"), keccak256("data_root_1"), block.timestamp
         );
@@ -2046,7 +2056,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Test with new roots that haven't been settled
         vm.warp(block.timestamp + 100);
-        changePrank(address(synchronizers[0]), address(synchronizers[0]));
+        changePrank(address(gateways[0]), address(gateways[0]));
         liquidityMatrices[0].onReceiveRoots(
             eid, keccak256("liquidity_root_2"), keccak256("data_root_2"), block.timestamp
         );
@@ -2915,7 +2925,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
     }
 
     function test_onReceiveRoots_outOfOrderRoots() public {
-        changePrank(address(synchronizers[0]), address(synchronizers[0]));
+        changePrank(address(gateways[0]), address(gateways[0]));
 
         uint32 eid = 30_001;
 
@@ -2963,7 +2973,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Simulate receiving a map request from remote chain
         // First mapping succeeds
-        changePrank(address(synchronizers[0]), address(synchronizers[0]));
+        changePrank(address(gateways[0]), address(gateways[0]));
         address[] memory remotes1 = new address[](1);
         address[] memory locals1 = new address[](1);
         remotes1[0] = users[0];
@@ -2990,7 +3000,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Simulate receiving a map request from remote chain
         // First mapping succeeds
-        changePrank(address(synchronizers[0]), address(synchronizers[0]));
+        changePrank(address(gateways[0]), address(gateways[0]));
         address[] memory remotes1 = new address[](1);
         address[] memory locals1 = new address[](1);
         remotes1[0] = users[0];
@@ -3030,7 +3040,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         }
 
         // Send bulk mapping request
-        changePrank(address(synchronizers[0]), address(synchronizers[0]));
+        changePrank(address(gateways[0]), address(gateways[0]));
         bytes memory message = abi.encode(remotes, locals);
 
         liquidityMatrices[0].onReceiveMapRemoteAccountRequests(eids[1], callbackApp, message);
@@ -3068,7 +3078,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         address[] memory locals = new address[](3); // Different length
 
         vm.expectRevert(ILiquidityMatrix.InvalidLengths.selector);
-        liquidityMatrices[0].requestMapRemoteAccounts{ value: 1 ether }(eids[1], apps[1], remotes, locals, 100_000);
+        liquidityMatrices[0].requestMapRemoteAccounts{ value: 1 ether }(
+            eids[1], apps[1], locals, remotes, abi.encode(uint128(100_000), apps[0])
+        );
     }
 
     function test_requestMapRemoteAccounts_invalidAddress() public {
@@ -3079,7 +3091,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         locals[0] = address(0); // Invalid address
 
         vm.expectRevert(ILiquidityMatrix.InvalidAddress.selector);
-        liquidityMatrices[0].requestMapRemoteAccounts{ value: 1 ether }(eids[1], apps[1], remotes, locals, 100_000);
+        liquidityMatrices[0].requestMapRemoteAccounts{ value: 1 ether }(
+            eids[1], apps[1], locals, remotes, abi.encode(uint128(100_000), apps[0])
+        );
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -3143,7 +3157,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         liquidityMatrices[0].updateSettlerWhitelisted(settler, true);
 
         // Receive three sets of roots sequentially
-        changePrank(address(synchronizers[0]), address(synchronizers[0]));
+        changePrank(address(gateways[0]), address(gateways[0]));
 
         // Root 1 at timestamp T1
         uint256 t1 = block.timestamp;
@@ -3359,9 +3373,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
     }
 
     function _eid(address addr) internal view override returns (uint32) {
-        // For synchronizer addresses, check which endpoint they're associated with
+        // For gateway addresses, check which endpoint they're associated with
         for (uint32 i = 0; i < CHAINS; ++i) {
-            if (address(liquidityMatrices[i]) != address(0) && addr == address(synchronizers[i])) {
+            if (address(liquidityMatrices[i]) != address(0) && addr == address(gateways[i])) {
                 return eids[i];
             }
         }
