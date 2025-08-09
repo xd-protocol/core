@@ -14,7 +14,7 @@ interface IERC20xDHook {
      * @param amount Amount of tokens being transferred
      * @param callData Optional calldata to execute on the recipient
      * @param value Native token value sent with the transfer
-     * @param data Extra data passed with the transfer
+     * @param data Encoded (uint128 gasLimit, address refundTo) parameters passed with the transfer
      */
     function onInitiateTransfer(
         address from,
@@ -39,7 +39,7 @@ interface IERC20xDHook {
      * @param from Source address (address(0) for mints)
      * @param to Destination address (address(0) for burns)
      * @param amount Amount transferred
-     * @param data Extra data containing LayerZero parameters (gasLimit, refundTo) when applicable
+     * @param data Extra data containing cross-chain parameters (uint128 gasLimit, address refundTo) when applicable
      */
     function beforeTransfer(address from, address to, uint256 amount, bytes memory data) external;
 
@@ -49,7 +49,7 @@ interface IERC20xDHook {
      * @param from Source address (address(0) for mints)
      * @param to Destination address (address(0) for burns)
      * @param amount Amount transferred
-     * @param data Extra data containing LayerZero parameters (gasLimit, refundTo) when applicable
+     * @param data Extra data containing cross-chain parameters (uint128 gasLimit, address refundTo) when applicable
      */
     function afterTransfer(address from, address to, uint256 amount, bytes memory data) external;
 

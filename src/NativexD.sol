@@ -36,7 +36,7 @@ contract NativexD is BaseERC20xD, INativexD {
      * @param _symbol The symbol of the wrapped native token.
      * @param _decimals The number of decimals for the wrapped native token.
      * @param _liquidityMatrix The address of the LiquidityMatrix contract.
-     * @param _gateway The address of the ERC20xDGateway contract.
+     * @param _gateway The address of the Gateway contract.
      * @param _owner The address that will be granted ownership privileges.
      */
     constructor(
@@ -78,7 +78,7 @@ contract NativexD is BaseERC20xD, INativexD {
      *      tokens should be handled by hooks in the afterTransfer callback.
      * @param to The destination address to receive the unwrapped native tokens.
      * @param amount The amount of wrapped tokens to unwrap.
-     * @param data Extra data containing LayerZero parameters (gasLimit, refundTo) for cross-chain messaging.
+     * @param data Extra data containing cross-chain parameters (uint128 gasLimit, address refundTo) for cross-chain messaging.
      */
     function unwrap(address to, uint256 amount, bytes memory data)
         external
@@ -97,9 +97,10 @@ contract NativexD is BaseERC20xD, INativexD {
 
     /**
      * @notice Quotes the fee for wrapping native tokens.
+     * @param gasLimit The gas limit (unused for local operations)
      * @return fee The fee required for the wrap operation.
      */
-    function quoteWrap(uint128) external pure virtual returns (uint256) {
+    function quoteWrap(uint128 gasLimit) external pure virtual returns (uint256) {
         // Wrap is a local operation, no cross-chain fee needed
         return 0;
     }

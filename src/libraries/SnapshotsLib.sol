@@ -3,6 +3,13 @@ pragma solidity ^0.8.28;
 
 import { ArrayLib } from "./ArrayLib.sol";
 
+/**
+ * @title SnapshotsLib
+ * @notice Library for managing time-based snapshots of values with efficient storage and retrieval
+ * @dev Provides functionality to store and retrieve historical values at specific timestamps.
+ *      Uses a sorted array of timestamps for efficient binary search and lookup operations.
+ *      Designed for tracking historical state in liquidity management and cross-chain synchronization.
+ */
 library SnapshotsLib {
     using ArrayLib for uint256[];
 

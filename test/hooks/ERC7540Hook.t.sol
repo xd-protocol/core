@@ -86,7 +86,7 @@ contract ERC7540HookTest is BaseERC20xDTestHelper {
 
     function test_deployment() public view {
         for (uint256 i = 0; i < CHAINS; i++) {
-            assertEq(hooks[i].wrappedToken(), address(erc20s[i]));
+            assertEq(hooks[i].token(), address(erc20s[i]));
             assertEq(address(hooks[i].vault()), address(vaults[i]));
             assertEq(hooks[i].asset(), address(assets[i]));
             assertEq(WrappedERC20xD(payable(address(erc20s[i]))).underlying(), address(underlyings[i]));

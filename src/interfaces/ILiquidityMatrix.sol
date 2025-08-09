@@ -217,7 +217,7 @@ interface ILiquidityMatrix {
     /**
      * @notice Gets the local account mapped to a remote account
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param remote The remote account address
      * @return local The mapped local account address
      */
@@ -228,7 +228,7 @@ interface ILiquidityMatrix {
     /**
      * @notice Checks if a local account is already mapped to a remote account
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param local The local account address
      * @return Whether the local account is mapped
      */
@@ -236,7 +236,7 @@ interface ILiquidityMatrix {
 
     /**
      * @notice Gets the last received liquidity root from a remote chain
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @return root The liquidity root hash
      * @return timestamp The timestamp when the root was received
      */
@@ -245,7 +245,7 @@ interface ILiquidityMatrix {
     /**
      * @notice Gets the last settled liquidity root for an app on a specific chain
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @return root The liquidity root hash
      * @return timestamp The timestamp of the settled root
      */
@@ -258,7 +258,7 @@ interface ILiquidityMatrix {
      * @notice Gets the last finalized liquidity root (both liquidity and data settled)
      * @dev A root is finalized when both liquidity and data roots are settled for the same timestamp
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @return root The liquidity root hash
      * @return timestamp The timestamp of the finalized root
      */
@@ -269,7 +269,7 @@ interface ILiquidityMatrix {
 
     /**
      * @notice Gets the liquidity root at a specific timestamp
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param timestamp The timestamp to query
      * @return root The liquidity root at the timestamp
      */
@@ -277,7 +277,7 @@ interface ILiquidityMatrix {
 
     /**
      * @notice Gets the last received data root from a remote chain
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @return root The data root hash
      * @return timestamp The timestamp when the root was received
      */
@@ -286,7 +286,7 @@ interface ILiquidityMatrix {
     /**
      * @notice Gets the last settled data root for an app on a specific chain
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @return root The data root hash
      * @return timestamp The timestamp of the settled root
      */
@@ -298,7 +298,7 @@ interface ILiquidityMatrix {
     /**
      * @notice Gets the last finalized data root for an app on a specific chain
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @return root The data root hash
      * @return timestamp The timestamp of the finalized root
      */
@@ -309,7 +309,7 @@ interface ILiquidityMatrix {
 
     /**
      * @notice Gets the data root at a specific timestamp
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param timestamp The timestamp to query
      * @return root The data root at the timestamp
      */
@@ -318,7 +318,7 @@ interface ILiquidityMatrix {
     /**
      * @notice Checks if a liquidity root has been settled for an app
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param timestamp The timestamp to check
      * @return Whether the liquidity root is settled
      */
@@ -327,7 +327,7 @@ interface ILiquidityMatrix {
     /**
      * @notice Checks if a data root has been settled for an app
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param timestamp The timestamp to check
      * @return Whether the data root is settled
      */
@@ -337,7 +337,7 @@ interface ILiquidityMatrix {
      * @notice Checks if both roots are finalized for a given timestamp
      * @dev Returns true if both liquidity and data are settled
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param timestamp The timestamp to check
      * @return Whether the roots are finalized
      */
@@ -394,7 +394,7 @@ interface ILiquidityMatrix {
     /**
      * @notice Gets the total liquidity from a remote chain at the last settled timestamp
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @return liquidity The settled remote total liquidity
      */
     function getSettledRemoteTotalLiquidity(address app, bytes32 chainUID) external view returns (int256 liquidity);
@@ -402,7 +402,7 @@ interface ILiquidityMatrix {
     /**
      * @notice Gets the total liquidity from a remote chain at the last finalized timestamp
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @return liquidity The finalized remote total liquidity
      */
     function getFinalizedRemoteTotalLiquidity(address app, bytes32 chainUID) external view returns (int256 liquidity);
@@ -410,7 +410,7 @@ interface ILiquidityMatrix {
     /**
      * @notice Gets the total liquidity from a remote chain at a specific timestamp
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param timestamp The timestamp to query
      * @return liquidity The remote total liquidity at the timestamp
      */
@@ -422,7 +422,7 @@ interface ILiquidityMatrix {
     /**
      * @notice Gets the liquidity for an account from a remote chain at the last settled timestamp
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param account The account address
      * @return liquidity The settled remote liquidity for the account
      */
@@ -434,7 +434,7 @@ interface ILiquidityMatrix {
     /**
      * @notice Gets the liquidity for an account from a remote chain at the last finalized timestamp
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param account The account address
      * @return liquidity The finalized remote liquidity for the account
      */
@@ -446,7 +446,7 @@ interface ILiquidityMatrix {
     /**
      * @notice Gets the liquidity for an account from a remote chain at a specific timestamp
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param account The account address
      * @param timestamp The timestamp to query
      * @return liquidity The remote liquidity at the timestamp
@@ -459,7 +459,7 @@ interface ILiquidityMatrix {
     /**
      * @notice Gets the data hash from a remote chain at the last settled timestamp
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param key The data key
      * @return value The settled remote data hash
      */
@@ -471,7 +471,7 @@ interface ILiquidityMatrix {
     /**
      * @notice Gets the data hash from a remote chain at the last finalized timestamp
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param key The data key
      * @return value The finalized remote data hash
      */
@@ -483,7 +483,7 @@ interface ILiquidityMatrix {
     /**
      * @notice Gets the data hash from a remote chain at a specific timestamp
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param key The data key
      * @param timestamp The timestamp to query
      * @return value The remote data hash at the timestamp
@@ -607,9 +607,15 @@ interface ILiquidityMatrix {
     function chainConfigs() external view returns (bytes32[] memory chainUIDs, uint16[] memory confirmations);
 
     /**
+     * @notice Returns the configured chains from the gateway
+     * @return Array of configured chain UIDs
+     */
+    function getConfiguredChains() external view returns (bytes32[] memory);
+
+    /**
      * @notice Initiates a sync operation to fetch roots from all configured chains
      * @dev Only callable by the authorized syncer. Rate limited to once per block.
-     * @param data Encoded (gasLimit, refundTo) for the cross-chain operation
+     * @param data Encoded (uint128 gasLimit, address refundTo) for the cross-chain operation
      * @return receipt The messaging receipt from the gateway
      */
     function sync(bytes memory data) external payable returns (MessagingReceipt memory receipt);
@@ -623,7 +629,7 @@ interface ILiquidityMatrix {
 
     /**
      * @notice Quotes the fee for mapping remote accounts
-     * @param chainUID Target chain endpoint ID
+     * @param chainUID Target chain unique identifier
      * @param localApp Address of the local app
      * @param remoteApp Address of the app on the remote chain
      * @param remotes Array of remote account addresses
@@ -643,10 +649,11 @@ interface ILiquidityMatrix {
     /**
      * @notice Requests to map remote accounts to local accounts
      * @dev Sends a cross-chain message via the synchronizer
-     * @param chainUID Target chain endpoint ID
+     * @param chainUID Target chain unique identifier
      * @param remoteApp Address of the app on the remote chain
      * @param remotes Array of remote account addresses
      * @param locals Array of local account addresses to map to
+     * @param data Encoded (uint128 gasLimit, address refundTo) parameters
      */
     function requestMapRemoteAccounts(
         bytes32 chainUID,
@@ -659,7 +666,7 @@ interface ILiquidityMatrix {
     /**
      * @notice Receives and stores roots from a remote chain
      * @dev Only callable by the synchronizer
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param liquidityRoot The liquidity tree root from the remote chain
      * @param dataRoot The data tree root from the remote chain
      * @param timestamp The timestamp of the roots

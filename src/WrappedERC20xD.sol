@@ -42,7 +42,7 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
      * @param _symbol The token symbol.
      * @param _decimals The token decimals.
      * @param _liquidityMatrix The address of the LiquidityMatrix contract.
-     * @param _gateway The address of the ERC20xDGateway contract.
+     * @param _gateway The address of the Gateway contract.
      * @param _owner The owner of the contract.
      */
     constructor(
@@ -91,7 +91,7 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
      *      tokens should be handled by hooks in the afterTransfer callback.
      * @param to The destination address to receive the unwrapped tokens.
      * @param amount The amount of wrapped tokens to unwrap.
-     * @param data Extra data containing LayerZero parameters (gasLimit, refundTo) for cross-chain messaging.
+     * @param data Extra data containing cross-chain parameters (uint128 gasLimit, address refundTo) for cross-chain messaging.
      */
     function unwrap(address to, uint256 amount, bytes memory data)
         external
@@ -110,9 +110,10 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
 
     /**
      * @notice Quotes the fee for wrapping tokens.
+     * @param gasLimit The gas limit (unused for local operations)
      * @return fee The fee required for the wrap operation.
      */
-    function quoteWrap(uint128) external pure virtual returns (uint256) {
+    function quoteWrap(uint128 gasLimit) external pure virtual returns (uint256) {
         // Wrap is a local operation, no cross-chain fee needed
         return 0;
     }

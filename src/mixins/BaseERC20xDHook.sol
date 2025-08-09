@@ -3,6 +3,13 @@ pragma solidity ^0.8.28;
 
 import { IERC20xDHook } from "../interfaces/IERC20xDHook.sol";
 
+/**
+ * @title BaseERC20xDHook
+ * @notice Abstract base contract for implementing ERC20xD hooks with common functionality
+ * @dev Provides base implementation for hooks that need to interact with ERC20xD tokens.
+ *      Includes token reference storage and validation logic. Hooks can override transfer callbacks
+ *      to implement custom logic like dividend distribution, vault integration, or other mechanisms.
+ */
 abstract contract BaseERC20xDHook is IERC20xDHook {
     /// @notice The ERC20xD token this hook is attached to
     address public immutable token;

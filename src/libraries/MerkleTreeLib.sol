@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
+/**
+ * @title MerkleTreeLib
+ * @notice Library for managing dynamic Merkle trees with efficient insertion and root calculation
+ * @dev Implements a binary Merkle tree that supports incremental updates and maintains a current root.
+ *      Uses a compact storage structure with key-to-index mapping for efficient lookups and updates.
+ *      Designed for tracking state changes in liquidity matrices and cross-chain synchronization.
+ */
 library MerkleTreeLib {
     struct Tree {
         mapping(bytes32 => uint256) keyToIndex; // Maps keys to unique indices

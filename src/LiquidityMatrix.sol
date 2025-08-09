@@ -17,8 +17,9 @@ import { ILiquidityMatrixAccountMapper } from "./interfaces/ILiquidityMatrixAcco
 /**
  * @title LiquidityMatrix
  * @notice Core ledger contract managing hierarchical Merkle trees to track and synchronize liquidity and data updates across applications.
- * @dev This contract has no LayerZero dependencies and serves as the main state management layer.
- *      Cross-chain synchronization is handled by a pluggable Synchronizer contract.
+ * @dev This contract serves as the main state management layer with minimal LayerZero dependencies (only for MessagingReceipt type).
+ *      Cross-chain synchronization is handled through the IGateway interface, allowing for pluggable gateway implementations.
+ *      Implements IGatewayApp to handle cross-chain read operations and message reception.
  *
  * ## Architecture Overview:
  *
@@ -94,9 +95,10 @@ import { ILiquidityMatrixAccountMapper } from "./interfaces/ILiquidityMatrixAcco
  *
  * ## Key Functionalities:
  *
- * 1. **App Registration**:
+ * 1. **App Registration & Configuration**:
  *    - Applications must register to start using the contract.
  *    - During registration, their individual liquidity and data trees are initialized.
+ *    - Apps can configure sync behavior, callbacks, and authorized settlers.
  *
  * 2. **Updating Liquidity**:
  *    - Liquidity updates are recorded in the app's liquidity tree.
@@ -109,8 +111,18 @@ import { ILiquidityMatrixAccountMapper } from "./interfaces/ILiquidityMatrixAcco
  * 4. **Cross-Chain Settlement**:
  *    - Settlers process roots from remote chains without proof verification (trust-based).
  *    - Updates snapshots and triggers application-specific callbacks.
+ *    - Supports both per-app settlers and globally whitelisted settlers.
  *
- * 5. **Tree Root Retrieval**:
+ * 5. **Gateway Integration**:
+ *    - Configurable gateway for cross-chain communication.
+ *    - Handles cross-chain read operations via IGatewayApp interface.
+ *    - Supports syncing operations across multiple chains.
+ *
+ * 6. **Account Mapping**:
+ *    - Maps remote chain accounts to local accounts for unified liquidity tracking.
+ *    - Prevents duplicate mappings and maintains bidirectional lookups.
+ *
+ * 7. **Tree Root Retrieval**:
  *    - Allows querying of the current roots of the main liquidity and data trees.
  *    - Enables synchronization across chains or with off-chain systems.
  */
@@ -150,7 +162,6 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /**
      * @notice Represents the state of a remote application on another chain
-     * @param app Address of the remote application
      * @param mappedAccounts Maps remote accounts to local accounts
      * @param localAccountMapped Tracks which local accounts are already mapped
      * @param totalLiquidity Snapshots tracking total liquidity from the remote chain
@@ -158,6 +169,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @param dataHashes Snapshots of data value hashes from the remote chain
      * @param liquiditySettled Tracks which liquidity roots have been settled
      * @param dataSettled Tracks which data roots have been settled
+     * @param lastSettledLiquidityTimestamp Timestamp of the last settled liquidity root
+     * @param lastSettledDataTimestamp Timestamp of the last settled data root
+     * @param lastFinalizedTimestamp Timestamp when both liquidity and data roots were last finalized
      */
     struct RemoteState {
         mapping(address remote => address local) mappedAccounts;
@@ -179,7 +193,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     mapping(address => bool) internal _isSettlerWhitelisted;
     mapping(address app => mapping(bytes32 chainUID => RemoteState)) internal _remoteStates;
-    mapping(bytes32 chainUID => uint256[]) internal _rootTimestamps; // TODO: make it automatically ordered
+    mapping(bytes32 chainUID => uint256[]) internal _rootTimestamps; // Automatically ordered via insertSorted
     mapping(bytes32 chainUID => mapping(uint256 timestamp => bytes32)) internal _liquidityRoots;
     mapping(bytes32 chainUID => mapping(uint256 timestamp => bytes32)) internal _dataRoots;
 
@@ -375,7 +389,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Gets the local account mapped to a remote account
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param remote The remote account address
      * @return local The mapped local account address
      */
@@ -394,7 +408,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Checks if a local account is already mapped to a remote account
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param local The local account address
      * @return Whether the local account is mapped
      */
@@ -404,7 +418,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /**
      * @notice Gets the last received liquidity root from a remote chain
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @return root The liquidity root hash
      * @return timestamp The timestamp when the root was received
      */
@@ -421,7 +435,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Gets the last settled liquidity root for an app on a specific chain
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @return root The liquidity root hash
      * @return timestamp The timestamp of the settled root
      */
@@ -440,7 +454,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @notice Gets the last finalized liquidity root (both liquidity and data settled)
      * @dev A root is finalized when both liquidity and data roots are settled for the same timestamp
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @return root The liquidity root hash
      * @return timestamp The timestamp of the finalized root
      */
@@ -457,7 +471,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /**
      * @notice Gets the liquidity root at a specific timestamp
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param timestamp The timestamp to query
      * @return root The liquidity root at the timestamp
      */
@@ -467,7 +481,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /**
      * @notice Gets the last received data root from a remote chain
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @return root The data root hash
      * @return timestamp The timestamp when the root was received
      */
@@ -484,7 +498,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Gets the last settled data root for an app on a specific chain
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @return root The data root hash
      * @return timestamp The timestamp of the settled root
      */
@@ -502,7 +516,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Gets the last finalized data root for an app on a specific chain
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @return root The data root hash
      * @return timestamp The timestamp of the finalized root
      */
@@ -519,7 +533,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /**
      * @notice Gets the data root at a specific timestamp
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param timestamp The timestamp to query
      * @return root The data root at the timestamp
      */
@@ -530,7 +544,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Checks if a liquidity root has been settled for an app
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param timestamp The timestamp to check
      * @return Whether the liquidity root is settled
      */
@@ -541,7 +555,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Checks if a data root has been settled for an app
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param timestamp The timestamp to check
      * @return Whether the data root is settled
      */
@@ -553,7 +567,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @notice Checks if both roots are finalized for a given timestamp
      * @dev Returns true if both liquidity and data are settled
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param timestamp The timestamp to check
      * @return Whether the roots are finalized
      */
@@ -675,7 +689,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /**
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @return liquidity The settled remote total liquidity
      */
     function getSettledRemoteTotalLiquidity(address app, bytes32 chainUID) external view returns (int256 liquidity) {
@@ -687,7 +701,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Gets the total liquidity from a remote chain at the last finalized timestamp
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @return liquidity The finalized remote total liquidity
      */
     function getFinalizedRemoteTotalLiquidity(address app, bytes32 chainUID) external view returns (int256 liquidity) {
@@ -699,7 +713,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Gets the total liquidity from a remote chain at a specific timestamp
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param timestamp The timestamp to query
      * @return liquidity The remote total liquidity at the timestamp
      */
@@ -710,7 +724,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Gets the liquidity for an account from a remote chain at the last settled timestamp
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param account The account address
      * @return liquidity The settled remote liquidity for the account
      */
@@ -727,7 +741,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Gets the liquidity for an account from a remote chain at the last finalized timestamp
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param account The account address
      * @return liquidity The finalized remote liquidity for the account
      */
@@ -744,7 +758,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Gets the liquidity for an account from a remote chain at a specific timestamp
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param account The account address
      * @param timestamp The timestamp to query
      * @return liquidity The remote liquidity at the timestamp
@@ -760,7 +774,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Gets the data hash from a remote chain at the last settled timestamp
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param key The data key
      * @return value The settled remote data hash
      */
@@ -777,7 +791,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Gets the data hash from a remote chain at the last finalized timestamp
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param key The data key
      * @return value The finalized remote data hash
      */
@@ -794,7 +808,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Gets the data hash from a remote chain at a specific timestamp
      * @param app The application address
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param key The data key
      * @param timestamp The timestamp to query
      * @return value The remote data hash at the timestamp
@@ -982,7 +996,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Receives and stores Merkle roots from remote chains
      * @dev Called by the synchronizer after successful cross-chain sync
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param liquidityRoot The liquidity Merkle root from the remote chain
      * @param dataRoot The data Merkle root from the remote chain
      * @param timestamp The timestamp when the roots were generated
@@ -1106,7 +1120,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @notice Processes remote account mapping requests received from other chains
      * @dev Called by synchronizer when receiving cross-chain mapping requests.
      *      Validates mappings and consolidates liquidity from remote to local accounts.
-     * @param _fromChainUID Source chain endpoint ID
+     * @param _fromChainUID Source chain unique identifier
      * @param _localApp Local app address that should process this request
      * @param _message Encoded remote and local account arrays
      */
@@ -1163,7 +1177,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Initiates a sync operation to fetch roots from all configured chains
      * @dev Only callable by the authorized syncer. Rate limited to once per block.
-     * @param data Encoded (gasLimit, refundTo) for the cross-chain operation
+     * @param data Encoded (uint128 gasLimit, address refundTo) for the cross-chain operation
      * @return receipt The messaging receipt from the gateway
      */
     function sync(bytes memory data) external payable onlySyncer returns (MessagingReceipt memory receipt) {
@@ -1278,7 +1292,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /**
      * @notice Quotes the fee for mapping remote accounts
-     * @param chainUID Target chain endpoint ID
+     * @param chainUID Target chain unique identifier
      * @param localAccount Address of the local account
      * @param remoteApp Address of the app on the remote chain
      * @param remotes Array of remote account addresses
@@ -1304,10 +1318,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Requests mapping of remote accounts to local accounts on another chain
      * @dev Uses the gateway to send cross-chain messages
-     * @param chainUID Target chain endpoint ID
+     * @param chainUID Target chain unique identifier
      * @param remoteApp Address of the app on the remote chain
      * @param locals Array of local account addresses to map
      * @param remotes Array of remote account addresses to map
+     * @param data Encoded (uint128 gasLimit, address refundTo) parameters for cross-chain messaging
+     * @return guid The unique identifier for this cross-chain request
      */
     function requestMapRemoteAccounts(
         bytes32 chainUID,

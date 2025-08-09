@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { IERC20xDHook } from "../interfaces/IERC20xDHook.sol";
 import { IERC7540 } from "../interfaces/IERC7540.sol";
+import { BaseERC20xDHook } from "../mixins/BaseERC20xDHook.sol";
 import { ERC20, SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 
 /**
@@ -12,15 +12,12 @@ import { ERC20, SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
  *      On mint (from=0): Deposits assets to vault on behalf of the recipient
  *      On burn (to=0): Redeems shares from vault with the burner as receiver
  */
-contract ERC7540Hook is IERC20xDHook {
+contract ERC7540Hook is BaseERC20xDHook {
     using SafeTransferLib for ERC20;
 
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
-
-    /// @notice The wrapped token contract this hook is attached to
-    address public immutable wrappedToken;
 
     /// @notice The ERC7540 vault that handles async operations
     IERC7540 public immutable vault;
@@ -39,7 +36,6 @@ contract ERC7540Hook is IERC20xDHook {
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
-    error OnlyWrappedToken();
     error InvalidVault();
     error InvalidAsset();
 
@@ -47,10 +43,9 @@ contract ERC7540Hook is IERC20xDHook {
                                CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address _wrappedToken, address _vault) {
+    constructor(address _token, address _vault) BaseERC20xDHook(_token) {
         if (_vault == address(0)) revert InvalidVault();
 
-        wrappedToken = _wrappedToken;
         vault = IERC7540(_vault);
 
         // Get the asset from the vault
@@ -66,37 +61,14 @@ contract ERC7540Hook is IERC20xDHook {
                            MODIFIER
     //////////////////////////////////////////////////////////////*/
 
-    modifier onlyWrappedToken() {
-        if (msg.sender != wrappedToken) revert OnlyWrappedToken();
+    modifier onlyToken() {
+        if (msg.sender != token) revert Forbidden();
         _;
     }
 
     /*//////////////////////////////////////////////////////////////
                            HOOK IMPLEMENTATIONS
     //////////////////////////////////////////////////////////////*/
-
-    function onInitiateTransfer(
-        address from,
-        address to,
-        uint256 amount,
-        bytes memory callData,
-        uint256 value,
-        bytes memory data
-    ) external override onlyWrappedToken {
-        // Not used for deposit/redeem logic
-    }
-
-    function onReadGlobalAvailability(address account, int256 globalAvailability) external override onlyWrappedToken {
-        // Not used for deposit/redeem logic
-    }
-
-    function beforeTransfer(address from, address to, uint256 amount, bytes memory /* data */ )
-        external
-        override
-        onlyWrappedToken
-    {
-        // Not used for deposit/redeem logic
-    }
 
     /**
      * @notice Handles deposits on mint and redeems on burn
@@ -108,7 +80,7 @@ contract ERC7540Hook is IERC20xDHook {
     function afterTransfer(address from, address to, uint256 amount, bytes memory /* data */ )
         external
         override
-        onlyWrappedToken
+        onlyToken
     {
         // Handle mint: deposit assets to vault on behalf of recipient
         if (from == address(0) && to != address(0)) {
@@ -118,25 +90,6 @@ contract ERC7540Hook is IERC20xDHook {
         else if (to == address(0) && from != address(0)) {
             _handleRedeem(from, amount);
         }
-    }
-
-    function onMapAccounts(bytes32 chainUID, address remoteAccount, address localAccount) external override {
-        // Not used for deposit/redeem logic
-    }
-
-    function onSettleLiquidity(bytes32 chainUID, uint256 timestamp, address account, int256 liquidity)
-        external
-        override
-    {
-        // Not used for deposit/redeem logic
-    }
-
-    function onSettleTotalLiquidity(bytes32 chainUID, uint256 timestamp, int256 totalLiquidity) external override {
-        // Not used for deposit/redeem logic
-    }
-
-    function onSettleData(bytes32 chainUID, uint256 timestamp, bytes32 key, bytes memory value) external override {
-        // Not used for deposit/redeem logic
     }
 
     /*//////////////////////////////////////////////////////////////

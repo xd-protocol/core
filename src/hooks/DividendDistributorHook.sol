@@ -23,7 +23,7 @@ import { IGatewayApp } from "../interfaces/IGatewayApp.sol";
  *      - Receives dividend deposits when tokens are transferred to this contract
  *      - Distributes dividends using ERC20xD cross-chain transfers
  *      - All token movements use global availability checks
- *      - Implements cross-chain dividend aggregation using LayerZero read protocol
+ *      - Implements cross-chain dividend aggregation using Gateway read protocol
  *
  *      The contract maintains:
  *      - Total shares (sum of all registered accounts' balances)
@@ -160,7 +160,7 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IGatewayApp {
 
     /**
      * @notice Quotes the fee required to claim dividends
-     * @return fee The LayerZero fee required for claiming
+     * @return fee The cross-chain fee required for claiming
      */
     function quoteRequestClaimDividends(address user, uint128 gasLimit) external view returns (uint256 fee) {
         return IGateway(gateway).quoteRead(
@@ -168,6 +168,11 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IGatewayApp {
         );
     }
 
+    /**
+     * @notice Quotes the fee required to transfer dividends
+     * @param gasLimit Gas limit for the transfer operation
+     * @return fee The cross-chain fee required for transferring dividends
+     */
     function quoteTransferDividends(uint128 gasLimit) external view returns (uint256 fee) {
         return dividendToken.quoteTransfer(address(this), gasLimit);
     }
@@ -180,6 +185,13 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IGatewayApp {
         return dividendToken.balanceOf(address(this));
     }
 
+    /**
+     * @notice Reduces responses from multiple chains to calculate total pending dividends
+     * @param requests Array of requests sent to each chain
+     * @param callData The original function call data
+     * @param responses Array of responses from each chain
+     * @return Encoded total pending dividends across all chains
+     */
     function reduce(IGatewayApp.Request[] calldata requests, bytes calldata callData, bytes[] calldata responses)
         external
         view
@@ -220,6 +232,7 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IGatewayApp {
      * @notice Emergency withdraw of dividend tokens
      * @param to The recipient address
      * @param amount The amount to withdraw
+     * @param data Encoded (uint128 gasLimit, address refundTo) parameters for cross-chain operations
      * @dev Only callable by owner in case of emergency
      */
     function emergencyWithdraw(address to, uint256 amount, bytes memory data) external payable onlyOwner {

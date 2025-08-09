@@ -18,25 +18,25 @@ import { AddressLib } from "../libraries/AddressLib.sol";
  * @title BaseERC20xD
  * @notice An abstract cross-chain ERC20 token implementation that manages global liquidity
  *         and facilitates cross-chain transfer operations.
- * @dev This contract extends BaseERC20 and integrates with LayerZero's OAppRead protocol and a
+ * @dev This contract extends BaseERC20 and integrates with the IGateway interface and a
  *      LiquidityMatrix contract to track both local and settled liquidity across chains.
  *
  *      Key functionalities include:
  *      - Maintaining pending transfers and nonces to coordinate cross-chain token transfers.
- *      - Initiating cross-chain transfer requests via LayerZero by composing a read command
+ *      - Initiating cross-chain transfer requests via Gateway by composing a read command
  *        (global availability check) that aggregates liquidity across multiple chains.
- *      - Processing incoming responses through _lzReceive() to execute transfers once the global
+ *      - Processing incoming responses through onRead() to execute transfers once the global
  *        liquidity check confirms sufficient availability.
  *      - Supporting cancellation of pending transfers and updating local liquidity via the
  *        LiquidityMatrix.
  *      - Implementing ILiquidityMatrixCallbacks to receive notifications when remote state is settled.
+ *      - Supporting extensible hook system for custom transfer logic.
  *
  *      Outgoing messages (transfers initiated by this contract) are composed and sent to remote chains
  *      for validation, while incoming messages (responses from remote chains) trigger the execution
  *      of the transfer logic.
  *
- *      Note: This contract is abstract and requires derived implementations to provide specific logic
- *      for functions such as _compose() and _transferFrom() as well as other operational details.
+ *      Note: This contract is abstract and provides the core cross-chain transfer functionality.
  */
 abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20xD, ILiquidityMatrixCallbacks {
     using AddressLib for address;
@@ -52,7 +52,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
 
     bool internal _composing;
     PendingTransfer[] internal _pendingTransfers;
-    mapping(address acount => uint256) internal _pendingNonce;
+    mapping(address account => uint256) internal _pendingNonce;
 
     // Hooks storage
     address[] public hooks;
@@ -135,7 +135,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @param _symbol The token symbol.
      * @param _decimals The token decimals.
      * @param _liquidityMatrix The address of the LiquidityMatrix contract.
-     * @param _gateway The address of the ERC20xDGateway contract.
+     * @param _gateway The address of the Gateway contract.
      * @param _owner The address that will be granted ownership privileges.
      */
     constructor(
@@ -223,7 +223,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     /**
      * @notice Quotes the messaging fee for sending a read request with specific gas and calldata size.
      * @param from The address initiating the cross-chain transfer.
-     * @param gasLimit The gas limit to allocate for actual transfer after lzRead.
+     * @param gasLimit The gas limit to allocate for actual transfer after Gateway read.
      * @return fee The estimated messaging fee for the request.
      */
     function quoteTransfer(address from, uint128 gasLimit) public view returns (uint256 fee) {
@@ -234,7 +234,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
 
     /**
      * @notice Retrieves available balance of account on current chain.
-     * @dev This will be called by lzRead from remote chains.
+     * @dev This will be called by Gateway read from remote chains.
      * @param account The owner of available balance to read.
      * @return balance The balance that can be spent on current chain.
      */
@@ -366,11 +366,11 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
 
     /**
      * @notice Initiates a transfer operation.
-     * @dev It performs a global availability check using lzRead to ensure `amount <= availability`.
+     * @dev It performs a global availability check using cross-chain read to ensure `amount <= availability`.
      *      The user must provide sufficient fees via `msg.value`.
      * @param to The recipient address on the target chain.
      * @param amount The amount of tokens to transfer.
-     * @param data Extra data.
+     * @param data Encoded (uint128 gasLimit, address refundTo) parameters.
      * @dev Emits a `InitiateTransfer` event upon successful initiation.
      */
     function transfer(address to, uint256 amount, bytes memory data) public payable returns (bytes32 guid) {
@@ -379,12 +379,12 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
 
     /**
      * @notice Initiates a transfer operation.
-     * @dev It performs a global availability check using lzRead to ensure `amount <= availability`.
+     * @dev It performs a global availability check using cross-chain read to ensure `amount <= availability`.
      *      The user must provide sufficient fees via `msg.value`.
      * @param to The recipient address on the target chain.
      * @param amount The amount of tokens to transfer.
      * @param callData Optional calldata for executing a function on the recipient contract.
-     * @param data Extra data.
+     * @param data Encoded (uint128 gasLimit, address refundTo) parameters.
      * @dev Emits a `InitiateTransfer` event upon successful initiation.
      */
     function transfer(address to, uint256 amount, bytes memory callData, bytes memory data)
@@ -397,13 +397,13 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
 
     /**
      * @notice Initiates a transfer operation.
-     * @dev It performs a global availability check using lzRead to ensure `amount <= availability`.
+     * @dev It performs a global availability check using cross-chain read to ensure `amount <= availability`.
      *      The user must provide sufficient fees via `msg.value`.
      * @param to The recipient address on the target chain.
      * @param amount The amount of tokens to transfer.
      * @param callData Optional calldata for executing a function on the recipient contract.
      * @param value Native cryptocurrency to be sent when calling the recipient with `callData`.
-     * @param data Extra data.
+     * @param data Encoded (uint128 gasLimit, address refundTo) parameters.
      * @dev Emits a `InitiateTransfer` event upon successful initiation.
      */
     function transfer(address to, uint256 amount, bytes memory callData, uint256 value, bytes memory data)
@@ -423,7 +423,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @param amount The amount of tokens to transfer
      * @param callData Optional calldata for executing on recipient
      * @param value Native token value to send with callData execution
-     * @param data Extra data for LayerZero messaging
+     * @param data Extra data for cross-chain messaging
      */
     function _transfer(
         address from,
@@ -505,7 +505,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     }
 
     /**
-     * @notice Callback function for LayerZero read responses
+     * @notice Callback function for cross-chain read responses
      * @dev Only callable by the gateway contract
      * @param _message The encoded message containing the read response
      */
@@ -570,7 +570,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @param amount The amount of tokens to transfer
      * @param value Native token value to send with the call
      * @param callData The calldata to execute on the recipient
-     * @param data Extra data containing LayerZero parameters
+     * @param data Extra data containing cross-chain parameters
      * @dev Transfers tokens to this contract, sets allowance, executes call, and refunds any remaining tokens
      */
     function _compose(address from, address to, uint256 amount, uint256 value, bytes memory callData, bytes memory data)
@@ -614,7 +614,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @param from The sender address (can be address(0) for minting)
      * @param to The recipient address (can be address(0) for burning)
      * @param amount The amount of tokens to transfer
-     * @param data Extra data containing LayerZero parameters when applicable
+     * @param data Extra data containing cross-chain parameters when applicable
      * @dev Calls beforeTransfer and afterTransfer hooks, updates local liquidity, and emits Transfer event
      */
     function _transferFrom(address from, address to, uint256 amount, bytes memory data) internal virtual {
@@ -659,7 +659,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     /**
      * @notice Called when remote accounts are successfully mapped to local accounts
      * @dev Allows apps to perform additional logic when account mappings are established
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param remoteAccount The account address on the remote chain
      * @param localAccount The mapped local account address
      */
@@ -681,7 +681,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     /**
      * @notice Called when liquidity for a specific account is settled from a remote chain
      * @dev Triggered during settleLiquidity if callbacks are enabled for the app
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param timestamp The timestamp of the settled data
      * @param account The account whose liquidity was updated
      * @param liquidity The settled liquidity value
@@ -708,7 +708,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     /**
      * @notice Called when the total liquidity is settled from a remote chain
      * @dev Triggered after all individual account liquidity updates are processed
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param timestamp The timestamp of the settled data
      * @param totalLiquidity The total liquidity across all accounts
      */
@@ -734,7 +734,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     /**
      * @notice Called when data is settled from a remote chain
      * @dev Triggered during settleData if callbacks are enabled for the app
-     * @param chainUID The endpoint ID of the remote chain
+     * @param chainUID The chain unique identifier of the remote chain
      * @param timestamp The timestamp of the settled data
      * @param key The data key that was updated
      * @param value The settled data value

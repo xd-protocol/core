@@ -165,10 +165,20 @@ abstract contract BaseERC20 is IERC20Permit {
         emit Approval(owner, spender, value);
     }
 
+    /**
+     * @notice Returns the EIP-712 domain separator for this contract
+     * @return The domain separator bytes32 value
+     * @dev Uses cached separator if on initial chain, otherwise computes it dynamically
+     */
     function DOMAIN_SEPARATOR() public view virtual returns (bytes32) {
         return block.chainid == INITIAL_CHAIN_ID ? INITIAL_DOMAIN_SEPARATOR : computeDomainSeparator();
     }
 
+    /**
+     * @notice Computes the EIP-712 domain separator for the current chain
+     * @return The computed domain separator
+     * @dev Called when chain ID differs from initial deployment chain
+     */
     function computeDomainSeparator() internal view virtual returns (bytes32) {
         return keccak256(
             abi.encode(
