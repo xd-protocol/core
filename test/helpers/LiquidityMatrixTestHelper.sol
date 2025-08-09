@@ -116,13 +116,16 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
             for (uint256 j; j < s.liquidityTimestamps[user].length; ++j) {
                 uint256 timestamp = s.liquidityTimestamps[user][j];
                 assertEq(
-                    liquidityMatrix.getLocalLiquidityAt(address(app), user, timestamp), s.liquidityAt[user][timestamp]
+                    liquidityMatrix.getLocalLiquidityAt(address(app), user, uint64(timestamp)),
+                    s.liquidityAt[user][timestamp]
                 );
             }
         }
         for (uint256 i; i < s.totalLiquidityTimestamps.length; ++i) {
             uint256 timestamp = s.totalLiquidityTimestamps[i];
-            assertEq(liquidityMatrix.getLocalTotalLiquidityAt(address(app), timestamp), s.totalLiquidityAt[timestamp]);
+            assertEq(
+                liquidityMatrix.getLocalTotalLiquidityAt(address(app), uint64(timestamp)), s.totalLiquidityAt[timestamp]
+            );
         }
     }
 
@@ -160,7 +163,7 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
             for (uint256 j; j < s.dataTimestamps[key].length; ++j) {
                 uint256 timestamp = s.dataTimestamps[key][j];
                 assertEq(
-                    liquidityMatrix.getLocalDataHashAt(address(app), key, timestamp),
+                    liquidityMatrix.getLocalDataHashAt(address(app), key, uint64(timestamp)),
                     keccak256(s.dataAt[key][timestamp])
                 );
             }

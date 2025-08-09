@@ -133,7 +133,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     using SnapshotsLib for SnapshotsLib.Snapshots;
 
     /*//////////////////////////////////////////////////////////////
-                                STORAGE
+                                TYPES
     //////////////////////////////////////////////////////////////*/
 
     /**
@@ -180,12 +180,22 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         mapping(address account => SnapshotsLib.Snapshots) liquidity;
         mapping(bytes32 key => SnapshotsLib.Snapshots) dataHashes;
         // settlement
-        mapping(uint256 timestamp => bool) liquiditySettled;
-        mapping(uint256 timestamp => bool) dataSettled;
-        uint256 lastSettledLiquidityTimestamp;
-        uint256 lastSettledDataTimestamp;
-        uint256 lastFinalizedTimestamp;
+        mapping(uint64 timestamp => mapping(uint256 version => bool)) liquiditySettled;
+        mapping(uint64 timestamp => mapping(uint256 version => bool)) dataSettled;
+        mapping(uint256 version => uint64) lastSettledLiquidityTimestamp;
+        mapping(uint256 version => uint64) lastSettledDataTimestamp;
+        mapping(uint256 version => uint64) lastFinalizedTimestamp;
     }
+
+    /*//////////////////////////////////////////////////////////////
+                                STORAGE
+    //////////////////////////////////////////////////////////////*/
+
+    uint64[] public reorgTimestamps;
+
+    // Jump table for efficient version lookup
+    uint256 constant MAX_JUMP_LEVELS = 32; // Supports up to 2^32 reorgs
+    mapping(uint256 => mapping(uint256 => uint256)) public jumpTable; // jumpTable[i][k] = index of reorg 2^k steps back
 
     mapping(address app => AppState) internal _appStates;
     MerkleTreeLib.Tree internal _mainLiquidityTree;
@@ -193,9 +203,10 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     mapping(address => bool) internal _isSettlerWhitelisted;
     mapping(address app => mapping(bytes32 chainUID => RemoteState)) internal _remoteStates;
-    mapping(bytes32 chainUID => uint256[]) internal _rootTimestamps; // Automatically ordered via insertSorted
-    mapping(bytes32 chainUID => mapping(uint256 timestamp => bytes32)) internal _liquidityRoots;
-    mapping(bytes32 chainUID => mapping(uint256 timestamp => bytes32)) internal _dataRoots;
+    mapping(bytes32 chainUID => uint64[]) internal _rootTimestamps;
+    mapping(bytes32 chainUID => mapping(uint64 timestamp => mapping(uint256 version => bytes32))) internal
+        _liquidityRoots;
+    mapping(bytes32 chainUID => mapping(uint64 timestamp => mapping(uint256 version => bytes32))) internal _dataRoots;
 
     // Command identifiers for different message types
     uint16 internal constant CMD_SYNC = 1;
@@ -206,7 +217,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     // Address authorized to initiate sync operations
     address public syncer;
     // Rate limiting: timestamp of last sync request
-    uint256 internal _lastSyncRequestTimestamp;
+    uint64 internal _lastSyncRequestTimestamp;
 
     /*//////////////////////////////////////////////////////////////
                               MODIFIERS
@@ -248,6 +259,64 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     constructor(address _owner) Ownable(_owner) { }
 
     /*//////////////////////////////////////////////////////////////
+                            VIEW FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    function reorgTimestampsLength() external view returns (uint256) {
+        return reorgTimestamps.length;
+    }
+
+    function currentVersion() public view returns (uint256) {
+        return reorgTimestamps.length + 1;
+    }
+
+    /**
+     * @notice Gets the version for a given timestamp using the jump table
+     * @dev Uses binary lifting for O(log N) lookup
+     * @param timestamp The timestamp to query
+     * @return The version number for the timestamp
+     */
+    function getVersionForTimestamp(uint64 timestamp) public view returns (uint256) {
+        uint256 n = reorgTimestamps.length;
+
+        // If no reorgs or timestamp is before first reorg, return version 1
+        if (n == 0 || timestamp < reorgTimestamps[0]) {
+            return 1;
+        }
+
+        uint256 current = n - 1;
+
+        // If timestamp is after or at the latest reorg, return current version
+        if (reorgTimestamps[current] <= timestamp) {
+            return current + 2; // version = reorg_index + 2 after that reorg
+        }
+
+        // Use jump table to find the last reorg before timestamp
+        for (uint256 k = MAX_JUMP_LEVELS; k > 0;) {
+            unchecked {
+                k--;
+            }
+            uint256 prev = jumpTable[current][k];
+            if (prev != type(uint256).max && reorgTimestamps[prev] > timestamp) {
+                current = prev;
+            }
+        }
+
+        // Check if we need to go one more step back
+        uint256 prevIndex = jumpTable[current][0];
+        if (prevIndex == type(uint256).max) {
+            // We're at reorg 0 and timestamp is before it
+            return 1;
+        } else if (reorgTimestamps[prevIndex] <= timestamp) {
+            // Timestamp is between prevIndex and current
+            return prevIndex + 2;
+        } else {
+            // Timestamp is before prevIndex
+            return prevIndex + 1;
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////
                         LOCAL VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
@@ -257,8 +326,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @return dataRoot The main data tree root
      * @return timestamp The current block timestamp
      */
-    function getMainRoots() public view returns (bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp) {
-        return (getMainLiquidityRoot(), getMainDataRoot(), block.timestamp);
+    function getMainRoots() public view returns (bytes32 liquidityRoot, bytes32 dataRoot, uint64 timestamp) {
+        return (getMainLiquidityRoot(), getMainDataRoot(), uint64(block.timestamp));
     }
 
     /**
@@ -329,7 +398,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @param timestamp The timestamp to query
      * @return The liquidity amount at the timestamp
      */
-    function getLocalLiquidityAt(address app, address account, uint256 timestamp) external view returns (int256) {
+    function getLocalLiquidityAt(address app, address account, uint64 timestamp) external view returns (int256) {
         return _appStates[app].liquidity[account].getAsInt(timestamp);
     }
 
@@ -348,7 +417,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @param timestamp The timestamp to query
      * @return The total liquidity at the timestamp
      */
-    function getLocalTotalLiquidityAt(address app, uint256 timestamp) external view returns (int256) {
+    function getLocalTotalLiquidityAt(address app, uint64 timestamp) external view returns (int256) {
         return _appStates[app].totalLiquidity.getAsInt(timestamp);
     }
 
@@ -369,7 +438,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @param timestamp The timestamp to query
      * @return The data hash at the timestamp
      */
-    function getLocalDataHashAt(address app, bytes32 key, uint256 timestamp) external view returns (bytes32) {
+    function getLocalDataHashAt(address app, bytes32 key, uint64 timestamp) external view returns (bytes32) {
         return _appStates[app].dataHashes[key].get(timestamp);
     }
 
@@ -422,13 +491,13 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @return root The liquidity root hash
      * @return timestamp The timestamp when the root was received
      */
-    function getLastReceivedLiquidityRoot(bytes32 chainUID) public view returns (bytes32 root, uint256 timestamp) {
+    function getLastReceivedLiquidityRoot(bytes32 chainUID) public view returns (bytes32 root, uint64 timestamp) {
         uint256 length = _rootTimestamps[chainUID].length;
         if (length == 0) return (bytes32(0), 0);
 
         timestamp = _rootTimestamps[chainUID][length - 1];
         if (timestamp != 0) {
-            root = _liquidityRoots[chainUID][timestamp];
+            root = _liquidityRoots[chainUID][timestamp][currentVersion()];
         }
     }
 
@@ -442,11 +511,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     function getLastSettledLiquidityRoot(address app, bytes32 chainUID)
         public
         view
-        returns (bytes32 root, uint256 timestamp)
+        returns (bytes32 root, uint64 timestamp)
     {
-        timestamp = _remoteStates[app][chainUID].lastSettledLiquidityTimestamp;
+        uint256 version = currentVersion();
+        timestamp = _remoteStates[app][chainUID].lastSettledLiquidityTimestamp[version];
         if (timestamp != 0) {
-            root = _liquidityRoots[chainUID][timestamp];
+            root = _liquidityRoots[chainUID][timestamp][version];
         }
     }
 
@@ -461,11 +531,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     function getLastFinalizedLiquidityRoot(address app, bytes32 chainUID)
         public
         view
-        returns (bytes32 root, uint256 timestamp)
+        returns (bytes32 root, uint64 timestamp)
     {
-        timestamp = _remoteStates[app][chainUID].lastFinalizedTimestamp;
+        uint256 version = currentVersion();
+        timestamp = _remoteStates[app][chainUID].lastFinalizedTimestamp[version];
         if (timestamp != 0) {
-            root = _liquidityRoots[chainUID][timestamp];
+            root = _liquidityRoots[chainUID][timestamp][version];
         }
     }
 
@@ -475,8 +546,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @param timestamp The timestamp to query
      * @return root The liquidity root at the timestamp
      */
-    function getLiquidityRootAt(bytes32 chainUID, uint256 timestamp) external view returns (bytes32 root) {
-        return _liquidityRoots[chainUID][timestamp];
+    function getLiquidityRootAt(bytes32 chainUID, uint64 timestamp) external view returns (bytes32 root) {
+        uint256 version = getVersionForTimestamp(uint64(timestamp));
+        return _liquidityRoots[chainUID][uint64(timestamp)][version];
     }
 
     /**
@@ -485,13 +557,13 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @return root The data root hash
      * @return timestamp The timestamp when the root was received
      */
-    function getLastReceivedDataRoot(bytes32 chainUID) public view returns (bytes32 root, uint256 timestamp) {
+    function getLastReceivedDataRoot(bytes32 chainUID) public view returns (bytes32 root, uint64 timestamp) {
         uint256 length = _rootTimestamps[chainUID].length;
         if (length == 0) return (bytes32(0), 0);
 
         timestamp = _rootTimestamps[chainUID][length - 1];
         if (timestamp != 0) {
-            root = _dataRoots[chainUID][timestamp];
+            root = _dataRoots[chainUID][timestamp][currentVersion()];
         }
     }
 
@@ -505,11 +577,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     function getLastSettledDataRoot(address app, bytes32 chainUID)
         public
         view
-        returns (bytes32 root, uint256 timestamp)
+        returns (bytes32 root, uint64 timestamp)
     {
-        timestamp = _remoteStates[app][chainUID].lastSettledDataTimestamp;
+        uint256 version = currentVersion();
+        timestamp = _remoteStates[app][chainUID].lastSettledDataTimestamp[version];
         if (timestamp != 0) {
-            root = _dataRoots[chainUID][timestamp];
+            root = _dataRoots[chainUID][timestamp][version];
         }
     }
 
@@ -523,11 +596,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     function getLastFinalizedDataRoot(address app, bytes32 chainUID)
         external
         view
-        returns (bytes32 root, uint256 timestamp)
+        returns (bytes32 root, uint64 timestamp)
     {
-        timestamp = _remoteStates[app][chainUID].lastFinalizedTimestamp;
+        uint256 version = currentVersion();
+        timestamp = _remoteStates[app][chainUID].lastFinalizedTimestamp[version];
         if (timestamp != 0) {
-            root = _dataRoots[chainUID][timestamp];
+            root = _dataRoots[chainUID][timestamp][version];
         }
     }
 
@@ -537,8 +611,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @param timestamp The timestamp to query
      * @return root The data root at the timestamp
      */
-    function getDataRootAt(bytes32 chainUID, uint256 timestamp) external view returns (bytes32 root) {
-        return _dataRoots[chainUID][timestamp];
+    function getDataRootAt(bytes32 chainUID, uint64 timestamp) external view returns (bytes32 root) {
+        uint256 version = getVersionForTimestamp(uint64(timestamp));
+        return _dataRoots[chainUID][uint64(timestamp)][version];
     }
 
     /**
@@ -548,8 +623,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @param timestamp The timestamp to check
      * @return Whether the liquidity root is settled
      */
-    function isLiquiditySettled(address app, bytes32 chainUID, uint256 timestamp) public view returns (bool) {
-        return _remoteStates[app][chainUID].liquiditySettled[timestamp];
+    function isLiquiditySettled(address app, bytes32 chainUID, uint64 timestamp) public view returns (bool) {
+        uint256 version = getVersionForTimestamp(uint64(timestamp));
+        return _remoteStates[app][chainUID].liquiditySettled[uint64(timestamp)][version];
     }
 
     /**
@@ -559,8 +635,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @param timestamp The timestamp to check
      * @return Whether the data root is settled
      */
-    function isDataSettled(address app, bytes32 chainUID, uint256 timestamp) public view returns (bool) {
-        return _remoteStates[app][chainUID].dataSettled[timestamp];
+    function isDataSettled(address app, bytes32 chainUID, uint64 timestamp) public view returns (bool) {
+        uint256 version = getVersionForTimestamp(uint64(timestamp));
+        return _remoteStates[app][chainUID].dataSettled[uint64(timestamp)][version];
     }
 
     /**
@@ -571,9 +648,10 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @param timestamp The timestamp to check
      * @return Whether the roots are finalized
      */
-    function isFinalized(address app, bytes32 chainUID, uint256 timestamp) public view returns (bool) {
+    function isFinalized(address app, bytes32 chainUID, uint64 timestamp) public view returns (bool) {
+        uint256 version = getVersionForTimestamp(uint64(timestamp));
         RemoteState storage state = _remoteStates[app][chainUID];
-        return state.liquiditySettled[timestamp] && state.dataSettled[timestamp];
+        return state.liquiditySettled[uint64(timestamp)][version] && state.dataSettled[uint64(timestamp)][version];
     }
 
     /**
@@ -589,7 +667,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         uint256 length = gateway.chainUIDsLength();
         for (uint256 i; i < length; ++i) {
             bytes32 chainUID = gateway.chainUIDAt(i);
-            uint256 timestamp = _remoteStates[app][chainUID].lastSettledLiquidityTimestamp;
+            uint256 version = currentVersion();
+            uint64 timestamp = _remoteStates[app][chainUID].lastSettledLiquidityTimestamp[version];
             if (timestamp == 0) continue;
             liquidity += _remoteStates[app][chainUID].totalLiquidity.getAsInt(timestamp);
         }
@@ -608,7 +687,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         uint256 length = gateway.chainUIDsLength();
         for (uint256 i; i < length; ++i) {
             bytes32 chainUID = gateway.chainUIDAt(i);
-            uint256 timestamp = _remoteStates[app][chainUID].lastFinalizedTimestamp;
+            uint256 version = currentVersion();
+            uint64 timestamp = _remoteStates[app][chainUID].lastFinalizedTimestamp[version];
             if (timestamp == 0) continue;
             liquidity += _remoteStates[app][chainUID].totalLiquidity.getAsInt(timestamp);
         }
@@ -620,7 +700,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @param timestamp The timestamp to query
      * @return liquidity The total liquidity at the latest valid timestamp
      */
-    function getTotalLiquidityAt(address app, uint256 timestamp) external view returns (int256 liquidity) {
+    function getTotalLiquidityAt(address app, uint64 timestamp) external view returns (int256 liquidity) {
         liquidity = _appStates[app].totalLiquidity.getAsInt(timestamp);
 
         // Add remote liquidity
@@ -644,7 +724,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         uint256 length = gateway.chainUIDsLength();
         for (uint256 i; i < length; ++i) {
             bytes32 chainUID = gateway.chainUIDAt(i);
-            uint256 timestamp = _remoteStates[app][chainUID].lastSettledLiquidityTimestamp;
+            uint256 version = currentVersion();
+            uint64 timestamp = _remoteStates[app][chainUID].lastSettledLiquidityTimestamp[version];
             if (timestamp == 0) continue;
             liquidity += _remoteStates[app][chainUID].liquidity[account].getAsInt(timestamp);
         }
@@ -663,7 +744,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         uint256 length = gateway.chainUIDsLength();
         for (uint256 i; i < length; ++i) {
             bytes32 chainUID = gateway.chainUIDAt(i);
-            uint256 timestamp = _remoteStates[app][chainUID].lastFinalizedTimestamp;
+            uint256 version = currentVersion();
+            uint64 timestamp = _remoteStates[app][chainUID].lastFinalizedTimestamp[version];
             if (timestamp == 0) continue;
             liquidity += _remoteStates[app][chainUID].liquidity[account].getAsInt(timestamp);
         }
@@ -676,7 +758,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @param timestamp The timestamp to query
      * @return liquidity The liquidity at the latest valid timestamp
      */
-    function getLiquidityAt(address app, address account, uint256 timestamp) external view returns (int256 liquidity) {
+    function getLiquidityAt(address app, address account, uint64 timestamp) external view returns (int256 liquidity) {
         liquidity = _appStates[app].liquidity[account].getAsInt(timestamp);
 
         // Add remote liquidity
@@ -693,7 +775,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @return liquidity The settled remote total liquidity
      */
     function getSettledRemoteTotalLiquidity(address app, bytes32 chainUID) external view returns (int256 liquidity) {
-        (, uint256 timestamp) = getLastSettledLiquidityRoot(app, chainUID);
+        (, uint64 timestamp) = getLastSettledLiquidityRoot(app, chainUID);
         if (timestamp == 0) return 0;
         return getRemoteTotalLiquidityAt(app, chainUID, timestamp);
     }
@@ -705,7 +787,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @return liquidity The finalized remote total liquidity
      */
     function getFinalizedRemoteTotalLiquidity(address app, bytes32 chainUID) external view returns (int256 liquidity) {
-        (, uint256 timestamp) = getLastFinalizedLiquidityRoot(app, chainUID);
+        (, uint64 timestamp) = getLastFinalizedLiquidityRoot(app, chainUID);
         if (timestamp == 0) return 0;
         return getRemoteTotalLiquidityAt(app, chainUID, timestamp);
     }
@@ -717,7 +799,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @param timestamp The timestamp to query
      * @return liquidity The remote total liquidity at the timestamp
      */
-    function getRemoteTotalLiquidityAt(address app, bytes32 chainUID, uint256 timestamp) public view returns (int256) {
+    function getRemoteTotalLiquidityAt(address app, bytes32 chainUID, uint64 timestamp) public view returns (int256) {
         return _remoteStates[app][chainUID].totalLiquidity.getAsInt(timestamp);
     }
 
@@ -733,7 +815,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         view
         returns (int256 liquidity)
     {
-        (, uint256 timestamp) = getLastSettledLiquidityRoot(app, chainUID);
+        (, uint64 timestamp) = getLastSettledLiquidityRoot(app, chainUID);
         if (timestamp == 0) return 0;
         return getRemoteLiquidityAt(app, chainUID, account, timestamp);
     }
@@ -750,7 +832,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         view
         returns (int256 liquidity)
     {
-        (, uint256 timestamp) = getLastFinalizedLiquidityRoot(app, chainUID);
+        (, uint64 timestamp) = getLastFinalizedLiquidityRoot(app, chainUID);
         if (timestamp == 0) return 0;
         return getRemoteLiquidityAt(app, chainUID, account, timestamp);
     }
@@ -763,7 +845,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @param timestamp The timestamp to query
      * @return liquidity The remote liquidity at the timestamp
      */
-    function getRemoteLiquidityAt(address app, bytes32 chainUID, address account, uint256 timestamp)
+    function getRemoteLiquidityAt(address app, bytes32 chainUID, address account, uint64 timestamp)
         public
         view
         returns (int256)
@@ -783,7 +865,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         view
         returns (bytes32 value)
     {
-        uint256 timestamp = _remoteStates[app][chainUID].lastSettledDataTimestamp;
+        uint256 version = currentVersion();
+        uint64 timestamp = _remoteStates[app][chainUID].lastSettledDataTimestamp[version];
         if (timestamp == 0) return 0;
         return getRemoteDataHashAt(app, chainUID, key, timestamp);
     }
@@ -800,7 +883,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         view
         returns (bytes32 value)
     {
-        uint256 timestamp = _remoteStates[app][chainUID].lastFinalizedTimestamp;
+        uint256 version = currentVersion();
+        uint64 timestamp = _remoteStates[app][chainUID].lastFinalizedTimestamp[version];
         if (timestamp == 0) return 0;
         return getRemoteDataHashAt(app, chainUID, key, timestamp);
     }
@@ -813,7 +897,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @param timestamp The timestamp to query
      * @return value The remote data hash at the timestamp
      */
-    function getRemoteDataHashAt(address app, bytes32 chainUID, bytes32 key, uint256 timestamp)
+    function getRemoteDataHashAt(address app, bytes32 chainUID, bytes32 key, uint64 timestamp)
         public
         view
         returns (bytes32)
@@ -822,7 +906,41 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     }
 
     /*//////////////////////////////////////////////////////////////
-                      LOCAL STATE MANAGEMENT
+                                LOGIC
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Adds a new reorg timestamp and updates the jump table
+     * @dev Only callable by owner. Updates jump table for O(log N) version lookups.
+     * @param timestamp The timestamp of the reorg
+     */
+    function addReorg(uint64 timestamp) external onlyOwner {
+        uint256 index = reorgTimestamps.length;
+
+        // Ensure timestamps are increasing
+        if (index > 0) {
+            if (timestamp <= reorgTimestamps[index - 1]) revert InvalidTimestamp();
+        }
+
+        reorgTimestamps.push(timestamp);
+
+        // Build jump table for this reorg
+        // jumpTable[index][0] points to the previous reorg (or max if none)
+        jumpTable[index][0] = (index == 0) ? type(uint256).max : index - 1;
+
+        // Fill higher jump levels
+        for (uint256 k = 1; k < MAX_JUMP_LEVELS; k++) {
+            uint256 midIndex = jumpTable[index][k - 1];
+            if (midIndex == type(uint256).max) {
+                jumpTable[index][k] = type(uint256).max;
+            } else {
+                jumpTable[index][k] = jumpTable[midIndex][k - 1];
+            }
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                      LOCAL STATE LOGIC
     //////////////////////////////////////////////////////////////*/
 
     /**
@@ -897,7 +1015,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         int256 newTotalLiquidity = oldTotalLiquidity - oldLiquidity + liquidity;
         state.totalLiquidity.setAsInt(newTotalLiquidity);
 
-        emit UpdateLocalLiquidity(app, mainTreeIndex, account, liquidity, appTreeIndex, block.timestamp);
+        emit UpdateLocalLiquidity(app, mainTreeIndex, account, liquidity, appTreeIndex, uint64(block.timestamp));
     }
 
     /**
@@ -922,11 +1040,11 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
         state.dataHashes[key].set(hash);
 
-        emit UpdateLocalData(app, mainTreeIndex, key, value, hash, appTreeIndex, block.timestamp);
+        emit UpdateLocalData(app, mainTreeIndex, key, value, hash, appTreeIndex, uint64(block.timestamp));
     }
 
     /*//////////////////////////////////////////////////////////////
-                      REMOTE STATE MANAGEMENT
+                      REMOTE STATE LOGIC
     //////////////////////////////////////////////////////////////*/
 
     /**
@@ -1001,18 +1119,19 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @param dataRoot The data Merkle root from the remote chain
      * @param timestamp The timestamp when the roots were generated
      */
-    function onReceiveRoots(bytes32 chainUID, bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp) external {
+    function onReceiveRoots(bytes32 chainUID, bytes32 liquidityRoot, bytes32 dataRoot, uint64 timestamp) external {
         // Allow calls from gateway or from this contract (via onRead)
         if (msg.sender != address(gateway) && msg.sender != address(this)) revert Forbidden();
         if (
             _rootTimestamps[chainUID].length == 0
                 || _rootTimestamps[chainUID][_rootTimestamps[chainUID].length - 1] != timestamp
         ) {
-            _rootTimestamps[chainUID].insertSorted(timestamp);
+            _rootTimestamps[chainUID].push(timestamp);
         }
 
-        _liquidityRoots[chainUID][timestamp] = liquidityRoot;
-        _dataRoots[chainUID][timestamp] = dataRoot;
+        uint256 version = currentVersion();
+        _liquidityRoots[chainUID][timestamp][version] = liquidityRoot;
+        _dataRoots[chainUID][timestamp][version] = dataRoot;
 
         emit OnReceiveRoots(chainUID, liquidityRoot, dataRoot, timestamp);
     }
@@ -1029,12 +1148,15 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         bool useCallbacks = localState.useCallbacks;
 
         RemoteState storage state = _remoteStates[params.app][params.chainUID];
-        if (state.liquiditySettled[params.timestamp]) revert LiquidityAlreadySettled();
-        state.liquiditySettled[params.timestamp] = true;
-        if (params.timestamp > state.lastSettledLiquidityTimestamp) {
-            state.lastSettledLiquidityTimestamp = params.timestamp;
-            if (params.timestamp > state.lastFinalizedTimestamp && state.dataSettled[params.timestamp]) {
-                state.lastFinalizedTimestamp = params.timestamp;
+        if (state.liquiditySettled[params.timestamp][params.version]) revert LiquidityAlreadySettled();
+        state.liquiditySettled[params.timestamp][params.version] = true;
+        if (params.timestamp > state.lastSettledLiquidityTimestamp[params.version]) {
+            state.lastSettledLiquidityTimestamp[params.version] = params.timestamp;
+            if (
+                params.timestamp > state.lastFinalizedTimestamp[params.version]
+                    && state.dataSettled[params.timestamp][params.version]
+            ) {
+                state.lastFinalizedTimestamp[params.version] = params.timestamp;
             }
         }
 
@@ -1076,7 +1198,10 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         }
 
         emit SettleLiquidity(
-            params.chainUID, params.app, _liquidityRoots[params.chainUID][params.timestamp], params.timestamp
+            params.chainUID,
+            params.app,
+            _liquidityRoots[params.chainUID][params.timestamp][params.version],
+            params.timestamp
         );
     }
 
@@ -1088,12 +1213,15 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      */
     function settleData(SettleDataParams memory params) external onlySettler(params.app) {
         RemoteState storage state = _remoteStates[params.app][params.chainUID];
-        if (state.dataSettled[params.timestamp]) revert DataAlreadySettled();
-        state.dataSettled[params.timestamp] = true;
-        if (params.timestamp > state.lastSettledDataTimestamp) {
-            state.lastSettledDataTimestamp = params.timestamp;
-            if (params.timestamp > state.lastFinalizedTimestamp && state.liquiditySettled[params.timestamp]) {
-                state.lastFinalizedTimestamp = params.timestamp;
+        if (state.dataSettled[params.timestamp][params.version]) revert DataAlreadySettled();
+        state.dataSettled[params.timestamp][params.version] = true;
+        if (params.timestamp > state.lastSettledDataTimestamp[params.version]) {
+            state.lastSettledDataTimestamp[params.version] = params.timestamp;
+            if (
+                params.timestamp > state.lastFinalizedTimestamp[params.version]
+                    && state.liquiditySettled[params.timestamp][params.version]
+            ) {
+                state.lastFinalizedTimestamp[params.version] = params.timestamp;
             }
         }
 
@@ -1113,7 +1241,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
             }
         }
 
-        emit SettleData(params.chainUID, params.app, _dataRoots[params.chainUID][params.timestamp], params.timestamp);
+        emit SettleData(
+            params.chainUID, params.app, _dataRoots[params.chainUID][params.timestamp][params.version], params.timestamp
+        );
     }
 
     /**
@@ -1183,7 +1313,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     function sync(bytes memory data) external payable onlySyncer returns (MessagingReceipt memory receipt) {
         // Rate limiting: only one sync per block
         if (block.timestamp <= _lastSyncRequestTimestamp) revert AlreadyRequested();
-        _lastSyncRequestTimestamp = block.timestamp;
+        _lastSyncRequestTimestamp = uint64(block.timestamp);
 
         // Build callData for getMainRoots
         bytes memory callData = abi.encodeWithSelector(ILiquidityMatrix.getMainRoots.selector);
@@ -1266,7 +1396,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
             // Process each chain's roots
             for (uint256 i; i < chainUIDs.length; ++i) {
-                this.onReceiveRoots(chainUIDs[i], liquidityRoots[i], dataRoots[i], timestamps[i]);
+                this.onReceiveRoots(chainUIDs[i], liquidityRoots[i], dataRoots[i], uint64(timestamps[i]));
             }
         }
     }

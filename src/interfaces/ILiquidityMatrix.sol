@@ -14,6 +14,7 @@ interface ILiquidityMatrix {
     error InvalidAddress();
     error InvalidAmount();
     error InvalidLengths();
+    error InvalidTimestamp();
     error Forbidden();
     error RemoteAccountAlreadyMapped(bytes32 chainUID, address remote);
     error LocalAccountAlreadyMapped(bytes32 chainUID, address local);
@@ -38,7 +39,7 @@ interface ILiquidityMatrix {
         address indexed account,
         int256 liquidity,
         uint256 appTreeIndex,
-        uint256 indexed timestamp
+        uint64 indexed timestamp
     );
 
     event UpdateLocalData(
@@ -48,7 +49,7 @@ interface ILiquidityMatrix {
         bytes value,
         bytes32 hash,
         uint256 appTreeIndex,
-        uint256 indexed timestamp
+        uint64 indexed timestamp
     );
 
     event UpdateRemoteApp(address indexed app, bytes32 indexed chainUID, address indexed remoteApp);
@@ -58,7 +59,7 @@ interface ILiquidityMatrix {
     );
 
     event OnReceiveRoots(
-        bytes32 indexed chainUID, bytes32 indexed liquidityRoot, bytes32 indexed dataRoot, uint256 timestamp
+        bytes32 indexed chainUID, bytes32 indexed liquidityRoot, bytes32 indexed dataRoot, uint64 timestamp
     );
 
     event SetGateway(address indexed gateway);
@@ -66,28 +67,29 @@ interface ILiquidityMatrix {
     event Sync(address indexed caller);
 
     event SettleLiquidity(
-        bytes32 indexed chainUID, address indexed app, bytes32 indexed liquidityRoot, uint256 timestamp
+        bytes32 indexed chainUID, address indexed app, bytes32 indexed liquidityRoot, uint64 timestamp
     );
-    event SettleData(bytes32 indexed chainUID, address indexed app, bytes32 indexed dataRoot, uint256 timestamp);
+    event SettleData(bytes32 indexed chainUID, address indexed app, bytes32 indexed dataRoot, uint64 timestamp);
 
     event OnSettleLiquidityFailure(
-        bytes32 indexed chainUID, uint256 indexed timestamp, address indexed account, int256 liquidity, bytes reason
+        bytes32 indexed chainUID, uint64 indexed timestamp, address indexed account, int256 liquidity, bytes reason
     );
     event OnSettleTotalLiquidityFailure(
-        bytes32 indexed chainUID, uint256 indexed timestamp, int256 totalLiquidity, bytes reason
+        bytes32 indexed chainUID, uint64 indexed timestamp, int256 totalLiquidity, bytes reason
     );
     event OnSettleDataFailure(
-        bytes32 indexed chainUID, uint256 indexed timestamp, bytes32 indexed key, bytes value, bytes reason
+        bytes32 indexed chainUID, uint64 indexed timestamp, bytes32 indexed key, bytes value, bytes reason
     );
 
     /*//////////////////////////////////////////////////////////////
-                                STRUCTS
+                                TYPES
     //////////////////////////////////////////////////////////////*/
 
     struct SettleLiquidityParams {
         address app;
         bytes32 chainUID;
-        uint256 timestamp;
+        uint64 timestamp;
+        uint256 version;
         address[] accounts;
         int256[] liquidity;
     }
@@ -95,7 +97,8 @@ interface ILiquidityMatrix {
     struct SettleDataParams {
         address app;
         bytes32 chainUID;
-        uint256 timestamp;
+        uint64 timestamp;
+        uint256 version;
         bytes32[] keys;
         bytes[] values;
     }
@@ -110,7 +113,7 @@ interface ILiquidityMatrix {
      * @return dataRoot The main data tree root
      * @return timestamp The current block timestamp
      */
-    function getMainRoots() external view returns (bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp);
+    function getMainRoots() external view returns (bytes32 liquidityRoot, bytes32 dataRoot, uint64 timestamp);
 
     /**
      * @notice Gets the current root of the main liquidity tree
@@ -166,7 +169,7 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to query
      * @return liquidity The liquidity at the timestamp
      */
-    function getLocalLiquidityAt(address app, address account, uint256 timestamp)
+    function getLocalLiquidityAt(address app, address account, uint64 timestamp)
         external
         view
         returns (int256 liquidity);
@@ -184,7 +187,7 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to query
      * @return liquidity The total liquidity at the timestamp
      */
-    function getLocalTotalLiquidityAt(address app, uint256 timestamp) external view returns (int256 liquidity);
+    function getLocalTotalLiquidityAt(address app, uint64 timestamp) external view returns (int256 liquidity);
 
     /**
      * @notice Gets the current hash of data stored under a key for an app
@@ -201,7 +204,7 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to query
      * @return hash The data hash at the timestamp
      */
-    function getLocalDataHashAt(address app, bytes32 key, uint256 timestamp) external view returns (bytes32 hash);
+    function getLocalDataHashAt(address app, bytes32 key, uint64 timestamp) external view returns (bytes32 hash);
 
     /*//////////////////////////////////////////////////////////////
                         REMOTE VIEW FUNCTIONS
@@ -240,7 +243,7 @@ interface ILiquidityMatrix {
      * @return root The liquidity root hash
      * @return timestamp The timestamp when the root was received
      */
-    function getLastReceivedLiquidityRoot(bytes32 chainUID) external view returns (bytes32 root, uint256 timestamp);
+    function getLastReceivedLiquidityRoot(bytes32 chainUID) external view returns (bytes32 root, uint64 timestamp);
 
     /**
      * @notice Gets the last settled liquidity root for an app on a specific chain
@@ -252,7 +255,7 @@ interface ILiquidityMatrix {
     function getLastSettledLiquidityRoot(address app, bytes32 chainUID)
         external
         view
-        returns (bytes32 root, uint256 timestamp);
+        returns (bytes32 root, uint64 timestamp);
 
     /**
      * @notice Gets the last finalized liquidity root (both liquidity and data settled)
@@ -265,7 +268,7 @@ interface ILiquidityMatrix {
     function getLastFinalizedLiquidityRoot(address app, bytes32 chainUID)
         external
         view
-        returns (bytes32 root, uint256 timestamp);
+        returns (bytes32 root, uint64 timestamp);
 
     /**
      * @notice Gets the liquidity root at a specific timestamp
@@ -273,7 +276,7 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to query
      * @return root The liquidity root at the timestamp
      */
-    function getLiquidityRootAt(bytes32 chainUID, uint256 timestamp) external view returns (bytes32 root);
+    function getLiquidityRootAt(bytes32 chainUID, uint64 timestamp) external view returns (bytes32 root);
 
     /**
      * @notice Gets the last received data root from a remote chain
@@ -281,7 +284,7 @@ interface ILiquidityMatrix {
      * @return root The data root hash
      * @return timestamp The timestamp when the root was received
      */
-    function getLastReceivedDataRoot(bytes32 chainUID) external view returns (bytes32 root, uint256 timestamp);
+    function getLastReceivedDataRoot(bytes32 chainUID) external view returns (bytes32 root, uint64 timestamp);
 
     /**
      * @notice Gets the last settled data root for an app on a specific chain
@@ -293,7 +296,7 @@ interface ILiquidityMatrix {
     function getLastSettledDataRoot(address app, bytes32 chainUID)
         external
         view
-        returns (bytes32 root, uint256 timestamp);
+        returns (bytes32 root, uint64 timestamp);
 
     /**
      * @notice Gets the last finalized data root for an app on a specific chain
@@ -305,7 +308,7 @@ interface ILiquidityMatrix {
     function getLastFinalizedDataRoot(address app, bytes32 chainUID)
         external
         view
-        returns (bytes32 root, uint256 timestamp);
+        returns (bytes32 root, uint64 timestamp);
 
     /**
      * @notice Gets the data root at a specific timestamp
@@ -313,7 +316,7 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to query
      * @return root The data root at the timestamp
      */
-    function getDataRootAt(bytes32 chainUID, uint256 timestamp) external view returns (bytes32 root);
+    function getDataRootAt(bytes32 chainUID, uint64 timestamp) external view returns (bytes32 root);
 
     /**
      * @notice Checks if a liquidity root has been settled for an app
@@ -322,7 +325,7 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to check
      * @return Whether the liquidity root is settled
      */
-    function isLiquiditySettled(address app, bytes32 chainUID, uint256 timestamp) external view returns (bool);
+    function isLiquiditySettled(address app, bytes32 chainUID, uint64 timestamp) external view returns (bool);
 
     /**
      * @notice Checks if a data root has been settled for an app
@@ -331,7 +334,7 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to check
      * @return Whether the data root is settled
      */
-    function isDataSettled(address app, bytes32 chainUID, uint256 timestamp) external view returns (bool);
+    function isDataSettled(address app, bytes32 chainUID, uint64 timestamp) external view returns (bool);
 
     /**
      * @notice Checks if both roots are finalized for a given timestamp
@@ -341,7 +344,7 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to check
      * @return Whether the roots are finalized
      */
-    function isFinalized(address app, bytes32 chainUID, uint256 timestamp) external view returns (bool);
+    function isFinalized(address app, bytes32 chainUID, uint64 timestamp) external view returns (bool);
 
     /**
      * @notice Gets the total liquidity across all chains where liquidity is settled
@@ -364,7 +367,7 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to query
      * @return liquidity The total liquidity at the latest valid timestamp
      */
-    function getTotalLiquidityAt(address app, uint256 timestamp) external view returns (int256 liquidity);
+    function getTotalLiquidityAt(address app, uint64 timestamp) external view returns (int256 liquidity);
 
     /**
      * @notice Gets the liquidity for an account across all chains where liquidity is settled
@@ -389,7 +392,7 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to query
      * @return liquidity The liquidity at the latest valid timestamp
      */
-    function getLiquidityAt(address app, address account, uint256 timestamp) external view returns (int256 liquidity);
+    function getLiquidityAt(address app, address account, uint64 timestamp) external view returns (int256 liquidity);
 
     /**
      * @notice Gets the total liquidity from a remote chain at the last settled timestamp
@@ -414,7 +417,7 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to query
      * @return liquidity The remote total liquidity at the timestamp
      */
-    function getRemoteTotalLiquidityAt(address app, bytes32 chainUID, uint256 timestamp)
+    function getRemoteTotalLiquidityAt(address app, bytes32 chainUID, uint64 timestamp)
         external
         view
         returns (int256 liquidity);
@@ -451,7 +454,7 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to query
      * @return liquidity The remote liquidity at the timestamp
      */
-    function getRemoteLiquidityAt(address app, bytes32 chainUID, address account, uint256 timestamp)
+    function getRemoteLiquidityAt(address app, bytes32 chainUID, address account, uint64 timestamp)
         external
         view
         returns (int256 liquidity);
@@ -488,7 +491,7 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to query
      * @return value The remote data hash at the timestamp
      */
-    function getRemoteDataHashAt(address app, bytes32 chainUID, bytes32 key, uint256 timestamp)
+    function getRemoteDataHashAt(address app, bytes32 chainUID, bytes32 key, uint64 timestamp)
         external
         view
         returns (bytes32 value);
@@ -671,7 +674,7 @@ interface ILiquidityMatrix {
      * @param dataRoot The data tree root from the remote chain
      * @param timestamp The timestamp of the roots
      */
-    function onReceiveRoots(bytes32 chainUID, bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp) external;
+    function onReceiveRoots(bytes32 chainUID, bytes32 liquidityRoot, bytes32 dataRoot, uint64 timestamp) external;
 
     /**
      * @notice Processes remote account mapping requests received from other chains

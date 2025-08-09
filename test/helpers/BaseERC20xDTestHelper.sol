@@ -177,7 +177,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
 
             local.settleLiquidity(
                 ILiquidityMatrix.SettleLiquidityParams(
-                    address(localApp), bytes32(uint256(eids[i])), rootTimestamp, users, liquidity
+                    address(localApp), bytes32(uint256(eids[i])), uint64(rootTimestamp), 1, users, liquidity
                 )
             );
         }

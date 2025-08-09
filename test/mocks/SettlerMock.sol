@@ -48,7 +48,7 @@ contract SettlerMock {
         }
 
         ILiquidityMatrix(liquidityMatrix).settleLiquidity(
-            ILiquidityMatrix.SettleLiquidityParams(app, chainUID, timestamp, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(app, chainUID, uint64(timestamp), 1, accounts, liquidity)
         );
     }
 
@@ -80,7 +80,7 @@ contract SettlerMock {
         }
 
         ILiquidityMatrix(liquidityMatrix).settleData(
-            ILiquidityMatrix.SettleDataParams(app, chainUID, timestamp, keys, values)
+            ILiquidityMatrix.SettleDataParams(app, chainUID, uint64(timestamp), 1, keys, values)
         );
     }
 }

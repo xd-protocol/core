@@ -22,13 +22,16 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
     uint32[CHAINS] eids;
     address[CHAINS] syncers;
-    ILiquidityMatrix[CHAINS] liquidityMatrices;
+    LiquidityMatrix[CHAINS] liquidityMatrices;
     LayerZeroGateway[CHAINS] gateways;
     address[CHAINS] apps;
     Storage[CHAINS] storages;
 
     address owner = makeAddr("owner");
+    address alice = makeAddr("alice");
+    address bob = makeAddr("bob");
     address[] users;
+    address[CHAINS] settlers;
 
     function setUp() public override {
         super.setUp();
@@ -55,6 +58,8 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
             oapps[i] = address(gateways[i]);
             apps[i] = address(new AppMock(address(liquidityMatrices[i])));
+            settlers[i] = address(new SettlerMock(address(liquidityMatrices[i])));
+            liquidityMatrices[i].updateSettlerWhitelisted(settlers[i], true);
         }
 
         wireOApps(oapps);
@@ -109,6 +114,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         }
         for (uint256 i; i < syncers.length; ++i) {
             vm.deal(syncers[i], 10_000e18);
+        }
+        for (uint256 i; i < settlers.length; ++i) {
+            vm.deal(settlers[i], 10_000e18);
         }
         for (uint256 i; i < users.length; ++i) {
             vm.deal(users[i], 10_000e18);
@@ -196,7 +204,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         for (uint256 i = 0; i < timestamps.length; i++) {
             // Query at exact timestamp
             assertEq(
-                liquidityMatrices[0].getLocalLiquidityAt(apps[0], users[0], timestamps[i]),
+                liquidityMatrices[0].getLocalLiquidityAt(apps[0], users[0], uint64(timestamps[i])),
                 liquidityValues[i],
                 "Failed at exact timestamp"
             );
@@ -204,7 +212,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
             // Query slightly after timestamp (should return same value)
             if (i < timestamps.length - 1) {
                 assertEq(
-                    liquidityMatrices[0].getLocalLiquidityAt(apps[0], users[0], timestamps[i] + 50),
+                    liquidityMatrices[0].getLocalLiquidityAt(apps[0], users[0], uint64(timestamps[i] + 50)),
                     liquidityValues[i],
                     "Failed at timestamp + 50"
                 );
@@ -213,13 +221,13 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Query before any updates (should return 0)
         if (timestamps[0] > 100) {
-            assertEq(liquidityMatrices[0].getLocalLiquidityAt(apps[0], users[0], timestamps[0] - 100), 0);
+            assertEq(liquidityMatrices[0].getLocalLiquidityAt(apps[0], users[0], uint64(timestamps[0] - 100)), 0);
         } else {
             assertEq(liquidityMatrices[0].getLocalLiquidityAt(apps[0], users[0], 0), 0);
         }
 
         // Query far in the future (should return last value)
-        assertEq(liquidityMatrices[0].getLocalLiquidityAt(apps[0], users[0], block.timestamp + 10_000), 1000e18);
+        assertEq(liquidityMatrices[0].getLocalLiquidityAt(apps[0], users[0], uint64(block.timestamp + 10_000)), 1000e18);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -279,7 +287,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         // Test all historical points
         for (uint256 i = 0; i < timestamps.length; i++) {
             assertEq(
-                liquidityMatrices[0].getLocalTotalLiquidityAt(apps[0], timestamps[i]),
+                liquidityMatrices[0].getLocalTotalLiquidityAt(apps[0], uint64(timestamps[i])),
                 expectedTotals[i],
                 "Failed at timestamp index"
             );
@@ -288,7 +296,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
             if (i > 0) {
                 uint256 midpoint = timestamps[i - 1] + (timestamps[i] - timestamps[i - 1]) / 2;
                 assertEq(
-                    liquidityMatrices[0].getLocalTotalLiquidityAt(apps[0], midpoint),
+                    liquidityMatrices[0].getLocalTotalLiquidityAt(apps[0], uint64(midpoint)),
                     expectedTotals[i - 1],
                     "Failed at midpoint"
                 );
@@ -297,13 +305,13 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Query before any updates (should return 0)
         if (timestamps[0] > 100) {
-            assertEq(liquidityMatrices[0].getLocalTotalLiquidityAt(apps[0], timestamps[0] - 100), 0);
+            assertEq(liquidityMatrices[0].getLocalTotalLiquidityAt(apps[0], uint64(timestamps[0] - 100)), 0);
         } else {
             assertEq(liquidityMatrices[0].getLocalTotalLiquidityAt(apps[0], 0), 0);
         }
 
         // Query far in the future (should return last value)
-        assertEq(liquidityMatrices[0].getLocalTotalLiquidityAt(apps[0], block.timestamp + 10_000), 150e18);
+        assertEq(liquidityMatrices[0].getLocalTotalLiquidityAt(apps[0], uint64(block.timestamp + 10_000)), 150e18);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -342,7 +350,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         // T0: Initial state (no data)
         timestamps[0] = block.timestamp;
         dataHashes[0] = bytes32(0);
-        assertEq(liquidityMatrices[0].getLocalDataHashAt(apps[0], key, timestamps[0]), dataHashes[0]);
+        assertEq(liquidityMatrices[0].getLocalDataHashAt(apps[0], key, uint64(timestamps[0])), dataHashes[0]);
 
         // T1: First data update
         skip(100);
@@ -377,7 +385,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         // Verify all historical values at exact timestamps
         for (uint256 i = 0; i < timestamps.length; i++) {
             assertEq(
-                liquidityMatrices[0].getLocalDataHashAt(apps[0], key, timestamps[i]),
+                liquidityMatrices[0].getLocalDataHashAt(apps[0], key, uint64(timestamps[i])),
                 dataHashes[i],
                 string.concat("Failed at timestamp index ", vm.toString(i))
             );
@@ -385,17 +393,17 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Test queries between updates (should return the value at or before the timestamp)
         assertEq(
-            liquidityMatrices[0].getLocalDataHashAt(apps[0], key, timestamps[1] + 50),
+            liquidityMatrices[0].getLocalDataHashAt(apps[0], key, uint64(timestamps[1] + 50)),
             dataHashes[1],
             "Between T1 and T2"
         );
         assertEq(
-            liquidityMatrices[0].getLocalDataHashAt(apps[0], key, timestamps[2] + 100),
+            liquidityMatrices[0].getLocalDataHashAt(apps[0], key, uint64(timestamps[2] + 100)),
             dataHashes[2],
             "Between T2 and T3"
         );
         assertEq(
-            liquidityMatrices[0].getLocalDataHashAt(apps[0], key, timestamps[3] + 150),
+            liquidityMatrices[0].getLocalDataHashAt(apps[0], key, uint64(timestamps[3] + 150)),
             dataHashes[3],
             "Between T3 and T4"
         );
@@ -403,7 +411,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         // Test before any data (should return 0)
         if (timestamps[0] > 100) {
             assertEq(
-                liquidityMatrices[0].getLocalDataHashAt(apps[0], key, timestamps[0] - 100),
+                liquidityMatrices[0].getLocalDataHashAt(apps[0], key, uint64(timestamps[0] - 100)),
                 bytes32(0),
                 "Before any data"
             );
@@ -411,7 +419,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Test future timestamp (should return latest value)
         assertEq(
-            liquidityMatrices[0].getLocalDataHashAt(apps[0], key, block.timestamp + 10_000),
+            liquidityMatrices[0].getLocalDataHashAt(apps[0], key, uint64(block.timestamp + 10_000)),
             dataHashes[4],
             "Future timestamp"
         );
@@ -420,7 +428,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes32 differentKey = keccak256("different");
         for (uint256 i = 0; i < timestamps.length; i++) {
             assertEq(
-                liquidityMatrices[0].getLocalDataHashAt(apps[0], differentKey, timestamps[i]),
+                liquidityMatrices[0].getLocalDataHashAt(apps[0], differentKey, uint64(timestamps[i])),
                 bytes32(0),
                 "Different key should return 0"
             );
@@ -661,14 +669,16 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
             liquidity[0] = liquidityValues[i];
 
             liquidityMatrices[0].settleLiquidity(
-                ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, timestamps[i], accounts, liquidity)
+                ILiquidityMatrix.SettleLiquidityParams(
+                    apps[0], remoteEid, uint64(timestamps[i]), 1, accounts, liquidity
+                )
             );
         }
 
         // Test historical queries
         for (uint256 i = 0; i < timestamps.length; i++) {
             assertEq(
-                liquidityMatrices[0].getRemoteLiquidityAt(apps[0], remoteEid, users[0], timestamps[i]),
+                liquidityMatrices[0].getRemoteLiquidityAt(apps[0], remoteEid, users[0], uint64(timestamps[i])),
                 liquidityValues[i]
             );
 
@@ -676,7 +686,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
             if (i > 0) {
                 uint256 midTimestamp = timestamps[i - 1] + (timestamps[i] - timestamps[i - 1]) / 2;
                 assertEq(
-                    liquidityMatrices[0].getRemoteLiquidityAt(apps[0], remoteEid, users[0], midTimestamp),
+                    liquidityMatrices[0].getRemoteLiquidityAt(apps[0], remoteEid, users[0], uint64(midTimestamp)),
                     liquidityValues[i - 1]
                 );
             }
@@ -740,7 +750,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
                 liquidity[1] = 200e18;
                 liquidity[2] = 300e18;
                 liquidityMatrices[0].settleLiquidity(
-                    ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, timestamps[i], accounts, liquidity)
+                    ILiquidityMatrix.SettleLiquidityParams(
+                        apps[0], remoteEid, uint64(timestamps[i]), 1, accounts, liquidity
+                    )
                 );
             } else if (i == 1) {
                 address[] memory accounts = new address[](3);
@@ -752,7 +764,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
                 liquidity[1] = 250e18;
                 liquidity[2] = 300e18;
                 liquidityMatrices[0].settleLiquidity(
-                    ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, timestamps[i], accounts, liquidity)
+                    ILiquidityMatrix.SettleLiquidityParams(
+                        apps[0], remoteEid, uint64(timestamps[i]), 1, accounts, liquidity
+                    )
                 );
             } else {
                 address[] memory accounts = new address[](3);
@@ -764,38 +778,45 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
                 liquidity[1] = 0;
                 liquidity[2] = 0;
                 liquidityMatrices[0].settleLiquidity(
-                    ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, timestamps[i], accounts, liquidity)
+                    ILiquidityMatrix.SettleLiquidityParams(
+                        apps[0], remoteEid, uint64(timestamps[i]), 1, accounts, liquidity
+                    )
                 );
             }
         }
 
         // Before settlement, all values should be 0
-        assertEq(liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], remoteEid, timestamps[0] - 1), 0);
+        assertEq(liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], remoteEid, uint64(timestamps[0] - 1)), 0);
 
         // Test historical values - verify totals at each timestamp
         assertEq(
-            liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], remoteEid, timestamps[0]),
+            liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], remoteEid, uint64(timestamps[0])),
             600e18 // 100 + 200 + 300
         );
 
         // Between timestamps, should return the last value
-        assertEq(liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], remoteEid, timestamps[0] + 100), 600e18);
+        assertEq(
+            liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], remoteEid, uint64(timestamps[0] + 100)), 600e18
+        );
 
         // Note: The total liquidity at timestamps[1] is complex because settleLiquidity
         // calculates total based on the delta from previous settlements. Since we settle
         // each timestamp independently, the total at timestamp[1] starts fresh.
         // This is expected behavior - each settlement snapshot is independent.
         // assertEq(
-        //     liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], remoteEid, timestamps[1]),
+        //     liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], remoteEid, uint64(timestamps[1])),
         //     600e18  // 50 + 250 + 300
         // );
         // At timestamps[2], the total is -600e18 because settleLiquidity calculates
         // the delta from the previous values at this timestamp (which were 0)
         // to the new values (all 0), resulting in 0 - 600e18 = -600e18
-        assertEq(liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], remoteEid, timestamps[2]), -600e18);
+        assertEq(liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], remoteEid, uint64(timestamps[2])), -600e18);
 
         // Test future timestamp (should return last value)
-        assertEq(liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], remoteEid, block.timestamp + 10_000), -600e18);
+        assertEq(
+            liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], remoteEid, uint64(block.timestamp + 10_000)),
+            -600e18
+        );
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -859,25 +880,30 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
             else values[0] = data2;
 
             liquidityMatrices[0].settleData(
-                ILiquidityMatrix.SettleDataParams(apps[0], remoteEid, timestamps[i], keys, values)
+                ILiquidityMatrix.SettleDataParams(apps[0], remoteEid, uint64(timestamps[i]), 1, keys, values)
             );
         }
 
         // Test historical queries
         for (uint256 i = 0; i < timestamps.length; i++) {
-            assertEq(liquidityMatrices[0].getRemoteDataHashAt(apps[0], remoteEid, key, timestamps[i]), dataHashes[i]);
+            assertEq(
+                liquidityMatrices[0].getRemoteDataHashAt(apps[0], remoteEid, key, uint64(timestamps[i])), dataHashes[i]
+            );
         }
 
         // Test before first update
         if (timestamps[0] > 100) {
-            assertEq(liquidityMatrices[0].getRemoteDataHashAt(apps[0], remoteEid, key, timestamps[0] - 100), bytes32(0));
+            assertEq(
+                liquidityMatrices[0].getRemoteDataHashAt(apps[0], remoteEid, key, uint64(timestamps[0] - 100)),
+                bytes32(0)
+            );
         } else {
             assertEq(liquidityMatrices[0].getRemoteDataHashAt(apps[0], remoteEid, key, 0), bytes32(0));
         }
 
         // Test far future
         assertEq(
-            liquidityMatrices[0].getRemoteDataHashAt(apps[0], remoteEid, key, block.timestamp + 10_000),
+            liquidityMatrices[0].getRemoteDataHashAt(apps[0], remoteEid, key, uint64(block.timestamp + 10_000)),
             keccak256(data2)
         );
     }
@@ -963,7 +989,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         (, uint256 rootTimestamp) = liquidityMatrices[0].getLastReceivedLiquidityRoot(bytes32(uint256(eids[1])));
 
         // Initially not settled
-        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), rootTimestamp));
+        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp)));
 
         // Settle liquidity
         changePrank(settler, settler);
@@ -974,12 +1000,12 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         liquidityMatrices[0].settleLiquidity(
             ILiquidityMatrix.SettleLiquidityParams(
-                apps[0], bytes32(uint256(eids[1])), rootTimestamp, accounts, liquidity
+                apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp), 1, accounts, liquidity
             )
         );
 
         // Now settled
-        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), rootTimestamp));
+        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp)));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -1003,7 +1029,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         (, uint256 rootTimestamp) = liquidityMatrices[0].getLastReceivedDataRoot(bytes32(uint256(eids[1])));
 
         // Initially not settled
-        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), rootTimestamp));
+        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp)));
 
         // Settle data
         changePrank(settler, settler);
@@ -1013,11 +1039,13 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         values[0] = abi.encode("value");
 
         liquidityMatrices[0].settleData(
-            ILiquidityMatrix.SettleDataParams(apps[0], bytes32(uint256(eids[1])), rootTimestamp, keys, values)
+            ILiquidityMatrix.SettleDataParams(
+                apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp), 1, keys, values
+            )
         );
 
         // Now settled
-        assertTrue(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), rootTimestamp));
+        assertTrue(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp)));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -1083,25 +1111,37 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes32 remoteEid = _eid(liquidityMatrices[1]);
 
         // Verify exact timestamps return the received roots
-        assertEq(liquidityMatrices[0].getLiquidityRootAt(remoteEid, timestamp0), liquidityRoot0, "Root at T0 mismatch");
-        assertEq(liquidityMatrices[0].getLiquidityRootAt(remoteEid, timestamp1), liquidityRoot1, "Root at T1 mismatch");
-        assertEq(liquidityMatrices[0].getLiquidityRootAt(remoteEid, timestamp2), liquidityRoot2, "Root at T2 mismatch");
+        assertEq(
+            liquidityMatrices[0].getLiquidityRootAt(remoteEid, uint64(timestamp0)),
+            liquidityRoot0,
+            "Root at T0 mismatch"
+        );
+        assertEq(
+            liquidityMatrices[0].getLiquidityRootAt(remoteEid, uint64(timestamp1)),
+            liquidityRoot1,
+            "Root at T1 mismatch"
+        );
+        assertEq(
+            liquidityMatrices[0].getLiquidityRootAt(remoteEid, uint64(timestamp2)),
+            liquidityRoot2,
+            "Root at T2 mismatch"
+        );
 
         // Verify roots changed between syncs
         assertTrue(liquidityRoot0 != liquidityRoot1, "Root should change after update");
         assertTrue(liquidityRoot1 != liquidityRoot2, "Root should change after clearing");
 
         // Test between timestamps (should return 0 as no root at exact timestamp)
-        assertEq(liquidityMatrices[0].getLiquidityRootAt(remoteEid, timestamp0 + 100), bytes32(0));
-        assertEq(liquidityMatrices[0].getLiquidityRootAt(remoteEid, timestamp1 + 100), bytes32(0));
+        assertEq(liquidityMatrices[0].getLiquidityRootAt(remoteEid, uint64(timestamp0 + 100)), bytes32(0));
+        assertEq(liquidityMatrices[0].getLiquidityRootAt(remoteEid, uint64(timestamp1 + 100)), bytes32(0));
 
         // Test before first root
         if (timestamp0 > 100) {
-            assertEq(liquidityMatrices[0].getLiquidityRootAt(remoteEid, timestamp0 - 100), bytes32(0));
+            assertEq(liquidityMatrices[0].getLiquidityRootAt(remoteEid, uint64(timestamp0 - 100)), bytes32(0));
         }
 
         // Test far future
-        assertEq(liquidityMatrices[0].getLiquidityRootAt(remoteEid, block.timestamp + 10_000), bytes32(0));
+        assertEq(liquidityMatrices[0].getLiquidityRootAt(remoteEid, uint64(block.timestamp + 10_000)), bytes32(0));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -1149,25 +1189,31 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes32 remoteEid = _eid(liquidityMatrices[1]);
 
         // Verify exact timestamps return the received roots
-        assertEq(liquidityMatrices[0].getDataRootAt(remoteEid, timestamp0), dataRoot0, "Data root at T0 mismatch");
-        assertEq(liquidityMatrices[0].getDataRootAt(remoteEid, timestamp1), dataRoot1, "Data root at T1 mismatch");
-        assertEq(liquidityMatrices[0].getDataRootAt(remoteEid, timestamp2), dataRoot2, "Data root at T2 mismatch");
+        assertEq(
+            liquidityMatrices[0].getDataRootAt(remoteEid, uint64(timestamp0)), dataRoot0, "Data root at T0 mismatch"
+        );
+        assertEq(
+            liquidityMatrices[0].getDataRootAt(remoteEid, uint64(timestamp1)), dataRoot1, "Data root at T1 mismatch"
+        );
+        assertEq(
+            liquidityMatrices[0].getDataRootAt(remoteEid, uint64(timestamp2)), dataRoot2, "Data root at T2 mismatch"
+        );
 
         // Verify roots changed between syncs
         assertTrue(dataRoot0 != dataRoot1, "Data root should change after update");
         assertTrue(dataRoot1 != dataRoot2, "Data root should change after clearing");
 
         // Test between timestamps (should return 0 as no root at exact timestamp)
-        assertEq(liquidityMatrices[0].getDataRootAt(remoteEid, timestamp0 + 100), bytes32(0));
-        assertEq(liquidityMatrices[0].getDataRootAt(remoteEid, timestamp1 + 100), bytes32(0));
+        assertEq(liquidityMatrices[0].getDataRootAt(remoteEid, uint64(timestamp0 + 100)), bytes32(0));
+        assertEq(liquidityMatrices[0].getDataRootAt(remoteEid, uint64(timestamp1 + 100)), bytes32(0));
 
         // Test before first root
         if (timestamp0 > 100) {
-            assertEq(liquidityMatrices[0].getDataRootAt(remoteEid, timestamp0 - 100), bytes32(0));
+            assertEq(liquidityMatrices[0].getDataRootAt(remoteEid, uint64(timestamp0 - 100)), bytes32(0));
         }
 
         // Test far future
-        assertEq(liquidityMatrices[0].getDataRootAt(remoteEid, block.timestamp + 10_000), bytes32(0));
+        assertEq(liquidityMatrices[0].getDataRootAt(remoteEid, uint64(block.timestamp + 10_000)), bytes32(0));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -1202,7 +1248,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         liquidityMatrices[0].settleLiquidity(
             ILiquidityMatrix.SettleLiquidityParams(
-                apps[0], bytes32(uint256(eids[1])), rootTimestamp, accounts, liquidity
+                apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp), 1, accounts, liquidity
             )
         );
 
@@ -1254,7 +1300,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         liquidityMatrices[0].settleLiquidity(
             ILiquidityMatrix.SettleLiquidityParams(
-                apps[0], bytes32(uint256(eids[1])), rootTimestamp, accounts, liquidity
+                apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp), 1, accounts, liquidity
             )
         );
 
@@ -1298,7 +1344,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         liquidityMatrices[0].settleLiquidity(
             ILiquidityMatrix.SettleLiquidityParams(
-                apps[0], bytes32(uint256(eids[1])), liqTimestamp, accounts, liquidity
+                apps[0], bytes32(uint256(eids[1])), uint64(liqTimestamp), 1, accounts, liquidity
             )
         );
 
@@ -1313,7 +1359,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         values[0] = abi.encode("value");
 
         liquidityMatrices[0].settleData(
-            ILiquidityMatrix.SettleDataParams(apps[0], bytes32(uint256(eids[1])), dataTimestamp, keys, values)
+            ILiquidityMatrix.SettleDataParams(
+                apps[0], bytes32(uint256(eids[1])), uint64(dataTimestamp), 1, keys, values
+            )
         );
 
         // Now finalized (100 + 200 = 300)
@@ -1335,7 +1383,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // T0: Initial state (should be 0)
         timestamps[0] = block.timestamp;
-        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], timestamps[0]), 0);
+        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], uint64(timestamps[0])), 0);
 
         // T1: First update
         skip(100);
@@ -1354,17 +1402,17 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         timestamps[3] = block.timestamp;
 
         // Test queries at exact timestamps
-        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], timestamps[0]), 0);
-        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], timestamps[1]), 100e18);
-        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], timestamps[2]), 300e18); // 100 + 200
-        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], timestamps[3]), 350e18); // 150 + 200
+        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], uint64(timestamps[0])), 0);
+        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], uint64(timestamps[1])), 100e18);
+        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], uint64(timestamps[2])), 300e18); // 100 + 200
+        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], uint64(timestamps[3])), 350e18); // 150 + 200
 
         // Test queries between timestamps (should return value at or before query time)
-        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], timestamps[1] + 50), 100e18);
-        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], timestamps[2] + 50), 300e18);
+        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], uint64(timestamps[1] + 50)), 100e18);
+        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], uint64(timestamps[2] + 50)), 300e18);
 
         // Test query far in the future (should return latest value)
-        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], block.timestamp + 10_000), 350e18);
+        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], uint64(block.timestamp + 10_000)), 350e18);
 
         // Add remote liquidity
         changePrank(apps[1], apps[1]);
@@ -1388,16 +1436,16 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         liquidityMatrices[0].settleLiquidity(
             ILiquidityMatrix.SettleLiquidityParams(
-                apps[0], bytes32(uint256(eids[1])), rootTimestamp, accounts, liquidity
+                apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp), 1, accounts, liquidity
             )
         );
 
         // Test after settling remote liquidity
         // Local: 350e18 (150 + 200), Remote: 500e18 (400 + 100) = Total: 850e18
-        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], block.timestamp), 850e18);
+        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], uint64(block.timestamp)), 850e18);
 
         // Test historical query still returns correct value
-        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], timestamps[3]), 350e18);
+        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], uint64(timestamps[3])), 350e18);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -1438,7 +1486,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         liquidityMatrices[0].settleLiquidity(
             ILiquidityMatrix.SettleLiquidityParams(
-                apps[0], bytes32(uint256(eids[1])), rootTimestamp, accounts, liquidity
+                apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp), 1, accounts, liquidity
             )
         );
 
@@ -1482,7 +1530,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         liquidityMatrices[0].settleLiquidity(
             ILiquidityMatrix.SettleLiquidityParams(
-                apps[0], bytes32(uint256(eids[1])), liqTimestamp, accounts, liquidity
+                apps[0], bytes32(uint256(eids[1])), uint64(liqTimestamp), 1, accounts, liquidity
             )
         );
 
@@ -1497,7 +1545,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         values[0] = abi.encode("value");
 
         liquidityMatrices[0].settleData(
-            ILiquidityMatrix.SettleDataParams(apps[0], bytes32(uint256(eids[1])), dataTimestamp, keys, values)
+            ILiquidityMatrix.SettleDataParams(
+                apps[0], bytes32(uint256(eids[1])), uint64(dataTimestamp), 1, keys, values
+            )
         );
 
         // Now finalized (100 + 200 = 300)
@@ -1519,7 +1569,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // T0: Initial state (should be 0)
         timestamps[0] = block.timestamp;
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], timestamps[0]), 0);
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], uint64(timestamps[0])), 0);
 
         // T1: First update
         skip(100);
@@ -1543,24 +1593,24 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         timestamps[4] = block.timestamp;
 
         // Test queries at exact timestamps for users[0]
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], timestamps[0]), 0);
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], timestamps[1]), 100e18);
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], timestamps[2]), 100e18); // No change
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], timestamps[3]), 150e18);
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], timestamps[4]), 0);
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], uint64(timestamps[0])), 0);
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], uint64(timestamps[1])), 100e18);
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], uint64(timestamps[2])), 100e18); // No change
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], uint64(timestamps[3])), 150e18);
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], uint64(timestamps[4])), 0);
 
         // Test queries for users[1]
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[1], timestamps[1]), 0);
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[1], timestamps[2]), 200e18);
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[1], timestamps[4]), 200e18); // Unchanged
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[1], uint64(timestamps[1])), 0);
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[1], uint64(timestamps[2])), 200e18);
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[1], uint64(timestamps[4])), 200e18); // Unchanged
 
         // Test queries between timestamps
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], timestamps[1] + 50), 100e18);
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], timestamps[3] + 50), 150e18);
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], uint64(timestamps[1] + 50)), 100e18);
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], uint64(timestamps[3] + 50)), 150e18);
 
         // Test query far in the future (should return latest value)
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], block.timestamp + 10_000), 0);
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[1], block.timestamp + 10_000), 200e18);
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], uint64(block.timestamp + 10_000)), 0);
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[1], uint64(block.timestamp + 10_000)), 200e18);
 
         // Add remote liquidity for users[0]
         changePrank(apps[1], apps[1]);
@@ -1581,20 +1631,20 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         liquidityMatrices[0].settleLiquidity(
             ILiquidityMatrix.SettleLiquidityParams(
-                apps[0], bytes32(uint256(eids[1])), rootTimestamp, accounts, liquidity
+                apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp), 1, accounts, liquidity
             )
         );
 
         // Test after settling remote liquidity
         // Local: 0, Remote: 300e18 = Total: 300e18
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], block.timestamp), 300e18);
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], uint64(block.timestamp)), 300e18);
 
         // Test historical query still returns correct value (no remote liquidity at that time)
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], timestamps[3]), 150e18);
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], uint64(timestamps[3])), 150e18);
 
         // Test query before first timestamp returns 0
         if (timestamps[0] > 100) {
-            assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], timestamps[0] - 100), 0);
+            assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], uint64(timestamps[0] - 100)), 0);
         } else {
             assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], users[0], 0), 0);
         }
@@ -1637,7 +1687,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         liquidityMatrices[0].settleLiquidity(
             ILiquidityMatrix.SettleLiquidityParams(
-                apps[0], bytes32(uint256(eids[1])), rootTimestamp, accounts, liquidity
+                apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp), 1, accounts, liquidity
             )
         );
 
@@ -1677,7 +1727,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         liquidityMatrices[0].settleLiquidity(
             ILiquidityMatrix.SettleLiquidityParams(
-                apps[0], bytes32(uint256(eids[1])), liqTimestamp, accounts, liquidity
+                apps[0], bytes32(uint256(eids[1])), uint64(liqTimestamp), 1, accounts, liquidity
             )
         );
 
@@ -1692,7 +1742,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         values[0] = abi.encode("value");
 
         liquidityMatrices[0].settleData(
-            ILiquidityMatrix.SettleDataParams(apps[0], bytes32(uint256(eids[1])), dataTimestamp, keys, values)
+            ILiquidityMatrix.SettleDataParams(
+                apps[0], bytes32(uint256(eids[1])), uint64(dataTimestamp), 1, keys, values
+            )
         );
 
         // Now finalized
@@ -1733,7 +1785,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         liquidityMatrices[0].settleLiquidity(
             ILiquidityMatrix.SettleLiquidityParams(
-                apps[0], bytes32(uint256(eids[1])), liqTimestamp, accounts, liquidity
+                apps[0], bytes32(uint256(eids[1])), uint64(liqTimestamp), 1, accounts, liquidity
             )
         );
 
@@ -1743,7 +1795,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         values[0] = abi.encode("value");
 
         liquidityMatrices[0].settleData(
-            ILiquidityMatrix.SettleDataParams(apps[0], bytes32(uint256(eids[1])), dataTimestamp, keys, values)
+            ILiquidityMatrix.SettleDataParams(
+                apps[0], bytes32(uint256(eids[1])), uint64(dataTimestamp), 1, keys, values
+            )
         );
 
         // Now finalized
@@ -1786,7 +1840,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         values[0] = value;
 
         liquidityMatrices[0].settleData(
-            ILiquidityMatrix.SettleDataParams(apps[0], bytes32(uint256(eids[1])), dataTimestamp, keys, values)
+            ILiquidityMatrix.SettleDataParams(
+                apps[0], bytes32(uint256(eids[1])), uint64(dataTimestamp), 1, keys, values
+            )
         );
 
         // Now returns settled data hash
@@ -1834,7 +1890,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         liquidityMatrices[0].settleLiquidity(
             ILiquidityMatrix.SettleLiquidityParams(
-                apps[0], bytes32(uint256(eids[1])), liqTimestamp, accounts, liquidity
+                apps[0], bytes32(uint256(eids[1])), uint64(liqTimestamp), 1, accounts, liquidity
             )
         );
 
@@ -1845,7 +1901,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         values[0] = value;
 
         liquidityMatrices[0].settleData(
-            ILiquidityMatrix.SettleDataParams(apps[0], bytes32(uint256(eids[1])), dataTimestamp, keys, values)
+            ILiquidityMatrix.SettleDataParams(
+                apps[0], bytes32(uint256(eids[1])), uint64(dataTimestamp), 1, keys, values
+            )
         );
 
         // Now finalized
@@ -1893,7 +1951,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         liquidityMatrices[0].settleLiquidity(
             ILiquidityMatrix.SettleLiquidityParams(
-                apps[0], bytes32(uint256(eids[1])), rootTimestamp, accounts, liquidity
+                apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp), 1, accounts, liquidity
             )
         );
 
@@ -1942,7 +2000,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         liquidityMatrices[0].settleLiquidity(
             ILiquidityMatrix.SettleLiquidityParams(
-                apps[0], bytes32(uint256(eids[1])), liqTimestamp, accounts, liquidity
+                apps[0], bytes32(uint256(eids[1])), uint64(liqTimestamp), 1, accounts, liquidity
             )
         );
 
@@ -1953,7 +2011,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         values[0] = abi.encode("value");
 
         liquidityMatrices[0].settleData(
-            ILiquidityMatrix.SettleDataParams(apps[0], bytes32(uint256(eids[1])), dataTimestamp, keys, values)
+            ILiquidityMatrix.SettleDataParams(
+                apps[0], bytes32(uint256(eids[1])), uint64(dataTimestamp), 1, keys, values
+            )
         );
 
         // Now has finalized root
@@ -1995,7 +2055,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         values[0] = abi.encode("value");
 
         liquidityMatrices[0].settleData(
-            ILiquidityMatrix.SettleDataParams(apps[0], bytes32(uint256(eids[1])), rootTimestamp, keys, values)
+            ILiquidityMatrix.SettleDataParams(
+                apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp), 1, keys, values
+            )
         );
 
         // Now has settled root
@@ -2043,7 +2105,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         liquidityMatrices[0].settleLiquidity(
             ILiquidityMatrix.SettleLiquidityParams(
-                apps[0], bytes32(uint256(eids[1])), liqTimestamp, accounts, liquidity
+                apps[0], bytes32(uint256(eids[1])), uint64(liqTimestamp), 1, accounts, liquidity
             )
         );
 
@@ -2054,7 +2116,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         values[0] = abi.encode("value");
 
         liquidityMatrices[0].settleData(
-            ILiquidityMatrix.SettleDataParams(apps[0], bytes32(uint256(eids[1])), dataTimestamp, keys, values)
+            ILiquidityMatrix.SettleDataParams(
+                apps[0], bytes32(uint256(eids[1])), uint64(dataTimestamp), 1, keys, values
+            )
         );
 
         // Now has finalized root
@@ -2072,19 +2136,19 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes32 chainUID = bytes32(uint256(30_001));
 
         // Initially should be false since no roots have been settled
-        assertFalse(liquidityMatrices[0].isFinalized(app, chainUID, block.timestamp));
+        assertFalse(liquidityMatrices[0].isFinalized(app, chainUID, uint64(block.timestamp)));
 
         // Even with a future timestamp, should still be false
-        assertFalse(liquidityMatrices[0].isFinalized(app, chainUID, block.timestamp + 1000));
+        assertFalse(liquidityMatrices[0].isFinalized(app, chainUID, uint64(block.timestamp + 1000)));
 
         // Setup: First sync some roots
         changePrank(address(gateways[0]), address(gateways[0]));
         liquidityMatrices[0].onReceiveRoots(
-            chainUID, keccak256("liquidity_root_1"), keccak256("data_root_1"), block.timestamp
+            chainUID, keccak256("liquidity_root_1"), keccak256("data_root_1"), uint64(block.timestamp)
         );
 
         // Still false until settled
-        assertFalse(liquidityMatrices[0].isFinalized(app, chainUID, block.timestamp));
+        assertFalse(liquidityMatrices[0].isFinalized(app, chainUID, uint64(block.timestamp)));
 
         // Whitelist settler and settle the roots
         changePrank(owner, owner);
@@ -2099,7 +2163,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         liquidity[0] = 100e18;
 
         liquidityMatrices[0].settleLiquidity(
-            ILiquidityMatrix.SettleLiquidityParams(app, chainUID, block.timestamp, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(app, chainUID, uint64(block.timestamp), 1, accounts, liquidity)
         );
 
         // Settle data
@@ -2108,23 +2172,25 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes[] memory values = new bytes[](1);
         values[0] = abi.encode("value1");
 
-        liquidityMatrices[0].settleData(ILiquidityMatrix.SettleDataParams(app, chainUID, block.timestamp, keys, values));
+        liquidityMatrices[0].settleData(
+            ILiquidityMatrix.SettleDataParams(app, chainUID, uint64(block.timestamp), 1, keys, values)
+        );
 
         // Now should be true after both are settled
-        assertTrue(liquidityMatrices[0].isFinalized(app, chainUID, block.timestamp));
+        assertTrue(liquidityMatrices[0].isFinalized(app, chainUID, uint64(block.timestamp)));
 
         // Test with new roots that haven't been settled
         vm.warp(block.timestamp + 100);
         changePrank(address(gateways[0]), address(gateways[0]));
         liquidityMatrices[0].onReceiveRoots(
-            chainUID, keccak256("liquidity_root_2"), keccak256("data_root_2"), block.timestamp
+            chainUID, keccak256("liquidity_root_2"), keccak256("data_root_2"), uint64(block.timestamp)
         );
 
         // Should be false for the new timestamp
-        assertFalse(liquidityMatrices[0].isFinalized(app, chainUID, block.timestamp));
+        assertFalse(liquidityMatrices[0].isFinalized(app, chainUID, uint64(block.timestamp)));
 
         // But still true for the old timestamp
-        assertTrue(liquidityMatrices[0].isFinalized(app, chainUID, block.timestamp - 100));
+        assertTrue(liquidityMatrices[0].isFinalized(app, chainUID, uint64(block.timestamp - 100)));
     }
 
     function test_isFinalized(bytes32 seed) public {
@@ -2149,24 +2215,24 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         (, uint256 rootTimestamp) = liquidityMatrices[0].getLastReceivedLiquidityRoot(remoteEid);
 
         // Initially not finalized
-        assertFalse(liquidityMatrices[0].isFinalized(apps[0], remoteEid, rootTimestamp));
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], remoteEid, uint64(rootTimestamp)));
 
         // Settle liquidity
         changePrank(settler, settler);
         liquidityMatrices[0].settleLiquidity(
-            ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, rootTimestamp, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, uint64(rootTimestamp), 1, accounts, liquidity)
         );
 
         // Still not finalized (only liquidity settled)
-        assertFalse(liquidityMatrices[0].isFinalized(apps[0], remoteEid, rootTimestamp));
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], remoteEid, uint64(rootTimestamp)));
 
         // Settle data
         liquidityMatrices[0].settleData(
-            ILiquidityMatrix.SettleDataParams(apps[0], remoteEid, rootTimestamp, keys, values)
+            ILiquidityMatrix.SettleDataParams(apps[0], remoteEid, uint64(rootTimestamp), 1, keys, values)
         );
 
         // Now finalized
-        assertTrue(liquidityMatrices[0].isFinalized(apps[0], remoteEid, rootTimestamp));
+        assertTrue(liquidityMatrices[0].isFinalized(apps[0], remoteEid, uint64(rootTimestamp)));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -2509,7 +2575,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes32 remoteEid = _eid(liquidityMatrices[1]);
         (, uint256 rootTimestamp) = liquidityMatrices[0].getLastReceivedLiquidityRoot(remoteEid);
         liquidityMatrices[0].settleLiquidity(
-            ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, rootTimestamp, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, uint64(rootTimestamp), 1, accounts, liquidity)
         );
 
         // Verify settlement - check unique accounts only since same account can appear multiple times
@@ -2521,7 +2587,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
             }
         }
         assertEq(liquidityMatrices[0].getSettledRemoteTotalLiquidity(apps[0], remoteEid), totalLiquidity);
-        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], remoteEid, rootTimestamp));
+        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], remoteEid, uint64(rootTimestamp)));
     }
 
     function test_settleLiquidity_withCallbacks(bytes32 seed) public {
@@ -2547,7 +2613,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes32 remoteEid = _eid(liquidityMatrices[1]);
         (, uint256 rootTimestamp) = liquidityMatrices[0].getLastReceivedLiquidityRoot(remoteEid);
         liquidityMatrices[0].settleLiquidity(
-            ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, rootTimestamp, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, uint64(rootTimestamp), 1, accounts, liquidity)
         );
 
         // Verify callbacks were called with final liquidity values
@@ -2581,13 +2647,13 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes32 remoteEid = _eid(liquidityMatrices[1]);
         (, uint256 rootTimestamp) = liquidityMatrices[0].getLastReceivedLiquidityRoot(remoteEid);
         liquidityMatrices[0].settleLiquidity(
-            ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, rootTimestamp, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, uint64(rootTimestamp), 1, accounts, liquidity)
         );
 
         // Second settlement should revert
         vm.expectRevert(ILiquidityMatrix.LiquidityAlreadySettled.selector);
         liquidityMatrices[0].settleLiquidity(
-            ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, rootTimestamp, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, uint64(rootTimestamp), 1, accounts, liquidity)
         );
     }
 
@@ -2603,7 +2669,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         vm.expectRevert(ILiquidityMatrix.Forbidden.selector);
         liquidityMatrices[0].settleLiquidity(
             ILiquidityMatrix.SettleLiquidityParams(
-                apps[0], bytes32(uint256(eids[1])), block.timestamp, accounts, liquidity
+                apps[0], bytes32(uint256(eids[1])), uint64(block.timestamp), 1, accounts, liquidity
             )
         );
     }
@@ -2641,7 +2707,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         liquidityMatrices[0].settleLiquidity(
             ILiquidityMatrix.SettleLiquidityParams(
-                apps[0], bytes32(uint256(eids[1])), rootTimestamp, accounts, liquidity
+                apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp), 1, accounts, liquidity
             )
         );
 
@@ -2690,7 +2756,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
             liquidityMatrices[0].settleLiquidity(
                 ILiquidityMatrix.SettleLiquidityParams(
-                    apps[0], bytes32(uint256(eids[i])), rootTimestamp, accounts, liquidity
+                    apps[0], bytes32(uint256(eids[i])), uint64(rootTimestamp), 1, accounts, liquidity
                 )
             );
         }
@@ -2739,7 +2805,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         // Settle all accounts at once (settlement is per timestamp, not per batch)
         changePrank(settler, settler);
         liquidityMatrices[0].settleLiquidity(
-            ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, rootTimestamp, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, uint64(rootTimestamp), 1, accounts, liquidity)
         );
 
         // Verify all settlements
@@ -2778,14 +2844,14 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         liquidity[1] = 200e18;
 
         liquidityMatrices[0].settleLiquidity(
-            ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, rootTimestamp, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, uint64(rootTimestamp), 1, accounts, liquidity)
         );
 
         // Settler2 tries to settle again (should revert due to LiquidityAlreadySettled)
         changePrank(settler2, settler2);
         vm.expectRevert(ILiquidityMatrix.LiquidityAlreadySettled.selector);
         liquidityMatrices[0].settleLiquidity(
-            ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, rootTimestamp, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, uint64(rootTimestamp), 1, accounts, liquidity)
         );
 
         // Verify the first settlement succeeded
@@ -2807,7 +2873,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // This should work as it's a different timestamp
         liquidityMatrices[0].settleLiquidity(
-            ILiquidityMatrix.SettleLiquidityParams(apps[0], remoteEid, newTimestamp, newAccounts, newLiquidity)
+            ILiquidityMatrix.SettleLiquidityParams(
+                apps[0], remoteEid, uint64(newTimestamp), 1, newAccounts, newLiquidity
+            )
         );
 
         assertEq(liquidityMatrices[0].getSettledRemoteLiquidity(apps[0], remoteEid, users[0]), 150e18);
@@ -2838,14 +2906,14 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes32 remoteEid = _eid(liquidityMatrices[1]);
         (, uint256 rootTimestamp) = liquidityMatrices[0].getLastReceivedDataRoot(remoteEid);
         liquidityMatrices[0].settleData(
-            ILiquidityMatrix.SettleDataParams(apps[0], remoteEid, rootTimestamp, keys, values)
+            ILiquidityMatrix.SettleDataParams(apps[0], remoteEid, uint64(rootTimestamp), 1, keys, values)
         );
 
         // Verify settlement
         for (uint256 i; i < keys.length; ++i) {
             assertEq(liquidityMatrices[0].getSettledRemoteDataHash(apps[0], remoteEid, keys[i]), keccak256(values[i]));
         }
-        assertTrue(liquidityMatrices[0].isDataSettled(apps[0], remoteEid, rootTimestamp));
+        assertTrue(liquidityMatrices[0].isDataSettled(apps[0], remoteEid, uint64(rootTimestamp)));
     }
 
     function test_settleData_alreadySettled() public {
@@ -2874,13 +2942,17 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         values[0] = abi.encode("value");
 
         liquidityMatrices[0].settleData(
-            ILiquidityMatrix.SettleDataParams(apps[0], bytes32(uint256(eids[1])), rootTimestamp, keys, values)
+            ILiquidityMatrix.SettleDataParams(
+                apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp), 1, keys, values
+            )
         );
 
         // Try to settle again
         vm.expectRevert(ILiquidityMatrix.DataAlreadySettled.selector);
         liquidityMatrices[0].settleData(
-            ILiquidityMatrix.SettleDataParams(apps[0], bytes32(uint256(eids[1])), rootTimestamp, keys, values)
+            ILiquidityMatrix.SettleDataParams(
+                apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp), 1, keys, values
+            )
         );
     }
 
@@ -2895,7 +2967,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         vm.expectRevert(ILiquidityMatrix.Forbidden.selector);
         liquidityMatrices[0].settleData(
-            ILiquidityMatrix.SettleDataParams(apps[0], bytes32(uint256(eids[1])), block.timestamp, keys, values)
+            ILiquidityMatrix.SettleDataParams(
+                apps[0], bytes32(uint256(eids[1])), uint64(block.timestamp), 1, keys, values
+            )
         );
     }
 
@@ -2954,7 +3028,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         values[2] = metadataData;
 
         liquidityMatrices[0].settleData(
-            ILiquidityMatrix.SettleDataParams(apps[0], remoteEid, rootTimestamp, keys, values)
+            ILiquidityMatrix.SettleDataParams(apps[0], remoteEid, uint64(rootTimestamp), 1, keys, values)
         );
 
         // Verify all data
@@ -2974,7 +3048,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         changePrank(notSynchronizer, notSynchronizer);
 
         vm.expectRevert(ILiquidityMatrix.Forbidden.selector);
-        liquidityMatrices[0].onReceiveRoots(bytes32(uint256(eids[1])), bytes32(0), bytes32(0), block.timestamp);
+        liquidityMatrices[0].onReceiveRoots(bytes32(uint256(eids[1])), bytes32(0), bytes32(0), uint64(block.timestamp));
     }
 
     function test_onReceiveRoots_outOfOrderRoots() public {
@@ -3209,7 +3283,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         chain1Liquidity[1] = 1500e18;
 
         liquidityMatrices[0].settleLiquidity(
-            ILiquidityMatrix.SettleLiquidityParams(apps[0], chain1Eid, chain1Timestamp, chain1Accounts, chain1Liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(
+                apps[0], chain1Eid, uint64(chain1Timestamp), 1, chain1Accounts, chain1Liquidity
+            )
         );
 
         // Verify cross-chain view
@@ -3231,32 +3307,32 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         uint256 t1 = block.timestamp;
         bytes32 liqRoot1 = keccak256("liquidity_root_1");
         bytes32 dataRoot1 = keccak256("data_root_1");
-        liquidityMatrices[0].onReceiveRoots(bytes32(uint256(eids[1])), liqRoot1, dataRoot1, t1);
+        liquidityMatrices[0].onReceiveRoots(bytes32(uint256(eids[1])), liqRoot1, dataRoot1, uint64(t1));
 
         // Root 2 at timestamp T2
         skip(100);
         uint256 t2 = block.timestamp;
         bytes32 liqRoot2 = keccak256("liquidity_root_2");
         bytes32 dataRoot2 = keccak256("data_root_2");
-        liquidityMatrices[0].onReceiveRoots(bytes32(uint256(eids[1])), liqRoot2, dataRoot2, t2);
+        liquidityMatrices[0].onReceiveRoots(bytes32(uint256(eids[1])), liqRoot2, dataRoot2, uint64(t2));
 
         // Root 3 at timestamp T3
         skip(100);
         uint256 t3 = block.timestamp;
         bytes32 liqRoot3 = keccak256("liquidity_root_3");
         bytes32 dataRoot3 = keccak256("data_root_3");
-        liquidityMatrices[0].onReceiveRoots(bytes32(uint256(eids[1])), liqRoot3, dataRoot3, t3);
+        liquidityMatrices[0].onReceiveRoots(bytes32(uint256(eids[1])), liqRoot3, dataRoot3, uint64(t3));
 
         // Initial state - nothing settled
-        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), t1));
-        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), t2));
-        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), t3));
-        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), t1));
-        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), t2));
-        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), t3));
-        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), t1));
-        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), t2));
-        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), t3));
+        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), uint64(t1)));
+        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), uint64(t2)));
+        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), uint64(t3)));
+        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), uint64(t1)));
+        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), uint64(t2)));
+        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), uint64(t3)));
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), uint64(t1)));
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), uint64(t2)));
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), uint64(t3)));
 
         // Check getters return zero/empty
         (bytes32 root, uint256 timestamp) =
@@ -3281,19 +3357,21 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         liquidity[0] = 200e18;
 
         liquidityMatrices[0].settleLiquidity(
-            ILiquidityMatrix.SettleLiquidityParams(apps[0], bytes32(uint256(eids[1])), t2, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(
+                apps[0], bytes32(uint256(eids[1])), uint64(t2), 1, accounts, liquidity
+            )
         );
 
         // Check states after first settlement
-        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), t1));
-        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), t2));
-        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), t3));
-        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), t1));
-        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), t2));
-        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), t3));
-        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), t1));
-        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), t2)); // Not finalized without data
-        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), t3));
+        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), uint64(t1)));
+        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), uint64(t2)));
+        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), uint64(t3)));
+        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), uint64(t1)));
+        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), uint64(t2)));
+        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), uint64(t3)));
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), uint64(t1)));
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), uint64(t2))); // Not finalized without data
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), uint64(t3)));
 
         // Check getters
         (root, timestamp) = liquidityMatrices[0].getLastSettledLiquidityRoot(apps[0], bytes32(uint256(eids[1])));
@@ -3313,19 +3391,19 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         values[0] = abi.encode("value3");
 
         liquidityMatrices[0].settleData(
-            ILiquidityMatrix.SettleDataParams(apps[0], bytes32(uint256(eids[1])), t3, keys, values)
+            ILiquidityMatrix.SettleDataParams(apps[0], bytes32(uint256(eids[1])), uint64(t3), 1, keys, values)
         );
 
         // Check states after second settlement
-        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), t1));
-        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), t2));
-        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), t3));
-        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), t1));
-        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), t2));
-        assertTrue(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), t3));
-        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), t1));
-        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), t2));
-        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), t3)); // Not finalized without liquidity
+        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), uint64(t1)));
+        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), uint64(t2)));
+        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), uint64(t3)));
+        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), uint64(t1)));
+        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), uint64(t2)));
+        assertTrue(liquidityMatrices[0].isDataSettled(apps[0], bytes32(uint256(eids[1])), uint64(t3)));
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), uint64(t1)));
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), uint64(t2)));
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), uint64(t3))); // Not finalized without liquidity
 
         // Check getters
         (root, timestamp) = liquidityMatrices[0].getLastSettledLiquidityRoot(apps[0], bytes32(uint256(eids[1])));
@@ -3341,13 +3419,15 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         // Step 3: Settle liquidity for root1
         liquidity[0] = 100e18;
         liquidityMatrices[0].settleLiquidity(
-            ILiquidityMatrix.SettleLiquidityParams(apps[0], bytes32(uint256(eids[1])), t1, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(
+                apps[0], bytes32(uint256(eids[1])), uint64(t1), 1, accounts, liquidity
+            )
         );
 
         // Check states
-        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), t1));
-        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), t2));
-        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), t3));
+        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), uint64(t1)));
+        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), uint64(t2)));
+        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], bytes32(uint256(eids[1])), uint64(t3)));
 
         // Last settled should still be t2 (not t1 because t1 < t2)
         (root, timestamp) = liquidityMatrices[0].getLastSettledLiquidityRoot(apps[0], bytes32(uint256(eids[1])));
@@ -3363,13 +3443,13 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         keys[0] = keccak256("key2");
         values[0] = abi.encode("value2");
         liquidityMatrices[0].settleData(
-            ILiquidityMatrix.SettleDataParams(apps[0], bytes32(uint256(eids[1])), t2, keys, values)
+            ILiquidityMatrix.SettleDataParams(apps[0], bytes32(uint256(eids[1])), uint64(t2), 1, keys, values)
         );
 
         // Now root2 should be finalized (both liquidity and data settled for t2)
-        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), t1)); // Missing data
-        assertTrue(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), t2)); // Both settled
-        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), t3)); // Missing liquidity
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), uint64(t1))); // Missing data
+        assertTrue(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), uint64(t2))); // Both settled
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), uint64(t3))); // Missing liquidity
 
         // Due to the current implementation, finalization only updates when settling
         // a timestamp that is greater than the last settled timestamp.
@@ -3385,11 +3465,13 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         // Step 5: Settle liquidity for root3
         liquidity[0] = 300e18;
         liquidityMatrices[0].settleLiquidity(
-            ILiquidityMatrix.SettleLiquidityParams(apps[0], bytes32(uint256(eids[1])), t3, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(
+                apps[0], bytes32(uint256(eids[1])), uint64(t3), 1, accounts, liquidity
+            )
         );
 
         // Now root3 should be finalized and be the latest
-        assertTrue(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), t3));
+        assertTrue(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), uint64(t3)));
 
         // Check getters - last settled/finalized should be t3
         (root, timestamp) = liquidityMatrices[0].getLastSettledLiquidityRoot(apps[0], bytes32(uint256(eids[1])));
@@ -3403,13 +3485,13 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         keys[0] = keccak256("key1");
         values[0] = abi.encode("value1");
         liquidityMatrices[0].settleData(
-            ILiquidityMatrix.SettleDataParams(apps[0], bytes32(uint256(eids[1])), t1, keys, values)
+            ILiquidityMatrix.SettleDataParams(apps[0], bytes32(uint256(eids[1])), uint64(t1), 1, keys, values)
         );
 
         // All should be finalized now
-        assertTrue(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), t1));
-        assertTrue(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), t2));
-        assertTrue(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), t3));
+        assertTrue(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), uint64(t1)));
+        assertTrue(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), uint64(t2)));
+        assertTrue(liquidityMatrices[0].isFinalized(apps[0], bytes32(uint256(eids[1])), uint64(t3)));
 
         // Last settled data should still be t3 (not t1)
         (root, timestamp) = liquidityMatrices[0].getLastSettledDataRoot(apps[0], bytes32(uint256(eids[1])));
@@ -3425,12 +3507,498 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         assertEq(timestamp, t3);
 
         // Verify roots at specific timestamps
-        assertEq(liquidityMatrices[0].getLiquidityRootAt(bytes32(uint256(eids[1])), t1), liqRoot1);
-        assertEq(liquidityMatrices[0].getLiquidityRootAt(bytes32(uint256(eids[1])), t2), liqRoot2);
-        assertEq(liquidityMatrices[0].getLiquidityRootAt(bytes32(uint256(eids[1])), t3), liqRoot3);
-        assertEq(liquidityMatrices[0].getDataRootAt(bytes32(uint256(eids[1])), t1), dataRoot1);
-        assertEq(liquidityMatrices[0].getDataRootAt(bytes32(uint256(eids[1])), t2), dataRoot2);
-        assertEq(liquidityMatrices[0].getDataRootAt(bytes32(uint256(eids[1])), t3), dataRoot3);
+        assertEq(liquidityMatrices[0].getLiquidityRootAt(bytes32(uint256(eids[1])), uint64(t1)), liqRoot1);
+        assertEq(liquidityMatrices[0].getLiquidityRootAt(bytes32(uint256(eids[1])), uint64(t2)), liqRoot2);
+        assertEq(liquidityMatrices[0].getLiquidityRootAt(bytes32(uint256(eids[1])), uint64(t3)), liqRoot3);
+        assertEq(liquidityMatrices[0].getDataRootAt(bytes32(uint256(eids[1])), uint64(t1)), dataRoot1);
+        assertEq(liquidityMatrices[0].getDataRootAt(bytes32(uint256(eids[1])), uint64(t2)), dataRoot2);
+        assertEq(liquidityMatrices[0].getDataRootAt(bytes32(uint256(eids[1])), uint64(t3)), dataRoot3);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        REORG PROTECTION TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_addReorg_basic() public {
+        uint64 reorgTimestamp = uint64(block.timestamp);
+
+        // Initially version should be 1
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(reorgTimestamp - 1), 1);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(reorgTimestamp), 1);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(reorgTimestamp + 1), 1);
+
+        // Add a reorg
+        changePrank(owner, owner);
+        liquidityMatrices[0].addReorg(reorgTimestamp);
+
+        // After reorg, timestamps before should be version 1, after should be version 2
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(reorgTimestamp - 1), 1);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(reorgTimestamp), 2);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(reorgTimestamp + 1), 2);
+    }
+
+    function test_addReorg_multipleReorgs() public {
+        uint64 reorg1 = uint64(block.timestamp);
+        uint64 reorg2 = reorg1 + 1000;
+        uint64 reorg3 = reorg2 + 1000;
+
+        changePrank(owner, owner);
+
+        // Add multiple reorgs
+        liquidityMatrices[0].addReorg(reorg1);
+        liquidityMatrices[0].addReorg(reorg2);
+        liquidityMatrices[0].addReorg(reorg3);
+
+        // Check versions at different timestamps
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(reorg1 - 1), 1);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(reorg1), 2);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(reorg1 + 1), 2);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(reorg2 - 1), 2);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(reorg2), 3);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(reorg2 + 1), 3);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(reorg3 - 1), 3);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(reorg3), 4);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(reorg3 + 1), 4);
+    }
+
+    function test_addReorg_revertNonOwner() public {
+        uint64 reorgTimestamp = uint64(block.timestamp);
+
+        changePrank(alice, alice);
+        vm.expectRevert();
+        liquidityMatrices[0].addReorg(reorgTimestamp);
+    }
+
+    function test_addReorg_revertInvalidTimestamp() public {
+        changePrank(owner, owner);
+
+        // Add a reorg at timestamp 1000
+        liquidityMatrices[0].addReorg(1000);
+
+        // Try to add a reorg at an earlier timestamp (should revert)
+        vm.expectRevert(ILiquidityMatrix.InvalidTimestamp.selector);
+        liquidityMatrices[0].addReorg(999);
+
+        // Try to add a reorg at the same timestamp (should revert)
+        vm.expectRevert(ILiquidityMatrix.InvalidTimestamp.selector);
+        liquidityMatrices[0].addReorg(1000);
+    }
+
+    function test_getVersionForTimestamp_noReorgs() public view {
+        // Without any reorgs, all timestamps should return version 1
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(0), 1);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(1000), 1);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(type(uint64).max), 1);
+    }
+
+    function test_getVersionForTimestamp_withJumpTable() public {
+        changePrank(owner, owner);
+
+        // Add many reorgs to test jump table efficiency
+        uint64 baseTime = 1000;
+        for (uint256 i = 0; i < 100; i++) {
+            liquidityMatrices[0].addReorg(baseTime + uint64(i * 100));
+        }
+
+        // Test various timestamps
+        // Reorgs at 1000, 1100, 1200, ..., 10900 (100 reorgs total)
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(500), 1); // Before all reorgs
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(1050), 2); // After first reorg at 1000
+        // At 5050: reorgs at 1000, 1100, ..., 5000 (41 reorgs: (5000-1000)/100 + 1)
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(5050), 42); // 1 + 41 reorgs
+        // At 10500: reorgs at 1000, 1100, ..., 10500 (96 reorgs: (10500-1000)/100 + 1)
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(10_500), 97); // 1 + 96 reorgs
+    }
+
+    function testFuzz_getVersionForTimestamp(uint64 timestamp) public {
+        changePrank(owner, owner);
+
+        // Add some reorgs at known timestamps
+        uint64[] memory reorgTimestamps = new uint64[](5);
+        reorgTimestamps[0] = 1000;
+        reorgTimestamps[1] = 2000;
+        reorgTimestamps[2] = 3000;
+        reorgTimestamps[3] = 4000;
+        reorgTimestamps[4] = 5000;
+
+        for (uint256 i = 0; i < reorgTimestamps.length; i++) {
+            liquidityMatrices[0].addReorg(reorgTimestamps[i]);
+        }
+
+        uint256 version = liquidityMatrices[0].getVersionForTimestamp(timestamp);
+
+        // Verify version is correct based on timestamp
+        if (timestamp < reorgTimestamps[0]) {
+            assertEq(version, 1);
+        } else if (timestamp < reorgTimestamps[1]) {
+            assertEq(version, 2);
+        } else if (timestamp < reorgTimestamps[2]) {
+            assertEq(version, 3);
+        } else if (timestamp < reorgTimestamps[3]) {
+            assertEq(version, 4);
+        } else if (timestamp < reorgTimestamps[4]) {
+            assertEq(version, 5);
+        } else {
+            assertEq(version, 6);
+        }
+    }
+
+    function test_settleLiquidity_withVersion() public {
+        changePrank(apps[0], apps[0]);
+
+        // Update local liquidity before reorg
+        liquidityMatrices[0].updateLocalLiquidity(alice, 100e18);
+
+        // Settle for version 1
+        changePrank(settlers[0], settlers[0]);
+        bytes32 chainUID = bytes32(uint256(eids[1]));
+        address[] memory accounts = new address[](1);
+        accounts[0] = alice;
+        int256[] memory liquidity = new int256[](1);
+        liquidity[0] = 50e18;
+
+        uint64 timestamp1 = uint64(block.timestamp);
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, timestamp1, 1, accounts, liquidity)
+        );
+
+        // Verify settlement for version 1
+        assertEq(liquidityMatrices[0].getSettledRemoteLiquidity(apps[0], chainUID, alice), 50e18);
+
+        // Add a reorg
+        skip(100);
+        uint64 reorgTimestamp = uint64(block.timestamp);
+        changePrank(owner, owner);
+        liquidityMatrices[0].addReorg(reorgTimestamp);
+
+        // Settle for version 2 (after reorg)
+        skip(100);
+        uint64 timestamp2 = uint64(block.timestamp);
+        liquidity[0] = 75e18;
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, timestamp2, 2, accounts, liquidity)
+        );
+
+        // Verify both versions have different data
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, timestamp1), 50e18);
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, timestamp2), 75e18);
+    }
+
+    function test_settleData_withVersion() public {
+        bytes32 chainUID = bytes32(uint256(eids[1]));
+        bytes32 key = keccak256("test_key");
+        bytes memory value1 = abi.encode("value_v1");
+        bytes memory value2 = abi.encode("value_v2");
+
+        // Settle data for version 1
+        uint64 timestamp1 = uint64(block.timestamp);
+        bytes32[] memory keys = new bytes32[](1);
+        keys[0] = key;
+        bytes[] memory values = new bytes[](1);
+        values[0] = value1;
+
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].settleData(
+            ILiquidityMatrix.SettleDataParams(apps[0], chainUID, timestamp1, 1, keys, values)
+        );
+
+        // Add a reorg
+        skip(100);
+        uint64 reorgTimestamp = uint64(block.timestamp);
+        changePrank(owner, owner);
+        liquidityMatrices[0].addReorg(reorgTimestamp);
+
+        // Settle different data for version 2
+        skip(100);
+        uint64 timestamp2 = uint64(block.timestamp);
+        values[0] = value2;
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].settleData(
+            ILiquidityMatrix.SettleDataParams(apps[0], chainUID, timestamp2, 2, keys, values)
+        );
+
+        // Verify both versions have different data
+        assertEq(liquidityMatrices[0].getRemoteDataHashAt(apps[0], chainUID, key, timestamp1), keccak256(value1));
+        assertEq(liquidityMatrices[0].getRemoteDataHashAt(apps[0], chainUID, key, timestamp2), keccak256(value2));
+    }
+
+    function test_integration_reorgWithActiveSettlements() public {
+        bytes32 chainUID = bytes32(uint256(eids[1]));
+
+        // Setup: Settle liquidity at multiple timestamps for version 1
+        address[] memory accounts = new address[](2);
+        accounts[0] = alice;
+        accounts[1] = bob;
+        int256[] memory liquidity = new int256[](2);
+
+        changePrank(settlers[0], settlers[0]);
+
+        // Settlement 1 at t=1000
+        vm.warp(1000);
+        liquidity[0] = 100e18;
+        liquidity[1] = 200e18;
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, 1000, 1, accounts, liquidity)
+        );
+
+        // Settlement 2 at t=2000
+        vm.warp(2000);
+        liquidity[0] = 150e18;
+        liquidity[1] = 250e18;
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, 2000, 1, accounts, liquidity)
+        );
+
+        // Reorg happens at t=1500 (between the two settlements)
+        changePrank(owner, owner);
+        liquidityMatrices[0].addReorg(1500);
+
+        // New settlements for version 2
+        changePrank(settlers[0], settlers[0]);
+
+        // Settlement for version 2 at t=1600
+        vm.warp(1600);
+        liquidity[0] = 120e18;
+        liquidity[1] = 220e18;
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, 1600, 2, accounts, liquidity)
+        );
+
+        // Verify: Query at different timestamps returns correct version data
+        // Before reorg (t=1400): should use version 1 data from t=1000
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1400), 100e18);
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, bob, 1400), 200e18);
+
+        // After reorg (t=1550): since no settlement for version 2 yet at this timestamp,
+        // it returns the last value from version 1 (at t=1000)
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1550), 100e18);
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, bob, 1550), 200e18);
+
+        // After version 2 settlement (t=1700): should use version 2 data
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1700), 120e18);
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, bob, 1700), 220e18);
+    }
+
+    function test_integration_multipleReorgsWithSettlements() public {
+        bytes32 chainUID = bytes32(uint256(eids[1]));
+        address[] memory accounts = new address[](1);
+        accounts[0] = alice;
+        int256[] memory liquidity = new int256[](1);
+
+        // Version 1: Settlement at t=1000
+        vm.warp(1000);
+        liquidity[0] = 100e18;
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, 1000, 1, accounts, liquidity)
+        );
+
+        // First reorg at t=1500
+        changePrank(owner, owner);
+        liquidityMatrices[0].addReorg(1500);
+
+        // Version 2: Settlement at t=2000
+        vm.warp(2000);
+        liquidity[0] = 200e18;
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, 2000, 2, accounts, liquidity)
+        );
+
+        // Second reorg at t=2500
+        changePrank(owner, owner);
+        liquidityMatrices[0].addReorg(2500);
+
+        // Version 3: Settlement at t=3000
+        vm.warp(3000);
+        liquidity[0] = 300e18;
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, 3000, 3, accounts, liquidity)
+        );
+
+        // Third reorg at t=3500
+        changePrank(owner, owner);
+        liquidityMatrices[0].addReorg(3500);
+
+        // Version 4: Settlement at t=4000
+        vm.warp(4000);
+        liquidity[0] = 400e18;
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, 4000, 4, accounts, liquidity)
+        );
+
+        // Verify each version's data is correctly isolated
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1200), 100e18); // Version 1
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 2200), 200e18); // Version 2
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 3200), 300e18); // Version 3
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 4200), 400e18); // Version 4
+    }
+
+    function test_edgeCase_reorgAtZeroTimestamp() public {
+        changePrank(owner, owner);
+
+        // Add reorg at timestamp 0
+        liquidityMatrices[0].addReorg(0);
+
+        // Verify version calculation
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(0), 2);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(1), 2);
+    }
+
+    function test_edgeCase_manyReorgs() public {
+        changePrank(owner, owner);
+
+        // Add many reorgs to test scalability
+        uint256 numReorgs = 1000;
+        for (uint256 i = 0; i < numReorgs; i++) {
+            liquidityMatrices[0].addReorg(uint64(i * 100));
+        }
+
+        // Verify version calculation is still efficient
+        uint256 gasStart = gasleft();
+        uint256 version = liquidityMatrices[0].getVersionForTimestamp(50_000);
+        uint256 gasUsed = gasStart - gasleft();
+
+        // Reorgs at 0, 100, 200, ..., 99900
+        // At timestamp 50000, we've passed reorgs at 0 through 49900 (i=0 to i=499, which is 500 reorgs)
+        // Plus reorg at 50000 itself (i=500), so total 501 reorgs
+        // Version = 1 + 501 = 502
+        assertEq(version, 502);
+        assertLt(gasUsed, 50_000); // Should use reasonable gas even with many reorgs
+    }
+
+    function test_edgeCase_settlementAtReorgTimestamp() public {
+        bytes32 chainUID = bytes32(uint256(eids[1]));
+        address[] memory accounts = new address[](1);
+        accounts[0] = alice;
+        int256[] memory liquidity = new int256[](1);
+        liquidity[0] = 100e18;
+
+        // Add reorg at t=1000
+        changePrank(owner, owner);
+        liquidityMatrices[0].addReorg(1000);
+
+        // Try to settle exactly at reorg timestamp for version 2
+        vm.warp(1000);
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, 1000, 2, accounts, liquidity)
+        );
+
+        // Verify settlement worked and is associated with version 2
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1000), 100e18);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(1000), 2);
+    }
+
+    function test_edgeCase_queryBeforeAnySettlement() public {
+        bytes32 chainUID = bytes32(uint256(eids[1]));
+
+        // Add a reorg
+        changePrank(owner, owner);
+        liquidityMatrices[0].addReorg(1000);
+
+        // Query at various timestamps without any settlements
+        assertEq(liquidityMatrices[0].getSettledRemoteLiquidity(apps[0], chainUID, alice), 0);
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 500), 0);
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1500), 0);
+        assertEq(liquidityMatrices[0].getSettledRemoteTotalLiquidity(apps[0], chainUID), 0);
+        assertEq(liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], chainUID, 2000), 0);
+    }
+
+    function test_edgeCase_finalizationAcrossReorg() public {
+        bytes32 chainUID = bytes32(uint256(eids[1]));
+
+        // Simulate receiving roots for version 1 (need to call as the contract itself)
+        vm.warp(1000);
+        vm.stopPrank(); // Stop any existing prank
+        vm.prank(address(liquidityMatrices[0]));
+        liquidityMatrices[0].onReceiveRoots(chainUID, keccak256("liquidity_root_v1"), keccak256("data_root_v1"), 1000);
+
+        // Settle liquidity for version 1
+        address[] memory accounts = new address[](1);
+        accounts[0] = alice;
+        int256[] memory liquidity = new int256[](1);
+        liquidity[0] = 100e18;
+
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, 1000, 1, accounts, liquidity)
+        );
+
+        // Also settle data for version 1 to achieve finalization
+        bytes32[] memory keys = new bytes32[](1);
+        keys[0] = keccak256("test_key");
+        bytes[] memory values = new bytes[](1);
+        values[0] = abi.encode("test_value");
+        liquidityMatrices[0].settleData(ILiquidityMatrix.SettleDataParams(apps[0], chainUID, 1000, 1, keys, values));
+
+        // Check finalization for version 1 (both liquidity and data are settled)
+        assertTrue(liquidityMatrices[0].isFinalized(apps[0], chainUID, 1000));
+
+        // Add reorg at t=1500
+        changePrank(owner, owner);
+        liquidityMatrices[0].addReorg(1500);
+
+        // After reorg, timestamp 1600 should not be finalized (different version)
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], chainUID, 1600));
+
+        // Receive new roots for version 2
+        vm.warp(2000);
+        vm.stopPrank(); // Stop the owner prank first
+        vm.prank(address(liquidityMatrices[0]));
+        liquidityMatrices[0].onReceiveRoots(chainUID, keccak256("liquidity_root_v2"), keccak256("data_root_v2"), 2000);
+
+        // Settle liquidity and data for version 2
+        liquidity[0] = 200e18;
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, 2000, 2, accounts, liquidity)
+        );
+        values[0] = abi.encode("test_value_v2");
+        liquidityMatrices[0].settleData(ILiquidityMatrix.SettleDataParams(apps[0], chainUID, 2000, 2, keys, values));
+
+        // Check finalization for version 2
+        assertTrue(liquidityMatrices[0].isFinalized(apps[0], chainUID, 2000));
+
+        // Version 1 finalization should still be valid for its timestamps
+        assertTrue(liquidityMatrices[0].isFinalized(apps[0], chainUID, 1000));
+    }
+
+    function test_edgeCase_jumpTableBoundaries() public {
+        changePrank(owner, owner);
+
+        // Add reorgs at power-of-2 boundaries to test jump table
+        uint64[] memory reorgTimestamps = new uint64[](10);
+        reorgTimestamps[0] = 1;
+        reorgTimestamps[1] = 2;
+        reorgTimestamps[2] = 4;
+        reorgTimestamps[3] = 8;
+        reorgTimestamps[4] = 16;
+        reorgTimestamps[5] = 32;
+        reorgTimestamps[6] = 64;
+        reorgTimestamps[7] = 128;
+        reorgTimestamps[8] = 256;
+        reorgTimestamps[9] = 512;
+
+        for (uint256 i = 0; i < reorgTimestamps.length; i++) {
+            liquidityMatrices[0].addReorg(reorgTimestamps[i]);
+        }
+
+        // Test version lookup at various points
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(0), 1);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(1), 2);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(3), 3);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(7), 4);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(15), 5);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(31), 6);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(63), 7);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(127), 8);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(255), 9);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(511), 10);
+        assertEq(liquidityMatrices[0].getVersionForTimestamp(1000), 11);
     }
 
     /*//////////////////////////////////////////////////////////////
