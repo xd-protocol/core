@@ -36,7 +36,9 @@ test-v:
 
 # Run tests with gas reporting
 test-gas:
-	@FOUNDRY_SOLC_VERSION=$(SOLX) EVM_DISABLE_MEMORY_SAFE_ASM_CHECK=1 forge test --gas-report $(ARGS)
+	@echo "Running tests with gas reporting..."
+	@FOUNDRY_SOLC_VERSION=$(SOLX) EVM_DISABLE_MEMORY_SAFE_ASM_CHECK=1 forge test --gas-report $(ARGS) > gas-report.md
+	@echo "✅ Gas report saved to gas-report.md"
 
 # Format code
 fmt:
