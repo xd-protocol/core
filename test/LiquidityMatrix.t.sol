@@ -2426,18 +2426,6 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
     }
 
     /*//////////////////////////////////////////////////////////////
-                    setSynchronizer() TESTS
-    //////////////////////////////////////////////////////////////*/
-
-    function test_setSynchronizer_onlyOwner() public {
-        address notOwner = makeAddr("notOwner");
-        changePrank(notOwner, notOwner);
-
-        vm.expectRevert(abi.encodeWithSelector(0x118cdaa7, notOwner));
-        liquidityMatrices[0].setSynchronizer(address(0x123));
-    }
-
-    /*//////////////////////////////////////////////////////////////
                         settleLiquidity() TESTS
     //////////////////////////////////////////////////////////////*/
 

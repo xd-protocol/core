@@ -61,7 +61,6 @@ interface ILiquidityMatrix {
         uint32 indexed eid, bytes32 indexed liquidityRoot, bytes32 indexed dataRoot, uint256 timestamp
     );
 
-    event UpdateSynchronizer(address indexed synchronizer);
     event SetGateway(address indexed gateway);
     event SetSyncer(address indexed syncer);
     event Sync(address indexed caller);
@@ -561,13 +560,6 @@ interface ILiquidityMatrix {
     function updateSettlerWhitelisted(address account, bool whitelisted) external;
 
     /**
-     * @notice Sets the synchronizer contract address
-     * @dev Only callable by owner. The synchronizer handles all cross-chain communication
-     * @param _synchronizer The new synchronizer address
-     */
-    function setSynchronizer(address _synchronizer) external;
-
-    /**
      * @notice Sets the gateway contract address
      * @dev Only callable by owner. The gateway handles all cross-chain communication.
      * @param _gateway Address of the gateway contract
@@ -588,19 +580,20 @@ interface ILiquidityMatrix {
     function setSyncer(address _syncer) external;
 
     /**
-     * @notice Configures the chains to sync with
-     * @dev Sets which chains this LiquidityMatrix will sync with
-     * @param eids Array of endpoint IDs to configure
-     */
-    function configureChains(uint32[] calldata eids) external;
-
-    /**
      * @notice Updates the read target for a specific chain
      * @dev Updates where to read from on the remote chain
      * @param chainIdentifier The chain identifier
      * @param target The target address on the remote chain
      */
     function updateReadTarget(bytes32 chainIdentifier, bytes32 target) external;
+
+    /**
+     * @notice Returns the chain configurations from the gateway
+     * @dev Delegates to gateway.chainConfigs()
+     * @return eids Array of endpoint IDs
+     * @return confirmations Array of confirmation requirements for each chain
+     */
+    function chainConfigs() external view returns (uint32[] memory eids, uint16[] memory confirmations);
 
     /**
      * @notice Initiates a sync operation to fetch roots from all configured chains

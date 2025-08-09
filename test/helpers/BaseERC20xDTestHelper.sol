@@ -96,9 +96,6 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
 
             // Register ERC20xD with gateway
             gateways[i].registerApp(address(erc20s[i]));
-
-            // Configure chains in LiquidityMatrix
-            liquidityMatrices[i].configureChains(configEids);
         }
 
         // Set read targets for LiquidityMatrices (they need to read each other)

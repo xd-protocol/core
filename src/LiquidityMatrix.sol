@@ -193,9 +193,6 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     address public syncer;
     // Rate limiting: timestamp of last sync request
     uint256 internal _lastSyncRequestTimestamp;
-    // Chain configuration
-    uint32[] internal _configuredChains;
-    mapping(uint32 => bool) internal _isConfiguredChain;
 
     /*//////////////////////////////////////////////////////////////
                               MODIFIERS
@@ -571,9 +568,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         liquidity = _appStates[app].totalLiquidity.getLastAsInt();
 
         // Add remote liquidity from all configured chains
-        uint256 length = _configuredChains.length;
+        uint256 length = gateway.eidsLength();
         for (uint256 i; i < length; ++i) {
-            uint32 eid = _configuredChains[i];
+            uint32 eid = gateway.eidAt(i);
             uint256 timestamp = _remoteStates[app][eid].lastSettledLiquidityTimestamp;
             if (timestamp == 0) continue;
             liquidity += _remoteStates[app][eid].totalLiquidity.getAsInt(timestamp);
@@ -590,9 +587,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         liquidity = _appStates[app].totalLiquidity.getLastAsInt();
 
         // Add remote liquidity from all configured chains where both roots are settled
-        uint256 length = _configuredChains.length;
+        uint256 length = gateway.eidsLength();
         for (uint256 i; i < length; ++i) {
-            uint32 eid = _configuredChains[i];
+            uint32 eid = gateway.eidAt(i);
             uint256 timestamp = _remoteStates[app][eid].lastFinalizedTimestamp;
             if (timestamp == 0) continue;
             liquidity += _remoteStates[app][eid].totalLiquidity.getAsInt(timestamp);
@@ -609,9 +606,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         liquidity = _appStates[app].totalLiquidity.getAsInt(timestamp);
 
         // Add remote liquidity
-        uint256 length = _configuredChains.length;
+        uint256 length = gateway.eidsLength();
         for (uint256 i; i < length; ++i) {
-            uint32 eid = _configuredChains[i];
+            uint32 eid = gateway.eidAt(i);
             liquidity += _remoteStates[app][eid].totalLiquidity.getAsInt(timestamp);
         }
     }
@@ -626,9 +623,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         liquidity = _appStates[app].liquidity[account].getLastAsInt();
 
         // Add remote liquidity from all configured chains
-        uint256 length = _configuredChains.length;
+        uint256 length = gateway.eidsLength();
         for (uint256 i; i < length; ++i) {
-            uint32 eid = _configuredChains[i];
+            uint32 eid = gateway.eidAt(i);
             uint256 timestamp = _remoteStates[app][eid].lastSettledLiquidityTimestamp;
             if (timestamp == 0) continue;
             liquidity += _remoteStates[app][eid].liquidity[account].getAsInt(timestamp);
@@ -645,9 +642,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         liquidity = _appStates[app].liquidity[account].getLastAsInt();
 
         // Add remote liquidity from all configured chains where both roots are settled
-        uint256 length = _configuredChains.length;
+        uint256 length = gateway.eidsLength();
         for (uint256 i; i < length; ++i) {
-            uint32 eid = _configuredChains[i];
+            uint32 eid = gateway.eidAt(i);
             uint256 timestamp = _remoteStates[app][eid].lastFinalizedTimestamp;
             if (timestamp == 0) continue;
             liquidity += _remoteStates[app][eid].liquidity[account].getAsInt(timestamp);
@@ -665,9 +662,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         liquidity = _appStates[app].liquidity[account].getAsInt(timestamp);
 
         // Add remote liquidity
-        uint256 length = _configuredChains.length;
+        uint256 length = gateway.eidsLength();
         for (uint256 i; i < length; ++i) {
-            uint32 eid = _configuredChains[i];
+            uint32 eid = gateway.eidAt(i);
             liquidity += _remoteStates[app][eid].liquidity[account].getAsInt(timestamp);
         }
     }
@@ -948,42 +945,26 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     }
 
     /**
-     * @notice Configures the chains to sync with
-     * @dev Sets which chains this LiquidityMatrix will sync with
-     * @param eids Array of endpoint IDs to configure
-     */
-    function configureChains(uint32[] calldata eids) external onlyOwner {
-        // Clear existing configuration
-        for (uint256 i; i < _configuredChains.length; ++i) {
-            _isConfiguredChain[_configuredChains[i]] = false;
-        }
-        delete _configuredChains;
-
-        // Set new configuration
-        for (uint256 i; i < eids.length; ++i) {
-            if (!_isConfiguredChain[eids[i]]) {
-                _configuredChains.push(eids[i]);
-                _isConfiguredChain[eids[i]] = true;
-            }
-        }
-    }
-
-    /**
-     * @notice Returns the configured chains
+     * @notice Returns the configured chains from the gateway
      * @return Array of configured endpoint IDs
      */
     function getConfiguredChains() external view returns (uint32[] memory) {
-        return _configuredChains;
+        uint256 length = gateway.eidsLength();
+        uint32[] memory chains = new uint32[](length);
+        for (uint256 i; i < length; ++i) {
+            chains[i] = gateway.eidAt(i);
+        }
+        return chains;
     }
 
     /**
-     * @notice Sets the synchronizer address (deprecated, use setGateway)
-     * @dev Kept for backward compatibility
-     * @param _synchronizer Address of the synchronizer contract
+     * @notice Returns the chain configurations from the gateway
+     * @dev Delegates to gateway.chainConfigs()
+     * @return eids Array of endpoint IDs
+     * @return confirmations Array of confirmation requirements for each chain
      */
-    function setSynchronizer(address _synchronizer) external onlyOwner {
-        // This is deprecated, but kept for compatibility
-        emit UpdateSynchronizer(_synchronizer);
+    function chainConfigs() external view returns (uint32[] memory eids, uint16[] memory confirmations) {
+        return gateway.chainConfigs();
     }
 
     /**
