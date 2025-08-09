@@ -5,11 +5,11 @@ import { ILiquidityMatrixCallbacks } from "src/interfaces/ILiquidityMatrixCallba
 import { ILiquidityMatrixAccountMapper } from "src/interfaces/ILiquidityMatrixAccountMapper.sol";
 
 interface IAppMock is ILiquidityMatrixCallbacks, ILiquidityMatrixAccountMapper {
-    function remoteLiquidity(uint32 eid, address account) external view returns (int256);
+    function remoteLiquidity(bytes32 chainUID, address account) external view returns (int256);
 
-    function remoteTotalLiquidity(uint32 eid) external view returns (int256);
+    function remoteTotalLiquidity(bytes32 chainUID) external view returns (int256);
 
-    function remoteData(uint32 eid, bytes32 key) external view returns (bytes memory);
+    function remoteData(bytes32 chainUID, bytes32 key) external view returns (bytes memory);
 
-    function setShouldMapAccounts(uint32 eid, address remote, address local, bool shouldMap) external;
+    function setShouldMapAccounts(bytes32 chainUID, address remote, address local, bool shouldMap) external;
 }

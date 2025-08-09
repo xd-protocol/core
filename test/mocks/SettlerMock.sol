@@ -14,7 +14,7 @@ contract SettlerMock {
     uint32 internal constant TRAILING_MASK = uint32(0x80000000);
     uint32 internal constant INDEX_MASK = uint32(0x7fffffff);
 
-    mapping(address app => mapping(uint32 eid => State)) internal _states;
+    mapping(address app => mapping(bytes32 chainUID => State)) internal _states;
 
     constructor(address _liquidityMatrix) {
         liquidityMatrix = _liquidityMatrix;
@@ -22,14 +22,14 @@ contract SettlerMock {
 
     function settleLiquidity(
         address app,
-        uint32 eid,
+        bytes32 chainUID,
         uint256 timestamp,
         uint256,
         bytes32[] calldata,
         bytes calldata accountsData,
         int256[] calldata liquidity
     ) external {
-        State storage state = _states[app][eid];
+        State storage state = _states[app][chainUID];
 
         address[] memory accounts = new address[](liquidity.length);
         for (uint256 i; i < liquidity.length; ++i) {
@@ -48,20 +48,20 @@ contract SettlerMock {
         }
 
         ILiquidityMatrix(liquidityMatrix).settleLiquidity(
-            ILiquidityMatrix.SettleLiquidityParams(app, eid, timestamp, accounts, liquidity)
+            ILiquidityMatrix.SettleLiquidityParams(app, chainUID, timestamp, accounts, liquidity)
         );
     }
 
     function settleData(
         address app,
-        uint32 eid,
+        bytes32 chainUID,
         uint256 timestamp,
         uint256,
         bytes32[] calldata,
         bytes calldata keysData,
         bytes[] calldata values
     ) external {
-        State storage state = _states[app][eid];
+        State storage state = _states[app][chainUID];
 
         bytes32[] memory keys = new bytes32[](values.length);
         for (uint256 i; i < values.length; ++i) {
@@ -80,7 +80,7 @@ contract SettlerMock {
         }
 
         ILiquidityMatrix(liquidityMatrix).settleData(
-            ILiquidityMatrix.SettleDataParams(app, eid, timestamp, keys, values)
+            ILiquidityMatrix.SettleDataParams(app, chainUID, timestamp, keys, values)
         );
     }
 }

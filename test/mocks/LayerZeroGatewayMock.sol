@@ -9,7 +9,7 @@ import {
 contract LayerZeroGatewayMock {
     uint256 public constant FEE = 0.01 ether;
 
-    mapping(address => mapping(uint32 => bytes32)) public readTargets;
+    mapping(address => mapping(bytes32 => bytes32)) public readTargets;
 
     function read(bytes memory, bytes memory, uint32, bytes memory) external payable returns (bytes32) {
         require(msg.value >= FEE, "Insufficient fee");
@@ -20,16 +20,23 @@ contract LayerZeroGatewayMock {
         return FEE;
     }
 
-    function updateReadTarget(bytes32 chainIdentifier, bytes32 target) external {
-        uint32 eid = uint32(uint256(chainIdentifier));
-        readTargets[msg.sender][eid] = target;
+    function updateReadTarget(bytes32 chainUID, bytes32 target) external {
+        readTargets[msg.sender][chainUID] = target;
     }
 
-    function chainConfigs() external pure returns (uint32[] memory eids, uint16[] memory confirmations) {
-        eids = new uint32[](1);
-        eids[0] = 1;
+    function chainConfigs() external pure returns (bytes32[] memory chainUIDs, uint16[] memory confirmations) {
+        chainUIDs = new bytes32[](1);
+        chainUIDs[0] = bytes32(uint256(1));
         confirmations = new uint16[](1);
         confirmations[0] = 0;
+    }
+
+    function chainUIDsLength() external pure returns (uint256) {
+        return 1;
+    }
+
+    function chainUIDAt(uint256) external pure returns (bytes32) {
+        return bytes32(uint256(1));
     }
 
     function getCmd(uint16, address[] memory, bytes memory) external pure returns (bytes memory) {

@@ -64,7 +64,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 gateway.registerReader(address(app));
 
 // Apps set their read targets per chain
-app.updateReadTarget(chainIdentifier, targetAddress);
+app.updateReadTarget(chainUID, targetAddress);
 
 // Gateway routes reads through LayerZero
 gateway.read(callData, extra, lzOptions);

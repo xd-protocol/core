@@ -234,12 +234,12 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         // Create mock requests
         IGatewayApp.Request[] memory requests = new IGatewayApp.Request[](2);
         requests[0] = IGatewayApp.Request({
-            chainIdentifier: bytes32(uint256(1)),
+            chainUID: bytes32(uint256(1)),
             timestamp: uint64(block.timestamp),
             target: address(erc20s[1])
         });
         requests[1] = IGatewayApp.Request({
-            chainIdentifier: bytes32(uint256(2)),
+            chainUID: bytes32(uint256(2)),
             timestamp: uint64(block.timestamp),
             target: address(erc20s[2])
         });

@@ -37,10 +37,10 @@ contract SimpleRedemptionHook is IERC20xDHook {
     function onInitiateTransfer(address, address, uint256, bytes memory, uint256, bytes memory) external override { }
     function onReadGlobalAvailability(address, int256) external override { }
     function beforeTransfer(address, address, uint256, bytes memory) external override { }
-    function onMapAccounts(uint32, address, address) external override { }
-    function onSettleLiquidity(uint32, uint256, address, int256) external override { }
-    function onSettleTotalLiquidity(uint32, uint256, int256) external override { }
-    function onSettleData(uint32, uint256, bytes32, bytes memory) external override { }
+    function onMapAccounts(bytes32, address, address) external override { }
+    function onSettleLiquidity(bytes32, uint256, address, int256) external override { }
+    function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
+    function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
 }
 
 // Hook that fails during redemption
@@ -54,10 +54,10 @@ contract FailingRedemptionHook is IERC20xDHook {
     function onInitiateTransfer(address, address, uint256, bytes memory, uint256, bytes memory) external override { }
     function onReadGlobalAvailability(address, int256) external override { }
     function beforeTransfer(address, address, uint256, bytes memory) external override { }
-    function onMapAccounts(uint32, address, address) external override { }
-    function onSettleLiquidity(uint32, uint256, address, int256) external override { }
-    function onSettleTotalLiquidity(uint32, uint256, int256) external override { }
-    function onSettleData(uint32, uint256, bytes32, bytes memory) external override { }
+    function onMapAccounts(bytes32, address, address) external override { }
+    function onSettleLiquidity(bytes32, uint256, address, int256) external override { }
+    function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
+    function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
 }
 
 // Hook that tracks call order
@@ -82,10 +82,10 @@ contract OrderTrackingHook is IERC20xDHook {
     function onInitiateTransfer(address, address, uint256, bytes memory, uint256, bytes memory) external override { }
     function onReadGlobalAvailability(address, int256) external override { }
     function beforeTransfer(address, address, uint256, bytes memory) external override { }
-    function onMapAccounts(uint32, address, address) external override { }
-    function onSettleLiquidity(uint32, uint256, address, int256) external override { }
-    function onSettleTotalLiquidity(uint32, uint256, int256) external override { }
-    function onSettleData(uint32, uint256, bytes32, bytes memory) external override { }
+    function onMapAccounts(bytes32, address, address) external override { }
+    function onSettleLiquidity(bytes32, uint256, address, int256) external override { }
+    function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
+    function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
 }
 
 // Hook that uses data parameter
@@ -104,10 +104,10 @@ contract DataUsingHook is IERC20xDHook {
     function onInitiateTransfer(address, address, uint256, bytes memory, uint256, bytes memory) external override { }
     function onReadGlobalAvailability(address, int256) external override { }
     function beforeTransfer(address, address, uint256, bytes memory) external override { }
-    function onMapAccounts(uint32, address, address) external override { }
-    function onSettleLiquidity(uint32, uint256, address, int256) external override { }
-    function onSettleTotalLiquidity(uint32, uint256, int256) external override { }
-    function onSettleData(uint32, uint256, bytes32, bytes memory) external override { }
+    function onMapAccounts(bytes32, address, address) external override { }
+    function onSettleLiquidity(bytes32, uint256, address, int256) external override { }
+    function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
+    function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
 }
 
 // Hook that redeems to a different recipient
@@ -135,10 +135,10 @@ contract RecipientRedemptionHook is IERC20xDHook {
     function onInitiateTransfer(address, address, uint256, bytes memory, uint256, bytes memory) external override { }
     function onReadGlobalAvailability(address, int256) external override { }
     function beforeTransfer(address, address, uint256, bytes memory) external override { }
-    function onMapAccounts(uint32, address, address) external override { }
-    function onSettleLiquidity(uint32, uint256, address, int256) external override { }
-    function onSettleTotalLiquidity(uint32, uint256, int256) external override { }
-    function onSettleData(uint32, uint256, bytes32, bytes memory) external override { }
+    function onMapAccounts(bytes32, address, address) external override { }
+    function onSettleLiquidity(bytes32, uint256, address, int256) external override { }
+    function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
+    function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
 }
 
 contract WrappedERC20xDHooksTest is Test {

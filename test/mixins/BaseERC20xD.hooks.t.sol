@@ -58,19 +58,19 @@ contract OrderTrackingHook is IERC20xDHook {
         onReadGlobalAvailabilityCallOrder = tracker.incrementAndGet();
     }
 
-    function onMapAccounts(uint32, address, address) external override {
+    function onMapAccounts(bytes32, address, address) external override {
         onMapAccountsCallOrder = tracker.incrementAndGet();
     }
 
-    function onSettleLiquidity(uint32, uint256, address, int256) external override {
+    function onSettleLiquidity(bytes32, uint256, address, int256) external override {
         onSettleLiquidityCallOrder = tracker.incrementAndGet();
     }
 
-    function onSettleTotalLiquidity(uint32, uint256, int256) external override {
+    function onSettleTotalLiquidity(bytes32, uint256, int256) external override {
         onSettleTotalLiquidityCallOrder = tracker.incrementAndGet();
     }
 
-    function onSettleData(uint32, uint256, bytes32, bytes memory) external override {
+    function onSettleData(bytes32, uint256, bytes32, bytes memory) external override {
         onSettleDataCallOrder = tracker.incrementAndGet();
     }
 }
@@ -103,21 +103,26 @@ contract BaseERC20xDHooksTest is Test {
         address indexed hook, address indexed from, address indexed to, uint256 amount, bytes reason
     );
     event OnMapAccountsHookFailure(
-        address indexed hook, uint32 indexed eid, address remoteAccount, address localAccount, bytes reason
+        address indexed hook, bytes32 indexed chainUID, address remoteAccount, address localAccount, bytes reason
     );
     event OnSettleLiquidityHookFailure(
         address indexed hook,
-        uint32 indexed eid,
+        bytes32 indexed chainUID,
         uint256 timestamp,
         address indexed account,
         int256 liquidity,
         bytes reason
     );
     event OnSettleTotalLiquidityHookFailure(
-        address indexed hook, uint32 indexed eid, uint256 timestamp, int256 totalLiquidity, bytes reason
+        address indexed hook, bytes32 indexed chainUID, uint256 timestamp, int256 totalLiquidity, bytes reason
     );
     event OnSettleDataHookFailure(
-        address indexed hook, uint32 indexed eid, uint256 timestamp, bytes32 indexed key, bytes value, bytes reason
+        address indexed hook,
+        bytes32 indexed chainUID,
+        uint256 timestamp,
+        bytes32 indexed key,
+        bytes value,
+        bytes reason
     );
     event InitiateTransfer(
         address indexed from, address indexed to, uint256 amount, uint256 value, uint256 indexed nonce
@@ -722,18 +727,18 @@ contract BaseERC20xDHooksTest is Test {
         token.addHook(address(hook1));
 
         // Call onMapAccounts as LiquidityMatrix
-        uint32 eid = 1;
+        bytes32 chainUID = bytes32(uint256(1));
         address remoteAccount = makeAddr("remote");
         address localAccount = alice;
 
         vm.prank(address(liquidityMatrix));
-        token.onMapAccounts(eid, remoteAccount, localAccount);
+        token.onMapAccounts(chainUID, remoteAccount, localAccount);
 
         // Verify hook was called
         assertEq(hook1.getMapAccountsCallCount(), 1);
-        (uint32 hookEid, address hookRemote, address hookLocal,) = hook1.mapAccountsCalls(0);
+        (bytes32 hookChainUID, address hookRemote, address hookLocal,) = hook1.mapAccountsCalls(0);
 
-        assertEq(hookEid, eid);
+        assertEq(hookChainUID, chainUID);
         assertEq(hookRemote, remoteAccount);
         assertEq(hookLocal, localAccount);
     }
@@ -748,7 +753,7 @@ contract BaseERC20xDHooksTest is Test {
 
         // Call onMapAccounts
         vm.prank(address(liquidityMatrix));
-        token.onMapAccounts(30_000, makeAddr("remote"), bob);
+        token.onMapAccounts(bytes32(uint256(30_000)), makeAddr("remote"), bob);
 
         // Verify all hooks were called
         assertEq(hook1.getMapAccountsCallCount(), 1);
@@ -766,7 +771,7 @@ contract BaseERC20xDHooksTest is Test {
         vm.expectEmit(true, true, false, false);
         emit OnMapAccountsHookFailure(
             address(hook1),
-            1,
+            bytes32(uint256(1)),
             makeAddr("remote"),
             alice,
             abi.encodeWithSignature("Error(string)", "HookMock: Intentional revert")
@@ -774,14 +779,14 @@ contract BaseERC20xDHooksTest is Test {
 
         // Call should still succeed
         vm.prank(address(liquidityMatrix));
-        token.onMapAccounts(1, makeAddr("remote"), alice);
+        token.onMapAccounts(bytes32(uint256(1)), makeAddr("remote"), alice);
     }
 
     function test_onMapAccounts_revertNonLiquidityMatrix() public {
         // Try to call from non-LiquidityMatrix address
         vm.prank(alice);
         vm.expectRevert(BaseERC20xD.Forbidden.selector);
-        token.onMapAccounts(1, makeAddr("remote"), alice);
+        token.onMapAccounts(bytes32(uint256(1)), makeAddr("remote"), alice);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -794,19 +799,19 @@ contract BaseERC20xDHooksTest is Test {
         token.addHook(address(hook1));
 
         // Call onSettleLiquidity as LiquidityMatrix
-        uint32 eid = 30_000;
+        bytes32 chainUID = bytes32(uint256(30_000));
         uint256 timestamp = block.timestamp;
         int256 liquidity = 100e18;
 
         vm.prank(address(liquidityMatrix));
-        token.onSettleLiquidity(eid, timestamp, alice, liquidity);
+        token.onSettleLiquidity(chainUID, timestamp, alice, liquidity);
 
         // Verify hook was called
         assertEq(hook1.getSettleLiquidityCallCount(), 1);
-        (uint32 hookEid, uint256 hookTimestamp, address hookAccount, int256 hookLiquidity) =
+        (bytes32 hookChainUID, uint256 hookTimestamp, address hookAccount, int256 hookLiquidity) =
             hook1.settleLiquidityCalls(0);
 
-        assertEq(hookEid, eid);
+        assertEq(hookChainUID, chainUID);
         assertEq(hookTimestamp, timestamp);
         assertEq(hookAccount, alice);
         assertEq(hookLiquidity, liquidity);
@@ -822,7 +827,7 @@ contract BaseERC20xDHooksTest is Test {
 
         // Call onSettleLiquidity
         vm.prank(address(liquidityMatrix));
-        token.onSettleLiquidity(1, block.timestamp, bob, -50e18);
+        token.onSettleLiquidity(bytes32(uint256(1)), block.timestamp, bob, -50e18);
 
         // Verify all hooks were called
         assertEq(hook1.getSettleLiquidityCallCount(), 1);
@@ -840,7 +845,7 @@ contract BaseERC20xDHooksTest is Test {
         vm.expectEmit(true, true, false, true);
         emit OnSettleLiquidityHookFailure(
             address(hook1),
-            30_000,
+            bytes32(uint256(30_000)),
             block.timestamp,
             alice,
             100e18,
@@ -849,14 +854,14 @@ contract BaseERC20xDHooksTest is Test {
 
         // Call should still succeed
         vm.prank(address(liquidityMatrix));
-        token.onSettleLiquidity(30_000, block.timestamp, alice, 100e18);
+        token.onSettleLiquidity(bytes32(uint256(30_000)), block.timestamp, alice, 100e18);
     }
 
     function test_onSettleLiquidity_revertNonLiquidityMatrix() public {
         // Try to call from non-LiquidityMatrix address
         vm.prank(alice);
         vm.expectRevert(BaseERC20xD.Forbidden.selector);
-        token.onSettleLiquidity(1, block.timestamp, alice, 100e18);
+        token.onSettleLiquidity(bytes32(uint256(1)), block.timestamp, alice, 100e18);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -869,18 +874,18 @@ contract BaseERC20xDHooksTest is Test {
         token.addHook(address(hook1));
 
         // Call onSettleTotalLiquidity as LiquidityMatrix
-        uint32 eid = 30_001;
+        bytes32 chainUID = bytes32(uint256(30_001));
         uint256 timestamp = block.timestamp + 1000;
         int256 totalLiquidity = 1000e18;
 
         vm.prank(address(liquidityMatrix));
-        token.onSettleTotalLiquidity(eid, timestamp, totalLiquidity);
+        token.onSettleTotalLiquidity(chainUID, timestamp, totalLiquidity);
 
         // Verify hook was called
         assertEq(hook1.getSettleTotalLiquidityCallCount(), 1);
-        (uint32 hookEid, uint256 hookTimestamp, int256 hookTotalLiquidity) = hook1.settleTotalLiquidityCalls(0);
+        (bytes32 hookChainUID, uint256 hookTimestamp, int256 hookTotalLiquidity) = hook1.settleTotalLiquidityCalls(0);
 
-        assertEq(hookEid, eid);
+        assertEq(hookChainUID, chainUID);
         assertEq(hookTimestamp, timestamp);
         assertEq(hookTotalLiquidity, totalLiquidity);
     }
@@ -895,7 +900,7 @@ contract BaseERC20xDHooksTest is Test {
 
         // Call onSettleTotalLiquidity
         vm.prank(address(liquidityMatrix));
-        token.onSettleTotalLiquidity(1, block.timestamp, 5000e18);
+        token.onSettleTotalLiquidity(bytes32(uint256(1)), block.timestamp, 5000e18);
 
         // Verify all hooks were called
         assertEq(hook1.getSettleTotalLiquidityCallCount(), 1);
@@ -913,7 +918,7 @@ contract BaseERC20xDHooksTest is Test {
         vm.expectEmit(true, true, false, false);
         emit OnSettleTotalLiquidityHookFailure(
             address(hook1),
-            30_000,
+            bytes32(uint256(30_000)),
             block.timestamp,
             2000e18,
             abi.encodeWithSignature("Error(string)", "HookMock: Intentional revert")
@@ -921,14 +926,14 @@ contract BaseERC20xDHooksTest is Test {
 
         // Call should still succeed
         vm.prank(address(liquidityMatrix));
-        token.onSettleTotalLiquidity(30_000, block.timestamp, 2000e18);
+        token.onSettleTotalLiquidity(bytes32(uint256(30_000)), block.timestamp, 2000e18);
     }
 
     function test_onSettleTotalLiquidity_revertNonLiquidityMatrix() public {
         // Try to call from non-LiquidityMatrix address
         vm.prank(alice);
         vm.expectRevert(BaseERC20xD.Forbidden.selector);
-        token.onSettleTotalLiquidity(1, block.timestamp, 1000e18);
+        token.onSettleTotalLiquidity(bytes32(uint256(1)), block.timestamp, 1000e18);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -941,19 +946,20 @@ contract BaseERC20xDHooksTest is Test {
         token.addHook(address(hook1));
 
         // Call onSettleData as LiquidityMatrix
-        uint32 eid = 30_002;
+        bytes32 chainUID = bytes32(uint256(30_002));
         uint256 timestamp = block.timestamp + 2000;
         bytes32 key = keccak256("test.key");
         bytes memory value = abi.encode("test value", 12_345);
 
         vm.prank(address(liquidityMatrix));
-        token.onSettleData(eid, timestamp, key, value);
+        token.onSettleData(chainUID, timestamp, key, value);
 
         // Verify hook was called
         assertEq(hook1.getSettleDataCallCount(), 1);
-        (uint32 hookEid, uint256 hookTimestamp, bytes32 hookKey, bytes memory hookValue) = hook1.settleDataCalls(0);
+        (bytes32 hookChainUID, uint256 hookTimestamp, bytes32 hookKey, bytes memory hookValue) =
+            hook1.settleDataCalls(0);
 
-        assertEq(hookEid, eid);
+        assertEq(hookChainUID, chainUID);
         assertEq(hookTimestamp, timestamp);
         assertEq(hookKey, key);
         assertEq(hookValue, value);
@@ -969,7 +975,7 @@ contract BaseERC20xDHooksTest is Test {
 
         // Call onSettleData
         vm.prank(address(liquidityMatrix));
-        token.onSettleData(1, block.timestamp, bytes32(uint256(123)), hex"deadbeef");
+        token.onSettleData(bytes32(uint256(1)), block.timestamp, bytes32(uint256(123)), hex"deadbeef");
 
         // Verify all hooks were called
         assertEq(hook1.getSettleDataCallCount(), 1);
@@ -989,7 +995,7 @@ contract BaseERC20xDHooksTest is Test {
         vm.expectEmit(true, true, false, true);
         emit OnSettleDataHookFailure(
             address(hook1),
-            30_000,
+            bytes32(uint256(30_000)),
             block.timestamp,
             keccak256("key"),
             testValue,
@@ -998,14 +1004,14 @@ contract BaseERC20xDHooksTest is Test {
 
         // Call should still succeed
         vm.prank(address(liquidityMatrix));
-        token.onSettleData(30_000, block.timestamp, keccak256("key"), testValue);
+        token.onSettleData(bytes32(uint256(30_000)), block.timestamp, keccak256("key"), testValue);
     }
 
     function test_onSettleData_revertNonLiquidityMatrix() public {
         // Try to call from non-LiquidityMatrix address
         vm.prank(alice);
         vm.expectRevert(BaseERC20xD.Forbidden.selector);
-        token.onSettleData(1, block.timestamp, bytes32(0), hex"1234");
+        token.onSettleData(bytes32(uint256(1)), block.timestamp, bytes32(0), hex"1234");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -1030,7 +1036,7 @@ contract BaseERC20xDHooksTest is Test {
 
         // Call onMapAccounts - this should call hooks in order
         vm.prank(address(liquidityMatrix));
-        token.onMapAccounts(1, makeAddr("remote"), alice);
+        token.onMapAccounts(bytes32(uint256(1)), makeAddr("remote"), alice);
 
         // Verify hooks were called in the correct order
         assertEq(orderHook1.onMapAccountsCallOrder(), 1, "Hook1 onMapAccounts should be called 1st");
@@ -1047,19 +1053,19 @@ contract BaseERC20xDHooksTest is Test {
         vm.startPrank(address(liquidityMatrix));
 
         // 1. Map accounts (might be called when accounts are mapped)
-        token.onMapAccounts(30_000, makeAddr("remote1"), alice);
+        token.onMapAccounts(bytes32(uint256(30_000)), makeAddr("remote1"), alice);
         assertEq(hook1.getMapAccountsCallCount(), 1);
 
         // 2. Settle individual liquidity
-        token.onSettleLiquidity(30_000, block.timestamp, alice, 100e18);
+        token.onSettleLiquidity(bytes32(uint256(30_000)), block.timestamp, alice, 100e18);
         assertEq(hook1.getSettleLiquidityCallCount(), 1);
 
         // 3. Settle total liquidity
-        token.onSettleTotalLiquidity(30_000, block.timestamp, 1000e18);
+        token.onSettleTotalLiquidity(bytes32(uint256(30_000)), block.timestamp, 1000e18);
         assertEq(hook1.getSettleTotalLiquidityCallCount(), 1);
 
         // 4. Settle data
-        token.onSettleData(30_000, block.timestamp, keccak256("config"), hex"1234");
+        token.onSettleData(bytes32(uint256(30_000)), block.timestamp, keccak256("config"), hex"1234");
         assertEq(hook1.getSettleDataCallCount(), 1);
 
         vm.stopPrank();

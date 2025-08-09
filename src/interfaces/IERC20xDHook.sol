@@ -53,11 +53,11 @@ interface IERC20xDHook {
      */
     function afterTransfer(address from, address to, uint256 amount, bytes memory data) external;
 
-    function onMapAccounts(uint32 eid, address remoteAccount, address localAccount) external;
+    function onMapAccounts(bytes32 chainUID, address remoteAccount, address localAccount) external;
 
-    function onSettleLiquidity(uint32 eid, uint256 timestamp, address account, int256 liquidity) external;
+    function onSettleLiquidity(bytes32 chainUID, uint256 timestamp, address account, int256 liquidity) external;
 
-    function onSettleTotalLiquidity(uint32 eid, uint256 timestamp, int256 totalLiquidity) external;
+    function onSettleTotalLiquidity(bytes32 chainUID, uint256 timestamp, int256 totalLiquidity) external;
 
-    function onSettleData(uint32 eid, uint256 timestamp, bytes32 key, bytes memory value) external;
+    function onSettleData(bytes32 chainUID, uint256 timestamp, bytes32 key, bytes memory value) external;
 }

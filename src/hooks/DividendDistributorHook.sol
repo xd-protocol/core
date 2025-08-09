@@ -212,8 +212,8 @@ contract DividendDistributorHook is BaseERC20xDHook, Ownable, IGatewayApp {
         emit GatewayUpdated(_gateway);
     }
 
-    function updateReadTarget(bytes32 chainIdentifier, bytes32 target) external onlyOwner {
-        IGateway(gateway).updateReadTarget(chainIdentifier, target);
+    function updateReadTarget(bytes32 chainUID, bytes32 target) external onlyOwner {
+        IGateway(gateway).updateReadTarget(chainUID, target);
     }
 
     /**

@@ -120,19 +120,22 @@ contract ERC7540Hook is IERC20xDHook {
         }
     }
 
-    function onMapAccounts(uint32 eid, address remoteAccount, address localAccount) external override {
+    function onMapAccounts(bytes32 chainUID, address remoteAccount, address localAccount) external override {
         // Not used for deposit/redeem logic
     }
 
-    function onSettleLiquidity(uint32 eid, uint256 timestamp, address account, int256 liquidity) external override {
+    function onSettleLiquidity(bytes32 chainUID, uint256 timestamp, address account, int256 liquidity)
+        external
+        override
+    {
         // Not used for deposit/redeem logic
     }
 
-    function onSettleTotalLiquidity(uint32 eid, uint256 timestamp, int256 totalLiquidity) external override {
+    function onSettleTotalLiquidity(bytes32 chainUID, uint256 timestamp, int256 totalLiquidity) external override {
         // Not used for deposit/redeem logic
     }
 
-    function onSettleData(uint32 eid, uint256 timestamp, bytes32 key, bytes memory value) external override {
+    function onSettleData(bytes32 chainUID, uint256 timestamp, bytes32 key, bytes memory value) external override {
         // Not used for deposit/redeem logic
     }
 

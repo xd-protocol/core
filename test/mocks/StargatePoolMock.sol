@@ -24,7 +24,7 @@ contract StargatePoolMock {
     address public immutable endpoint;
     address public immutable token;
 
-    mapping(uint32 eid => bytes32) public peers;
+    mapping(bytes32 chainUID => bytes32) public peers;
 
     constructor(address _endpoint, address _token) {
         eid = ILayerZeroEndpointV2(_endpoint).eid();
@@ -32,8 +32,8 @@ contract StargatePoolMock {
         token = _token;
     }
 
-    function setPeer(uint32 _eid, bytes32 _peer) external {
-        peers[_eid] = _peer;
+    function setPeer(bytes32 _chainUID, bytes32 _peer) external {
+        peers[_chainUID] = _peer;
     }
 
     function quoteOFT(SendParam calldata _sendParam)
@@ -56,7 +56,7 @@ contract StargatePoolMock {
         payable
         returns (MessagingReceipt memory msgReceipt, OFTReceipt memory oftReceipt, Ticket memory ticket)
     {
-        address peer = AddressCast.toAddress(peers[_sendParam.dstEid]);
+        address peer = AddressCast.toAddress(peers[bytes32(uint256(_sendParam.dstEid))]);
         require(peer != address(0), "REMOTE_NOT_SET");
 
         uint256 amount = _sendParam.amountLD;

@@ -92,7 +92,11 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             }
 
             changePrank(owner, owner);
-            gateways[i].configChains(configEids, configConfirmations);
+            bytes32[] memory chainUIDs = new bytes32[](configEids.length);
+            for (uint256 k; k < configEids.length; k++) {
+                chainUIDs[k] = bytes32(uint256(configEids[k]));
+            }
+            gateways[i].configChains(chainUIDs, configConfirmations);
 
             // Register ERC20xD with gateway
             gateways[i].registerApp(address(erc20s[i]));
@@ -129,20 +133,20 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
     function _newBaseERC20xD(uint256 index) internal virtual returns (BaseERC20xD);
 
     // Override _eid function to handle array-based structure
-    function _eid(ILiquidityMatrix liquidityMatrix) internal view override returns (uint32) {
+    function _eid(ILiquidityMatrix liquidityMatrix) internal view override returns (bytes32) {
         for (uint32 i = 0; i < CHAINS; ++i) {
             if (address(liquidityMatrix) == address(liquidityMatrices[i])) {
-                return eids[i];
+                return bytes32(uint256(eids[i]));
             }
         }
         revert("Unknown LiquidityMatrix");
     }
 
-    function _eid(address addr) internal view override returns (uint32) {
+    function _eid(address addr) internal view override returns (bytes32) {
         // For gateway addresses, check which endpoint they're associated with
         for (uint32 i = 0; i < CHAINS; ++i) {
             if (address(liquidityMatrices[i]) != address(0) && addr == address(gateways[i])) {
-                return eids[i];
+                return bytes32(uint256(eids[i]));
             }
         }
         revert("Unknown address");
@@ -164,7 +168,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             ILiquidityMatrix remote = liquidityMatrices[i];
             BaseERC20xD remoteApp = erc20s[i];
 
-            (, uint256 rootTimestamp) = local.getLastReceivedLiquidityRoot(eids[i]);
+            (, uint256 rootTimestamp) = local.getLastReceivedLiquidityRoot(bytes32(uint256(eids[i])));
 
             int256[] memory liquidity = new int256[](users.length);
             for (uint256 j; j < users.length; ++j) {
@@ -172,7 +176,9 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             }
 
             local.settleLiquidity(
-                ILiquidityMatrix.SettleLiquidityParams(address(localApp), eids[i], rootTimestamp, users, liquidity)
+                ILiquidityMatrix.SettleLiquidityParams(
+                    address(localApp), bytes32(uint256(eids[i])), rootTimestamp, users, liquidity
+                )
             );
         }
 
@@ -195,17 +201,17 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
     {
         IGatewayApp.Request[] memory requests = new IGatewayApp.Request[](CHAINS - 1);
         bytes[] memory responses = new bytes[](CHAINS - 1);
-        uint32 eid;
+        bytes32 chainUID;
         address gateway;
         uint256 count;
         for (uint256 i; i < CHAINS; ++i) {
             if (readers[i] == reader) {
-                eid = eids[i];
+                chainUID = bytes32(uint256(eids[i]));
                 gateway = address(gateways[i]);
                 continue;
             }
             requests[count] = IGatewayApp.Request({
-                chainIdentifier: bytes32(uint256(eids[i])),
+                chainUID: bytes32(uint256(eids[i])),
                 timestamp: uint64(block.timestamp),
                 target: address(readers[i])
             });
@@ -220,6 +226,6 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
         if (error.length > 0) {
             vm.expectRevert(error);
         }
-        this.verifyPackets(eid, addressToBytes32(address(gateway)), 0, address(0), payload);
+        this.verifyPackets(uint32(uint256(chainUID)), addressToBytes32(address(gateway)), 0, address(0), payload);
     }
 }

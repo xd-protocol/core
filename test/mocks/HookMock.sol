@@ -28,27 +28,27 @@ contract HookMock is IERC20xDHook {
     }
 
     struct MapAccountsCall {
-        uint32 eid;
+        bytes32 chainUID;
         address remoteAccount;
         address localAccount;
         uint256 timestamp;
     }
 
     struct SettleLiquidityCall {
-        uint32 eid;
+        bytes32 chainUID;
         uint256 timestamp;
         address account;
         int256 liquidity;
     }
 
     struct SettleTotalLiquidityCall {
-        uint32 eid;
+        bytes32 chainUID;
         uint256 timestamp;
         int256 totalLiquidity;
     }
 
     struct SettleDataCall {
-        uint32 eid;
+        bytes32 chainUID;
         uint256 timestamp;
         bytes32 key;
         bytes value;
@@ -125,13 +125,13 @@ contract HookMock is IERC20xDHook {
         afterTransferCalls.push(TransferCall({ from: from, to: to, amount: amount, timestamp: block.timestamp }));
     }
 
-    function onMapAccounts(uint32 eid, address remoteAccount, address localAccount) external override {
+    function onMapAccounts(bytes32 chainUID, address remoteAccount, address localAccount) external override {
         if (shouldRevertOnMapAccounts) {
             revert(revertReason);
         }
         mapAccountsCalls.push(
             MapAccountsCall({
-                eid: eid,
+                chainUID: chainUID,
                 remoteAccount: remoteAccount,
                 localAccount: localAccount,
                 timestamp: block.timestamp
@@ -139,29 +139,32 @@ contract HookMock is IERC20xDHook {
         );
     }
 
-    function onSettleLiquidity(uint32 eid, uint256 timestamp, address account, int256 liquidity) external override {
+    function onSettleLiquidity(bytes32 chainUID, uint256 timestamp, address account, int256 liquidity)
+        external
+        override
+    {
         if (shouldRevertOnSettleLiquidity) {
             revert(revertReason);
         }
         settleLiquidityCalls.push(
-            SettleLiquidityCall({ eid: eid, timestamp: timestamp, account: account, liquidity: liquidity })
+            SettleLiquidityCall({ chainUID: chainUID, timestamp: timestamp, account: account, liquidity: liquidity })
         );
     }
 
-    function onSettleTotalLiquidity(uint32 eid, uint256 timestamp, int256 totalLiquidity) external override {
+    function onSettleTotalLiquidity(bytes32 chainUID, uint256 timestamp, int256 totalLiquidity) external override {
         if (shouldRevertOnSettleTotalLiquidity) {
             revert(revertReason);
         }
         settleTotalLiquidityCalls.push(
-            SettleTotalLiquidityCall({ eid: eid, timestamp: timestamp, totalLiquidity: totalLiquidity })
+            SettleTotalLiquidityCall({ chainUID: chainUID, timestamp: timestamp, totalLiquidity: totalLiquidity })
         );
     }
 
-    function onSettleData(uint32 eid, uint256 timestamp, bytes32 key, bytes memory value) external override {
+    function onSettleData(bytes32 chainUID, uint256 timestamp, bytes32 key, bytes memory value) external override {
         if (shouldRevertOnSettleData) {
             revert(revertReason);
         }
-        settleDataCalls.push(SettleDataCall({ eid: eid, timestamp: timestamp, key: key, value: value }));
+        settleDataCalls.push(SettleDataCall({ chainUID: chainUID, timestamp: timestamp, key: key, value: value }));
     }
 
     // Getters for call counts

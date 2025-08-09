@@ -178,10 +178,10 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     MerkleTreeLib.Tree internal _mainDataTree;
 
     mapping(address => bool) internal _isSettlerWhitelisted;
-    mapping(address app => mapping(uint32 eid => RemoteState)) internal _remoteStates;
-    mapping(uint32 eid => uint256[]) internal _rootTimestamps; // TODO: make it automatically ordered
-    mapping(uint32 eid => mapping(uint256 timestamp => bytes32)) internal _liquidityRoots;
-    mapping(uint32 eid => mapping(uint256 timestamp => bytes32)) internal _dataRoots;
+    mapping(address app => mapping(bytes32 chainUID => RemoteState)) internal _remoteStates;
+    mapping(bytes32 chainUID => uint256[]) internal _rootTimestamps; // TODO: make it automatically ordered
+    mapping(bytes32 chainUID => mapping(uint256 timestamp => bytes32)) internal _liquidityRoots;
+    mapping(bytes32 chainUID => mapping(uint256 timestamp => bytes32)) internal _dataRoots;
 
     // Command identifiers for different message types
     uint16 internal constant CMD_SYNC = 1;
@@ -375,16 +375,16 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Gets the local account mapped to a remote account
      * @param app The application address
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @param remote The remote account address
      * @return local The mapped local account address
      */
-    function getMappedAccount(address app, uint32 eid, address remote) public view returns (address) {
-        return _remoteStates[app][eid].mappedAccounts[remote];
+    function getMappedAccount(address app, bytes32 chainUID, address remote) public view returns (address) {
+        return _remoteStates[app][chainUID].mappedAccounts[remote];
     }
 
-    function getLocalAccount(address app, uint32 eid, address remote) public view returns (address) {
-        address mapped = getMappedAccount(app, eid, remote);
+    function getLocalAccount(address app, bytes32 chainUID, address remote) public view returns (address) {
+        address mapped = getMappedAccount(app, chainUID, remote);
         if (mapped != address(0)) {
             return mapped;
         }
@@ -394,45 +394,45 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Checks if a local account is already mapped to a remote account
      * @param app The application address
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @param local The local account address
      * @return Whether the local account is mapped
      */
-    function isLocalAccountMapped(address app, uint32 eid, address local) external view returns (bool) {
-        return _remoteStates[app][eid].localAccountMapped[local];
+    function isLocalAccountMapped(address app, bytes32 chainUID, address local) external view returns (bool) {
+        return _remoteStates[app][chainUID].localAccountMapped[local];
     }
 
     /**
      * @notice Gets the last received liquidity root from a remote chain
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @return root The liquidity root hash
      * @return timestamp The timestamp when the root was received
      */
-    function getLastReceivedLiquidityRoot(uint32 eid) public view returns (bytes32 root, uint256 timestamp) {
-        uint256 length = _rootTimestamps[eid].length;
+    function getLastReceivedLiquidityRoot(bytes32 chainUID) public view returns (bytes32 root, uint256 timestamp) {
+        uint256 length = _rootTimestamps[chainUID].length;
         if (length == 0) return (bytes32(0), 0);
 
-        timestamp = _rootTimestamps[eid][length - 1];
+        timestamp = _rootTimestamps[chainUID][length - 1];
         if (timestamp != 0) {
-            root = _liquidityRoots[eid][timestamp];
+            root = _liquidityRoots[chainUID][timestamp];
         }
     }
 
     /**
      * @notice Gets the last settled liquidity root for an app on a specific chain
      * @param app The application address
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @return root The liquidity root hash
      * @return timestamp The timestamp of the settled root
      */
-    function getLastSettledLiquidityRoot(address app, uint32 eid)
+    function getLastSettledLiquidityRoot(address app, bytes32 chainUID)
         public
         view
         returns (bytes32 root, uint256 timestamp)
     {
-        timestamp = _remoteStates[app][eid].lastSettledLiquidityTimestamp;
+        timestamp = _remoteStates[app][chainUID].lastSettledLiquidityTimestamp;
         if (timestamp != 0) {
-            root = _liquidityRoots[eid][timestamp];
+            root = _liquidityRoots[chainUID][timestamp];
         }
     }
 
@@ -440,121 +440,125 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @notice Gets the last finalized liquidity root (both liquidity and data settled)
      * @dev A root is finalized when both liquidity and data roots are settled for the same timestamp
      * @param app The application address
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @return root The liquidity root hash
      * @return timestamp The timestamp of the finalized root
      */
-    function getLastFinalizedLiquidityRoot(address app, uint32 eid)
+    function getLastFinalizedLiquidityRoot(address app, bytes32 chainUID)
         public
         view
         returns (bytes32 root, uint256 timestamp)
     {
-        timestamp = _remoteStates[app][eid].lastFinalizedTimestamp;
+        timestamp = _remoteStates[app][chainUID].lastFinalizedTimestamp;
         if (timestamp != 0) {
-            root = _liquidityRoots[eid][timestamp];
+            root = _liquidityRoots[chainUID][timestamp];
         }
     }
 
     /**
      * @notice Gets the liquidity root at a specific timestamp
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @param timestamp The timestamp to query
      * @return root The liquidity root at the timestamp
      */
-    function getLiquidityRootAt(uint32 eid, uint256 timestamp) external view returns (bytes32 root) {
-        return _liquidityRoots[eid][timestamp];
+    function getLiquidityRootAt(bytes32 chainUID, uint256 timestamp) external view returns (bytes32 root) {
+        return _liquidityRoots[chainUID][timestamp];
     }
 
     /**
      * @notice Gets the last received data root from a remote chain
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @return root The data root hash
      * @return timestamp The timestamp when the root was received
      */
-    function getLastReceivedDataRoot(uint32 eid) public view returns (bytes32 root, uint256 timestamp) {
-        uint256 length = _rootTimestamps[eid].length;
+    function getLastReceivedDataRoot(bytes32 chainUID) public view returns (bytes32 root, uint256 timestamp) {
+        uint256 length = _rootTimestamps[chainUID].length;
         if (length == 0) return (bytes32(0), 0);
 
-        timestamp = _rootTimestamps[eid][length - 1];
+        timestamp = _rootTimestamps[chainUID][length - 1];
         if (timestamp != 0) {
-            root = _dataRoots[eid][timestamp];
+            root = _dataRoots[chainUID][timestamp];
         }
     }
 
     /**
      * @notice Gets the last settled data root for an app on a specific chain
      * @param app The application address
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @return root The data root hash
      * @return timestamp The timestamp of the settled root
      */
-    function getLastSettledDataRoot(address app, uint32 eid) public view returns (bytes32 root, uint256 timestamp) {
-        timestamp = _remoteStates[app][eid].lastSettledDataTimestamp;
+    function getLastSettledDataRoot(address app, bytes32 chainUID)
+        public
+        view
+        returns (bytes32 root, uint256 timestamp)
+    {
+        timestamp = _remoteStates[app][chainUID].lastSettledDataTimestamp;
         if (timestamp != 0) {
-            root = _dataRoots[eid][timestamp];
+            root = _dataRoots[chainUID][timestamp];
         }
     }
 
     /**
      * @notice Gets the last finalized data root for an app on a specific chain
      * @param app The application address
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @return root The data root hash
      * @return timestamp The timestamp of the finalized root
      */
-    function getLastFinalizedDataRoot(address app, uint32 eid)
+    function getLastFinalizedDataRoot(address app, bytes32 chainUID)
         external
         view
         returns (bytes32 root, uint256 timestamp)
     {
-        timestamp = _remoteStates[app][eid].lastFinalizedTimestamp;
+        timestamp = _remoteStates[app][chainUID].lastFinalizedTimestamp;
         if (timestamp != 0) {
-            root = _dataRoots[eid][timestamp];
+            root = _dataRoots[chainUID][timestamp];
         }
     }
 
     /**
      * @notice Gets the data root at a specific timestamp
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @param timestamp The timestamp to query
      * @return root The data root at the timestamp
      */
-    function getDataRootAt(uint32 eid, uint256 timestamp) external view returns (bytes32 root) {
-        return _dataRoots[eid][timestamp];
+    function getDataRootAt(bytes32 chainUID, uint256 timestamp) external view returns (bytes32 root) {
+        return _dataRoots[chainUID][timestamp];
     }
 
     /**
      * @notice Checks if a liquidity root has been settled for an app
      * @param app The application address
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @param timestamp The timestamp to check
      * @return Whether the liquidity root is settled
      */
-    function isLiquiditySettled(address app, uint32 eid, uint256 timestamp) public view returns (bool) {
-        return _remoteStates[app][eid].liquiditySettled[timestamp];
+    function isLiquiditySettled(address app, bytes32 chainUID, uint256 timestamp) public view returns (bool) {
+        return _remoteStates[app][chainUID].liquiditySettled[timestamp];
     }
 
     /**
      * @notice Checks if a data root has been settled for an app
      * @param app The application address
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @param timestamp The timestamp to check
      * @return Whether the data root is settled
      */
-    function isDataSettled(address app, uint32 eid, uint256 timestamp) public view returns (bool) {
-        return _remoteStates[app][eid].dataSettled[timestamp];
+    function isDataSettled(address app, bytes32 chainUID, uint256 timestamp) public view returns (bool) {
+        return _remoteStates[app][chainUID].dataSettled[timestamp];
     }
 
     /**
      * @notice Checks if both roots are finalized for a given timestamp
      * @dev Returns true if both liquidity and data are settled
      * @param app The application address
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @param timestamp The timestamp to check
      * @return Whether the roots are finalized
      */
-    function isFinalized(address app, uint32 eid, uint256 timestamp) public view returns (bool) {
-        RemoteState storage state = _remoteStates[app][eid];
+    function isFinalized(address app, bytes32 chainUID, uint256 timestamp) public view returns (bool) {
+        RemoteState storage state = _remoteStates[app][chainUID];
         return state.liquiditySettled[timestamp] && state.dataSettled[timestamp];
     }
 
@@ -568,12 +572,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         liquidity = _appStates[app].totalLiquidity.getLastAsInt();
 
         // Add remote liquidity from all configured chains
-        uint256 length = gateway.eidsLength();
+        uint256 length = gateway.chainUIDsLength();
         for (uint256 i; i < length; ++i) {
-            uint32 eid = gateway.eidAt(i);
-            uint256 timestamp = _remoteStates[app][eid].lastSettledLiquidityTimestamp;
+            bytes32 chainUID = gateway.chainUIDAt(i);
+            uint256 timestamp = _remoteStates[app][chainUID].lastSettledLiquidityTimestamp;
             if (timestamp == 0) continue;
-            liquidity += _remoteStates[app][eid].totalLiquidity.getAsInt(timestamp);
+            liquidity += _remoteStates[app][chainUID].totalLiquidity.getAsInt(timestamp);
         }
     }
 
@@ -587,12 +591,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         liquidity = _appStates[app].totalLiquidity.getLastAsInt();
 
         // Add remote liquidity from all configured chains where both roots are settled
-        uint256 length = gateway.eidsLength();
+        uint256 length = gateway.chainUIDsLength();
         for (uint256 i; i < length; ++i) {
-            uint32 eid = gateway.eidAt(i);
-            uint256 timestamp = _remoteStates[app][eid].lastFinalizedTimestamp;
+            bytes32 chainUID = gateway.chainUIDAt(i);
+            uint256 timestamp = _remoteStates[app][chainUID].lastFinalizedTimestamp;
             if (timestamp == 0) continue;
-            liquidity += _remoteStates[app][eid].totalLiquidity.getAsInt(timestamp);
+            liquidity += _remoteStates[app][chainUID].totalLiquidity.getAsInt(timestamp);
         }
     }
 
@@ -606,10 +610,10 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         liquidity = _appStates[app].totalLiquidity.getAsInt(timestamp);
 
         // Add remote liquidity
-        uint256 length = gateway.eidsLength();
+        uint256 length = gateway.chainUIDsLength();
         for (uint256 i; i < length; ++i) {
-            uint32 eid = gateway.eidAt(i);
-            liquidity += _remoteStates[app][eid].totalLiquidity.getAsInt(timestamp);
+            bytes32 chainUID = gateway.chainUIDAt(i);
+            liquidity += _remoteStates[app][chainUID].totalLiquidity.getAsInt(timestamp);
         }
     }
 
@@ -623,12 +627,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         liquidity = _appStates[app].liquidity[account].getLastAsInt();
 
         // Add remote liquidity from all configured chains
-        uint256 length = gateway.eidsLength();
+        uint256 length = gateway.chainUIDsLength();
         for (uint256 i; i < length; ++i) {
-            uint32 eid = gateway.eidAt(i);
-            uint256 timestamp = _remoteStates[app][eid].lastSettledLiquidityTimestamp;
+            bytes32 chainUID = gateway.chainUIDAt(i);
+            uint256 timestamp = _remoteStates[app][chainUID].lastSettledLiquidityTimestamp;
             if (timestamp == 0) continue;
-            liquidity += _remoteStates[app][eid].liquidity[account].getAsInt(timestamp);
+            liquidity += _remoteStates[app][chainUID].liquidity[account].getAsInt(timestamp);
         }
     }
 
@@ -642,12 +646,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         liquidity = _appStates[app].liquidity[account].getLastAsInt();
 
         // Add remote liquidity from all configured chains where both roots are settled
-        uint256 length = gateway.eidsLength();
+        uint256 length = gateway.chainUIDsLength();
         for (uint256 i; i < length; ++i) {
-            uint32 eid = gateway.eidAt(i);
-            uint256 timestamp = _remoteStates[app][eid].lastFinalizedTimestamp;
+            bytes32 chainUID = gateway.chainUIDAt(i);
+            uint256 timestamp = _remoteStates[app][chainUID].lastFinalizedTimestamp;
             if (timestamp == 0) continue;
-            liquidity += _remoteStates[app][eid].liquidity[account].getAsInt(timestamp);
+            liquidity += _remoteStates[app][chainUID].liquidity[account].getAsInt(timestamp);
         }
     }
 
@@ -662,137 +666,145 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         liquidity = _appStates[app].liquidity[account].getAsInt(timestamp);
 
         // Add remote liquidity
-        uint256 length = gateway.eidsLength();
+        uint256 length = gateway.chainUIDsLength();
         for (uint256 i; i < length; ++i) {
-            uint32 eid = gateway.eidAt(i);
-            liquidity += _remoteStates[app][eid].liquidity[account].getAsInt(timestamp);
+            bytes32 chainUID = gateway.chainUIDAt(i);
+            liquidity += _remoteStates[app][chainUID].liquidity[account].getAsInt(timestamp);
         }
     }
 
     /**
      * @param app The application address
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @return liquidity The settled remote total liquidity
      */
-    function getSettledRemoteTotalLiquidity(address app, uint32 eid) external view returns (int256 liquidity) {
-        (, uint256 timestamp) = getLastSettledLiquidityRoot(app, eid);
+    function getSettledRemoteTotalLiquidity(address app, bytes32 chainUID) external view returns (int256 liquidity) {
+        (, uint256 timestamp) = getLastSettledLiquidityRoot(app, chainUID);
         if (timestamp == 0) return 0;
-        return getRemoteTotalLiquidityAt(app, eid, timestamp);
+        return getRemoteTotalLiquidityAt(app, chainUID, timestamp);
     }
 
     /**
      * @notice Gets the total liquidity from a remote chain at the last finalized timestamp
      * @param app The application address
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @return liquidity The finalized remote total liquidity
      */
-    function getFinalizedRemoteTotalLiquidity(address app, uint32 eid) external view returns (int256 liquidity) {
-        (, uint256 timestamp) = getLastFinalizedLiquidityRoot(app, eid);
+    function getFinalizedRemoteTotalLiquidity(address app, bytes32 chainUID) external view returns (int256 liquidity) {
+        (, uint256 timestamp) = getLastFinalizedLiquidityRoot(app, chainUID);
         if (timestamp == 0) return 0;
-        return getRemoteTotalLiquidityAt(app, eid, timestamp);
+        return getRemoteTotalLiquidityAt(app, chainUID, timestamp);
     }
 
     /**
      * @notice Gets the total liquidity from a remote chain at a specific timestamp
      * @param app The application address
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @param timestamp The timestamp to query
      * @return liquidity The remote total liquidity at the timestamp
      */
-    function getRemoteTotalLiquidityAt(address app, uint32 eid, uint256 timestamp) public view returns (int256) {
-        return _remoteStates[app][eid].totalLiquidity.getAsInt(timestamp);
+    function getRemoteTotalLiquidityAt(address app, bytes32 chainUID, uint256 timestamp) public view returns (int256) {
+        return _remoteStates[app][chainUID].totalLiquidity.getAsInt(timestamp);
     }
 
     /**
      * @notice Gets the liquidity for an account from a remote chain at the last settled timestamp
      * @param app The application address
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @param account The account address
      * @return liquidity The settled remote liquidity for the account
      */
-    function getSettledRemoteLiquidity(address app, uint32 eid, address account)
+    function getSettledRemoteLiquidity(address app, bytes32 chainUID, address account)
         external
         view
         returns (int256 liquidity)
     {
-        (, uint256 timestamp) = getLastSettledLiquidityRoot(app, eid);
+        (, uint256 timestamp) = getLastSettledLiquidityRoot(app, chainUID);
         if (timestamp == 0) return 0;
-        return getRemoteLiquidityAt(app, eid, account, timestamp);
+        return getRemoteLiquidityAt(app, chainUID, account, timestamp);
     }
 
     /**
      * @notice Gets the liquidity for an account from a remote chain at the last finalized timestamp
      * @param app The application address
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @param account The account address
      * @return liquidity The finalized remote liquidity for the account
      */
-    function getFinalizedRemoteLiquidity(address app, uint32 eid, address account)
+    function getFinalizedRemoteLiquidity(address app, bytes32 chainUID, address account)
         external
         view
         returns (int256 liquidity)
     {
-        (, uint256 timestamp) = getLastFinalizedLiquidityRoot(app, eid);
+        (, uint256 timestamp) = getLastFinalizedLiquidityRoot(app, chainUID);
         if (timestamp == 0) return 0;
-        return getRemoteLiquidityAt(app, eid, account, timestamp);
+        return getRemoteLiquidityAt(app, chainUID, account, timestamp);
     }
 
     /**
      * @notice Gets the liquidity for an account from a remote chain at a specific timestamp
      * @param app The application address
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @param account The account address
      * @param timestamp The timestamp to query
      * @return liquidity The remote liquidity at the timestamp
      */
-    function getRemoteLiquidityAt(address app, uint32 eid, address account, uint256 timestamp)
+    function getRemoteLiquidityAt(address app, bytes32 chainUID, address account, uint256 timestamp)
         public
         view
         returns (int256)
     {
-        return _remoteStates[app][eid].liquidity[account].getAsInt(timestamp);
+        return _remoteStates[app][chainUID].liquidity[account].getAsInt(timestamp);
     }
 
     /**
      * @notice Gets the data hash from a remote chain at the last settled timestamp
      * @param app The application address
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @param key The data key
      * @return value The settled remote data hash
      */
-    function getSettledRemoteDataHash(address app, uint32 eid, bytes32 key) external view returns (bytes32 value) {
-        uint256 timestamp = _remoteStates[app][eid].lastSettledDataTimestamp;
+    function getSettledRemoteDataHash(address app, bytes32 chainUID, bytes32 key)
+        external
+        view
+        returns (bytes32 value)
+    {
+        uint256 timestamp = _remoteStates[app][chainUID].lastSettledDataTimestamp;
         if (timestamp == 0) return 0;
-        return getRemoteDataHashAt(app, eid, key, timestamp);
+        return getRemoteDataHashAt(app, chainUID, key, timestamp);
     }
 
     /**
      * @notice Gets the data hash from a remote chain at the last finalized timestamp
      * @param app The application address
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @param key The data key
      * @return value The finalized remote data hash
      */
-    function getFinalizedRemoteDataHash(address app, uint32 eid, bytes32 key) external view returns (bytes32 value) {
-        uint256 timestamp = _remoteStates[app][eid].lastFinalizedTimestamp;
+    function getFinalizedRemoteDataHash(address app, bytes32 chainUID, bytes32 key)
+        external
+        view
+        returns (bytes32 value)
+    {
+        uint256 timestamp = _remoteStates[app][chainUID].lastFinalizedTimestamp;
         if (timestamp == 0) return 0;
-        return getRemoteDataHashAt(app, eid, key, timestamp);
+        return getRemoteDataHashAt(app, chainUID, key, timestamp);
     }
 
     /**
      * @notice Gets the data hash from a remote chain at a specific timestamp
      * @param app The application address
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @param key The data key
      * @param timestamp The timestamp to query
      * @return value The remote data hash at the timestamp
      */
-    function getRemoteDataHashAt(address app, uint32 eid, bytes32 key, uint256 timestamp)
+    function getRemoteDataHashAt(address app, bytes32 chainUID, bytes32 key, uint256 timestamp)
         public
         view
         returns (bytes32)
     {
-        return _remoteStates[app][eid].dataHashes[key].get(timestamp);
+        return _remoteStates[app][chainUID].dataHashes[key].get(timestamp);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -937,22 +949,22 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Updates the read target for a specific chain
      * @dev Updates where to read from on the remote chain
-     * @param chainIdentifier The chain identifier
+     * @param chainUID The chain UID
      * @param target The target address on the remote chain
      */
-    function updateReadTarget(bytes32 chainIdentifier, bytes32 target) external onlyOwner {
-        gateway.updateReadTarget(chainIdentifier, target);
+    function updateReadTarget(bytes32 chainUID, bytes32 target) external onlyOwner {
+        gateway.updateReadTarget(chainUID, target);
     }
 
     /**
      * @notice Returns the configured chains from the gateway
-     * @return Array of configured endpoint IDs
+     * @return Array of configured chain UIDs
      */
-    function getConfiguredChains() external view returns (uint32[] memory) {
-        uint256 length = gateway.eidsLength();
-        uint32[] memory chains = new uint32[](length);
+    function getConfiguredChains() external view returns (bytes32[] memory) {
+        uint256 length = gateway.chainUIDsLength();
+        bytes32[] memory chains = new bytes32[](length);
         for (uint256 i; i < length; ++i) {
-            chains[i] = gateway.eidAt(i);
+            chains[i] = gateway.chainUIDAt(i);
         }
         return chains;
     }
@@ -960,46 +972,49 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /**
      * @notice Returns the chain configurations from the gateway
      * @dev Delegates to gateway.chainConfigs()
-     * @return eids Array of endpoint IDs
+     * @return chainUIDs Array of chain unique identifiers
      * @return confirmations Array of confirmation requirements for each chain
      */
-    function chainConfigs() external view returns (uint32[] memory eids, uint16[] memory confirmations) {
+    function chainConfigs() external view returns (bytes32[] memory chainUIDs, uint16[] memory confirmations) {
         return gateway.chainConfigs();
     }
 
     /**
      * @notice Receives and stores Merkle roots from remote chains
      * @dev Called by the synchronizer after successful cross-chain sync
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @param liquidityRoot The liquidity Merkle root from the remote chain
      * @param dataRoot The data Merkle root from the remote chain
      * @param timestamp The timestamp when the roots were generated
      */
-    function onReceiveRoots(uint32 eid, bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp) external {
+    function onReceiveRoots(bytes32 chainUID, bytes32 liquidityRoot, bytes32 dataRoot, uint256 timestamp) external {
         // Allow calls from gateway or from this contract (via onRead)
         if (msg.sender != address(gateway) && msg.sender != address(this)) revert Forbidden();
-        if (_rootTimestamps[eid].length == 0 || _rootTimestamps[eid][_rootTimestamps[eid].length - 1] != timestamp) {
-            _rootTimestamps[eid].insertSorted(timestamp);
+        if (
+            _rootTimestamps[chainUID].length == 0
+                || _rootTimestamps[chainUID][_rootTimestamps[chainUID].length - 1] != timestamp
+        ) {
+            _rootTimestamps[chainUID].insertSorted(timestamp);
         }
 
-        _liquidityRoots[eid][timestamp] = liquidityRoot;
-        _dataRoots[eid][timestamp] = dataRoot;
+        _liquidityRoots[chainUID][timestamp] = liquidityRoot;
+        _dataRoots[chainUID][timestamp] = dataRoot;
 
-        emit OnReceiveRoots(eid, liquidityRoot, dataRoot, timestamp);
+        emit OnReceiveRoots(chainUID, liquidityRoot, dataRoot, timestamp);
     }
 
     /**
      * @notice Settles liquidity data from a remote chain for a specific app
      * @dev Trusts the settler to provide valid data without proof verification.
      *      Updates liquidity snapshots and triggers callbacks if enabled.
-     * @param params Settlement parameters including app, eid, timestamp, accounts and liquidity values
+     * @param params Settlement parameters including app, chainUID, timestamp, accounts and liquidity values
      */
     function settleLiquidity(SettleLiquidityParams memory params) external onlySettler(params.app) {
         AppState storage localState = _appStates[params.app];
         bool syncMappedAccountsOnly = localState.syncMappedAccountsOnly;
         bool useCallbacks = localState.useCallbacks;
 
-        RemoteState storage state = _remoteStates[params.app][params.eid];
+        RemoteState storage state = _remoteStates[params.app][params.chainUID];
         if (state.liquiditySettled[params.timestamp]) revert LiquidityAlreadySettled();
         state.liquiditySettled[params.timestamp] = true;
         if (params.timestamp > state.lastSettledLiquidityTimestamp) {
@@ -1030,9 +1045,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
             // Trigger callback if enabled, catching any failures
             if (useCallbacks) {
                 try ILiquidityMatrixCallbacks(params.app).onSettleLiquidity(
-                    params.eid, params.timestamp, _account, liquidity
+                    params.chainUID, params.timestamp, _account, liquidity
                 ) { } catch (bytes memory reason) {
-                    emit OnSettleLiquidityFailure(params.eid, params.timestamp, _account, liquidity, reason);
+                    emit OnSettleLiquidityFailure(params.chainUID, params.timestamp, _account, liquidity, reason);
                 }
             }
         }
@@ -1040,23 +1055,25 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         state.totalLiquidity.setAsInt(totalLiquidity, params.timestamp);
         if (useCallbacks) {
             try ILiquidityMatrixCallbacks(params.app).onSettleTotalLiquidity(
-                params.eid, params.timestamp, totalLiquidity
+                params.chainUID, params.timestamp, totalLiquidity
             ) { } catch (bytes memory reason) {
-                emit OnSettleTotalLiquidityFailure(params.eid, params.timestamp, totalLiquidity, reason);
+                emit OnSettleTotalLiquidityFailure(params.chainUID, params.timestamp, totalLiquidity, reason);
             }
         }
 
-        emit SettleLiquidity(params.eid, params.app, _liquidityRoots[params.eid][params.timestamp], params.timestamp);
+        emit SettleLiquidity(
+            params.chainUID, params.app, _liquidityRoots[params.chainUID][params.timestamp], params.timestamp
+        );
     }
 
     /**
      * @notice Settles arbitrary data from a remote chain for a specific app
      * @dev Trusts the settler to provide valid data without proof verification.
      *      Updates data hashes and triggers callbacks if enabled.
-     * @param params Settlement parameters including app, eid, timestamp, keys and values
+     * @param params Settlement parameters including app, chainUID, timestamp, keys and values
      */
     function settleData(SettleDataParams memory params) external onlySettler(params.app) {
-        RemoteState storage state = _remoteStates[params.app][params.eid];
+        RemoteState storage state = _remoteStates[params.app][params.chainUID];
         if (state.dataSettled[params.timestamp]) revert DataAlreadySettled();
         state.dataSettled[params.timestamp] = true;
         if (params.timestamp > state.lastSettledDataTimestamp) {
@@ -1075,25 +1092,27 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
             // Trigger callback if enabled, catching any failures
             if (useCallbacks) {
-                try ILiquidityMatrixCallbacks(params.app).onSettleData(params.eid, params.timestamp, key, value) { }
-                catch (bytes memory reason) {
-                    emit OnSettleDataFailure(params.eid, params.timestamp, key, value, reason);
+                try ILiquidityMatrixCallbacks(params.app).onSettleData(params.chainUID, params.timestamp, key, value) {
+                } catch (bytes memory reason) {
+                    emit OnSettleDataFailure(params.chainUID, params.timestamp, key, value, reason);
                 }
             }
         }
 
-        emit SettleData(params.eid, params.app, _dataRoots[params.eid][params.timestamp], params.timestamp);
+        emit SettleData(params.chainUID, params.app, _dataRoots[params.chainUID][params.timestamp], params.timestamp);
     }
 
     /**
      * @notice Processes remote account mapping requests received from other chains
      * @dev Called by synchronizer when receiving cross-chain mapping requests.
      *      Validates mappings and consolidates liquidity from remote to local accounts.
-     * @param _fromEid Source chain endpoint ID
+     * @param _fromChainUID Source chain endpoint ID
      * @param _localApp Local app address that should process this request
      * @param _message Encoded remote and local account arrays
      */
-    function onReceiveMapRemoteAccountRequests(uint32 _fromEid, address _localApp, bytes memory _message) external {
+    function onReceiveMapRemoteAccountRequests(bytes32 _fromChainUID, address _localApp, bytes memory _message)
+        external
+    {
         // Allow calls from gateway or from this contract (via onReceive)
         if (msg.sender != address(gateway) && msg.sender != address(this)) revert Forbidden();
         (address[] memory remotes, address[] memory locals) = abi.decode(_message, (address[], address[]));
@@ -1101,7 +1120,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         // Verify the app is registered
         if (!_appStates[_localApp].registered) revert AppNotRegistered();
 
-        RemoteState storage state = _remoteStates[_localApp][_fromEid];
+        RemoteState storage state = _remoteStates[_localApp][_fromChainUID];
 
         bool[] memory shouldMap = new bool[](remotes.length);
         if (ILiquidityMatrixAccountMapper(_localApp).shouldMapAccounts.selector == bytes4(0)) {
@@ -1111,7 +1130,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         } else {
             for (uint256 i; i < remotes.length; ++i) {
                 shouldMap[i] =
-                    ILiquidityMatrixAccountMapper(_localApp).shouldMapAccounts(_fromEid, remotes[i], locals[i]);
+                    ILiquidityMatrixAccountMapper(_localApp).shouldMapAccounts(_fromChainUID, remotes[i], locals[i]);
             }
         }
 
@@ -1121,8 +1140,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
             address remote = remotes[i];
             address local = locals[i];
 
-            if (state.mappedAccounts[remote] != address(0)) revert RemoteAccountAlreadyMapped(_fromEid, remote);
-            if (state.localAccountMapped[local]) revert LocalAccountAlreadyMapped(_fromEid, local);
+            if (state.mappedAccounts[remote] != address(0)) revert RemoteAccountAlreadyMapped(_fromChainUID, remote);
+            if (state.localAccountMapped[local]) revert LocalAccountAlreadyMapped(_fromChainUID, local);
 
             state.mappedAccounts[remote] = local;
             state.localAccountMapped[local] = true;
@@ -1133,7 +1152,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
             int256 currentLocalLiquidity = state.liquidity[local].getLastAsInt();
             state.liquidity[local].setAsInt(currentLocalLiquidity + remoteLiquidity);
 
-            emit MapRemoteAccount(_localApp, _fromEid, remote, local);
+            emit MapRemoteAccount(_localApp, _fromChainUID, remote, local);
         }
     }
 
@@ -1198,17 +1217,17 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         // Only process if this is a sync command (check callData selector)
         bytes4 selector = bytes4(callData);
         if (selector == ILiquidityMatrix.getMainRoots.selector) {
-            uint32[] memory eids = new uint32[](requests.length);
+            bytes32[] memory chainUIDs = new bytes32[](requests.length);
             bytes32[] memory liquidityRoots = new bytes32[](requests.length);
             bytes32[] memory dataRoots = new bytes32[](requests.length);
             uint256[] memory timestamps = new uint256[](requests.length);
 
-            for (uint256 i; i < eids.length; ++i) {
-                eids[i] = uint32(uint256(requests[i].chainIdentifier));
+            for (uint256 i; i < chainUIDs.length; ++i) {
+                chainUIDs[i] = requests[i].chainUID;
                 (liquidityRoots[i], dataRoots[i], timestamps[i]) = abi.decode(responses[i], (bytes32, bytes32, uint256));
             }
 
-            return abi.encode(CMD_SYNC, eids, liquidityRoots, dataRoots, timestamps);
+            return abi.encode(CMD_SYNC, chainUIDs, liquidityRoots, dataRoots, timestamps);
         } else {
             revert InvalidCmd();
         }
@@ -1225,15 +1244,15 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         if (cmdType == CMD_SYNC) {
             (
                 ,
-                uint32[] memory eids,
+                bytes32[] memory chainUIDs,
                 bytes32[] memory liquidityRoots,
                 bytes32[] memory dataRoots,
                 uint256[] memory timestamps
-            ) = abi.decode(message, (uint16, uint32[], bytes32[], bytes32[], uint256[]));
+            ) = abi.decode(message, (uint16, bytes32[], bytes32[], bytes32[], uint256[]));
 
             // Process each chain's roots
-            for (uint256 i; i < eids.length; ++i) {
-                this.onReceiveRoots(eids[i], liquidityRoots[i], dataRoots[i], timestamps[i]);
+            for (uint256 i; i < chainUIDs.length; ++i) {
+                this.onReceiveRoots(chainUIDs[i], liquidityRoots[i], dataRoots[i], timestamps[i]);
             }
         }
     }
@@ -1249,18 +1268,17 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         uint16 msgType = abi.decode(message, (uint16));
 
         if (msgType == MAP_REMOTE_ACCOUNTS) {
-            uint32 eid = uint32(uint256(sourceChainId));
             (,, address toApp, address[] memory remotes, address[] memory locals) =
                 abi.decode(message, (uint16, address, address, address[], address[]));
 
             // Process account mapping request
-            this.onReceiveMapRemoteAccountRequests(eid, toApp, abi.encode(remotes, locals));
+            this.onReceiveMapRemoteAccountRequests(sourceChainId, toApp, abi.encode(remotes, locals));
         }
     }
 
     /**
      * @notice Quotes the fee for mapping remote accounts
-     * @param eid Target chain endpoint ID
+     * @param chainUID Target chain endpoint ID
      * @param localAccount Address of the local account
      * @param remoteApp Address of the app on the remote chain
      * @param remotes Array of remote account addresses
@@ -1269,7 +1287,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @return fee The estimated messaging fee
      */
     function quoteRequestMapRemoteAccounts(
-        uint32 eid,
+        bytes32 chainUID,
         address localAccount,
         address remoteApp,
         address[] memory remotes,
@@ -1280,19 +1298,19 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         bytes memory message = abi.encode(MAP_REMOTE_ACCOUNTS, localAccount, remoteApp, remotes, locals);
 
         // Quote the fee from gateway
-        return gateway.quoteSendMessage(eid, address(this), message, gasLimit);
+        return gateway.quoteSendMessage(chainUID, address(this), message, gasLimit);
     }
 
     /**
      * @notice Requests mapping of remote accounts to local accounts on another chain
      * @dev Uses the gateway to send cross-chain messages
-     * @param eid Target chain endpoint ID
+     * @param chainUID Target chain endpoint ID
      * @param remoteApp Address of the app on the remote chain
      * @param locals Array of local account addresses to map
      * @param remotes Array of remote account addresses to map
      */
     function requestMapRemoteAccounts(
-        uint32 eid,
+        bytes32 chainUID,
         address remoteApp,
         address[] memory locals,
         address[] memory remotes,
@@ -1307,8 +1325,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
         // Send cross-chain message via gateway
         bytes memory message = abi.encode(MAP_REMOTE_ACCOUNTS, msg.sender, remoteApp, locals, remotes);
-        guid = gateway.sendMessage{ value: msg.value }(eid, message, data);
+        guid = gateway.sendMessage{ value: msg.value }(chainUID, message, data);
 
-        emit RequestMapRemoteAccounts(msg.sender, eid, remoteApp, remotes, locals);
+        emit RequestMapRemoteAccounts(msg.sender, chainUID, remoteApp, remotes, locals);
     }
 }

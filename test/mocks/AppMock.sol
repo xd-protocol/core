@@ -5,46 +5,46 @@ import { IAppMock } from "./IAppMock.sol";
 
 contract AppMock is IAppMock {
     address immutable liquidityMatrix;
-    mapping(uint32 remoteEid => mapping(address remoteAccount => mapping(address localAccont => bool))) public
+    mapping(bytes32 chainUID => mapping(address remoteAccount => mapping(address localAccont => bool))) public
         shouldMapAccounts;
 
-    mapping(uint32 eid => mapping(address account => int256)) _remoteLiquidity;
-    mapping(uint32 eid => int256) _remoteTotalLiquidity;
-    mapping(uint32 eid => mapping(bytes32 key => bytes value)) _remoteData;
+    mapping(bytes32 chainUID => mapping(address account => int256)) _remoteLiquidity;
+    mapping(bytes32 chainUID => int256) _remoteTotalLiquidity;
+    mapping(bytes32 chainUID => mapping(bytes32 key => bytes value)) _remoteData;
 
     constructor(address _liquidityMatrix) {
         liquidityMatrix = _liquidityMatrix;
     }
 
-    function remoteLiquidity(uint32 eid, address account) external view returns (int256) {
-        return _remoteLiquidity[eid][account];
+    function remoteLiquidity(bytes32 chainUID, address account) external view returns (int256) {
+        return _remoteLiquidity[chainUID][account];
     }
 
-    function remoteTotalLiquidity(uint32 eid) external view returns (int256) {
-        return _remoteTotalLiquidity[eid];
+    function remoteTotalLiquidity(bytes32 chainUID) external view returns (int256) {
+        return _remoteTotalLiquidity[chainUID];
     }
 
-    function remoteData(uint32 eid, bytes32 key) external view returns (bytes memory) {
-        return _remoteData[eid][key];
+    function remoteData(bytes32 chainUID, bytes32 key) external view returns (bytes memory) {
+        return _remoteData[chainUID][key];
     }
 
-    function setShouldMapAccounts(uint32 eid, address remote, address local, bool shouldMap) external {
-        shouldMapAccounts[eid][remote][local] = shouldMap;
+    function setShouldMapAccounts(bytes32 chainUID, address remote, address local, bool shouldMap) external {
+        shouldMapAccounts[chainUID][remote][local] = shouldMap;
     }
 
-    function onMapAccounts(uint32 eid, address remoteAccount, address localAccount) external {
+    function onMapAccounts(bytes32 chainUID, address remoteAccount, address localAccount) external {
         // Empty
     }
 
-    function onSettleLiquidity(uint32 eid, uint256, address account, int256 liquidity) external {
-        _remoteLiquidity[eid][account] = liquidity;
+    function onSettleLiquidity(bytes32 chainUID, uint256, address account, int256 liquidity) external {
+        _remoteLiquidity[chainUID][account] = liquidity;
     }
 
-    function onSettleTotalLiquidity(uint32 eid, uint256, int256 totalLiquidity) external {
-        _remoteTotalLiquidity[eid] = totalLiquidity;
+    function onSettleTotalLiquidity(bytes32 chainUID, uint256, int256 totalLiquidity) external {
+        _remoteTotalLiquidity[chainUID] = totalLiquidity;
     }
 
-    function onSettleData(uint32 eid, uint256, bytes32 key, bytes memory value) external {
-        _remoteData[eid][key] = value;
+    function onSettleData(bytes32 chainUID, uint256, bytes32 key, bytes memory value) external {
+        _remoteData[chainUID][key] = value;
     }
 }

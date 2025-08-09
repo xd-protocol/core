@@ -53,7 +53,7 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     mapping(uint32 eid => uint64) public transferDelays;
 
     uint16 internal _lastCmdLabel;
-    mapping(bytes32 guid => ReadRequest) public requests;
+    mapping(bytes32 guid => ReadRequest) public readRequests;
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
@@ -72,7 +72,7 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     error InvalidApp();
     error InvalidTarget();
     error InvalidLengths();
-    error InvalidChainIdentifier();
+    error InvalidChainUID();
     error InvalidLzReadOptions();
     error InvalidGuid();
     error InvalidCmdLabel();
@@ -113,21 +113,22 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function chainConfigs() public view returns (uint32[] memory eids, uint16[] memory confirmations) {
+    function chainConfigs() public view returns (bytes32[] memory chainUIDs, uint16[] memory confirmations) {
         uint256 length = _targetEids.length;
-        eids = _targetEids;
+        chainUIDs = new bytes32[](length);
         confirmations = new uint16[](length);
         for (uint256 i; i < length; i++) {
+            chainUIDs[i] = bytes32(uint256(_targetEids[i]));
             confirmations[i] = _chainConfigConfirmations[_targetEids[i]];
         }
     }
 
-    function eidsLength() public view returns (uint256) {
+    function chainUIDsLength() public view returns (uint256) {
         return _targetEids.length;
     }
 
-    function eidAt(uint256 index) public view returns (uint32) {
-        return _targetEids[index];
+    function chainUIDAt(uint256 index) public view returns (bytes32) {
+        return bytes32(uint256(_targetEids[index]));
     }
 
     /**
@@ -140,7 +141,11 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
         view
         returns (uint256 fee)
     {
-        (uint32[] memory eids,) = chainConfigs();
+        (bytes32[] memory chainUIDs,) = chainConfigs();
+        uint32[] memory eids = new uint32[](chainUIDs.length);
+        for (uint256 i; i < chainUIDs.length; i++) {
+            eids[i] = uint32(uint256(chainUIDs[i]));
+        }
         MessagingFee memory _fee = _quote(
             READ_CHANNEL,
             _getCmd(app, callData),
@@ -185,19 +190,25 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
         emit RegisterApp(app, cmdLabel);
     }
 
-    function configChains(uint32[] memory eids, uint16[] memory confirmations) external onlyOwner {
-        if (eids.length != confirmations.length) revert InvalidLengths();
+    function configChains(bytes32[] memory chainUIDs, uint16[] memory confirmations) external onlyOwner {
+        if (chainUIDs.length != confirmations.length) revert InvalidLengths();
 
         // Clear existing configuration mappings
         for (uint256 i; i < _targetEids.length; i++) {
             delete _chainConfigConfirmations[_targetEids[i]];
         }
 
-        // Validate for duplicates and populate new configuration
-        for (uint256 i; i < eids.length; i++) {
-            for (uint256 j = i + 1; j < eids.length; j++) {
-                if (eids[i] == eids[j]) revert DuplicateTargetEid();
+        // Convert bytes32 chainUIDs to uint32 eids and validate
+        uint32[] memory eids = new uint32[](chainUIDs.length);
+        for (uint256 i; i < chainUIDs.length; i++) {
+            if (uint256(chainUIDs[i]) >= type(uint32).max) revert InvalidChainUID();
+            eids[i] = uint32(uint256(chainUIDs[i]));
+
+            // Check for duplicates
+            for (uint256 j = i + 1; j < chainUIDs.length; j++) {
+                if (chainUIDs[i] == chainUIDs[j]) revert DuplicateTargetEid();
             }
+
             _chainConfigConfirmations[eids[i]] = confirmations[i];
         }
 
@@ -205,17 +216,18 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     }
 
     /**
-     * @notice Updates the cross-chain transfer delays for specified endpoint IDs.
+     * @notice Updates the cross-chain transfer delays for specified chain UIDs.
      * @dev Only callable by the contract owner.
-     * @param eids An array of endpoint IDs whose delays are to be updated.
-     * @param delays An array of delay values corresponding to each endpoint ID.
+     * @param chainUIDs An array of chain UIDs whose delays are to be updated.
+     * @param delays An array of delay values corresponding to each chain UID.
      * @dev Both arrays must be of the same length.
      */
-    function updateTransferDelays(uint32[] memory eids, uint64[] memory delays) external onlyOwner {
-        if (eids.length != delays.length) revert InvalidLengths();
+    function updateTransferDelays(bytes32[] memory chainUIDs, uint64[] memory delays) external onlyOwner {
+        if (chainUIDs.length != delays.length) revert InvalidLengths();
 
-        for (uint256 i; i < eids.length; ++i) {
-            uint32 eid = eids[i];
+        for (uint256 i; i < chainUIDs.length; ++i) {
+            if (uint256(chainUIDs[i]) >= type(uint32).max) revert InvalidChainUID();
+            uint32 eid = uint32(uint256(chainUIDs[i]));
             uint64 delay = delays[i];
 
             transferDelays[eid] = delay;
@@ -224,10 +236,10 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
         }
     }
 
-    function updateReadTarget(bytes32 chainIdentifier, bytes32 target) external onlyApp {
-        if (uint256(chainIdentifier) >= type(uint32).max) revert InvalidChainIdentifier();
+    function updateReadTarget(bytes32 chainUID, bytes32 target) external onlyApp {
+        if (uint256(chainUID) >= type(uint32).max) revert InvalidChainUID();
 
-        uint32 eid = uint32(uint256(chainIdentifier));
+        uint32 eid = uint32(uint256(chainUID));
         appStates[msg.sender].targets[eid] = target;
 
         emit UpdateReadTarget(msg.sender, eid, target);
@@ -241,7 +253,11 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     {
         if (data.length < 64) revert InvalidLzReadOptions();
         (uint128 gasLimit, address refundTo) = abi.decode(data, (uint128, address));
-        (uint32[] memory eids,) = chainConfigs();
+        (bytes32[] memory chainUIDs,) = chainConfigs();
+        uint32[] memory eids = new uint32[](chainUIDs.length);
+        for (uint256 i; i < chainUIDs.length; i++) {
+            eids[i] = uint32(uint256(chainUIDs[i]));
+        }
         // directly use endpoint.send() to bypass _payNative() check in _lzSend()
         MessagingReceipt memory receipt = endpoint.send{ value: msg.value }(
             MessagingParams(
@@ -253,15 +269,17 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
             ),
             payable(refundTo)
         );
-        requests[receipt.guid] = ReadRequest(msg.sender, extra);
+        readRequests[receipt.guid] = ReadRequest(msg.sender, extra);
         return receipt.guid;
     }
 
-    function quoteSendMessage(uint32 eid, address app, bytes memory message, uint128 gasLimit)
+    function quoteSendMessage(bytes32 chainUID, address app, bytes memory message, uint128 gasLimit)
         public
         view
         returns (uint256 fee)
     {
+        if (uint256(chainUID) >= type(uint32).max) revert InvalidChainUID();
+        uint32 eid = uint32(uint256(chainUID));
         address target = AddressCast.toAddress(appStates[app].targets[eid]);
         if (target == address(0)) revert InvalidTarget();
         MessagingFee memory _fee = _quote(
@@ -270,12 +288,14 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
         return _fee.nativeFee;
     }
 
-    function sendMessage(uint32 eid, bytes memory message, bytes memory data)
+    function sendMessage(bytes32 chainUID, bytes memory message, bytes memory data)
         external
         payable
         onlyApp
         returns (bytes32 guid)
     {
+        if (uint256(chainUID) >= type(uint32).max) revert InvalidChainUID();
+        uint32 eid = uint32(uint256(chainUID));
         address target = AddressCast.toAddress(appStates[msg.sender].targets[eid]);
         if (target == address(0)) revert InvalidTarget();
         (uint128 gasLimit, address refundTo) = abi.decode(data, (uint128, address));
@@ -300,10 +320,10 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     ) internal virtual override nonReentrant {
         if (_origin.srcEid == READ_CHANNEL) {
             // Handle read responses
-            ReadRequest memory request = requests[_guid];
+            ReadRequest memory request = readRequests[_guid];
             if (request.app == address(0)) revert InvalidGuid();
 
-            delete requests[_guid];
+            delete readRequests[_guid];
 
             IGatewayApp(request.app).onRead(_message, request.extra);
         } else {
@@ -325,15 +345,19 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
         AppState storage state = appStates[app];
         if (state.cmdLabel == 0) revert InvalidApp();
 
-        (uint32[] memory _eids, uint16[] memory _confirmations) = chainConfigs();
-        EVMCallRequestV1[] memory readRequests = new EVMCallRequestV1[](_eids.length);
+        (bytes32[] memory _chainUIDs, uint16[] memory _confirmations) = chainConfigs();
+        uint32[] memory _eids = new uint32[](_chainUIDs.length);
+        for (uint256 i; i < _chainUIDs.length; i++) {
+            _eids[i] = uint32(uint256(_chainUIDs[i]));
+        }
+        EVMCallRequestV1[] memory requests = new EVMCallRequestV1[](_eids.length);
 
         uint64 timestamp = uint64(block.timestamp);
         for (uint256 i; i < _eids.length; i++) {
             uint32 eid = _eids[i];
             address target = AddressCast.toAddress(state.targets[eid]);
             if (target == address(0)) revert InvalidTarget();
-            readRequests[i] = EVMCallRequestV1({
+            requests[i] = EVMCallRequestV1({
                 appRequestLabel: uint16(i + 1),
                 targetEid: eid,
                 isBlockNum: false,
@@ -344,7 +368,7 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
             });
         }
 
-        return ReadCodecV1.encode(state.cmdLabel, readRequests, _computeSettings());
+        return ReadCodecV1.encode(state.cmdLabel, requests, _computeSettings());
     }
 
     function _computeSettings() internal view virtual returns (EVMCallComputeV1 memory) {

@@ -83,21 +83,26 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         address indexed hook, address indexed from, address indexed to, uint256 amount, bytes reason
     );
     event OnMapAccountsHookFailure(
-        address indexed hook, uint32 indexed eid, address remoteAccount, address localAccount, bytes reason
+        address indexed hook, bytes32 indexed chainUID, address remoteAccount, address localAccount, bytes reason
     );
     event OnSettleLiquidityHookFailure(
         address indexed hook,
-        uint32 indexed eid,
+        bytes32 indexed chainUID,
         uint256 timestamp,
         address indexed account,
         int256 liquidity,
         bytes reason
     );
     event OnSettleTotalLiquidityHookFailure(
-        address indexed hook, uint32 indexed eid, uint256 timestamp, int256 totalLiquidity, bytes reason
+        address indexed hook, bytes32 indexed chainUID, uint256 timestamp, int256 totalLiquidity, bytes reason
     );
     event OnSettleDataHookFailure(
-        address indexed hook, uint32 indexed eid, uint256 timestamp, bytes32 indexed key, bytes value, bytes reason
+        address indexed hook,
+        bytes32 indexed chainUID,
+        uint256 timestamp,
+        bytes32 indexed key,
+        bytes value,
+        bytes reason
     );
 
     /*//////////////////////////////////////////////////////////////
@@ -278,8 +283,8 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         emit UpdateGateway(_gateway);
     }
 
-    function updateReadTarget(bytes32 chainIdentifier, bytes32 target) external onlyOwner {
-        IGateway(gateway).updateReadTarget(chainIdentifier, target);
+    function updateReadTarget(bytes32 chainUID, bytes32 target) external onlyOwner {
+        IGateway(gateway).updateReadTarget(chainUID, target);
     }
 
     /**
@@ -654,11 +659,11 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     /**
      * @notice Called when remote accounts are successfully mapped to local accounts
      * @dev Allows apps to perform additional logic when account mappings are established
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @param remoteAccount The account address on the remote chain
      * @param localAccount The mapped local account address
      */
-    function onMapAccounts(uint32 eid, address remoteAccount, address localAccount) external virtual override {
+    function onMapAccounts(bytes32 chainUID, address remoteAccount, address localAccount) external virtual override {
         // Only allow calls from the LiquidityMatrix contract
         if (msg.sender != liquidityMatrix) revert Forbidden();
 
@@ -666,9 +671,9 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         address[] memory _hooks = hooks;
         uint256 length = _hooks.length;
         for (uint256 i; i < length; ++i) {
-            try IERC20xDHook(_hooks[i]).onMapAccounts(eid, remoteAccount, localAccount) { }
+            try IERC20xDHook(_hooks[i]).onMapAccounts(chainUID, remoteAccount, localAccount) { }
             catch (bytes memory reason) {
-                emit OnMapAccountsHookFailure(_hooks[i], eid, remoteAccount, localAccount, reason);
+                emit OnMapAccountsHookFailure(_hooks[i], chainUID, remoteAccount, localAccount, reason);
             }
         }
     }
@@ -676,12 +681,12 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     /**
      * @notice Called when liquidity for a specific account is settled from a remote chain
      * @dev Triggered during settleLiquidity if callbacks are enabled for the app
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @param timestamp The timestamp of the settled data
      * @param account The account whose liquidity was updated
      * @param liquidity The settled liquidity value
      */
-    function onSettleLiquidity(uint32 eid, uint256 timestamp, address account, int256 liquidity)
+    function onSettleLiquidity(bytes32 chainUID, uint256 timestamp, address account, int256 liquidity)
         external
         virtual
         override
@@ -693,9 +698,9 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         address[] memory _hooks = hooks;
         uint256 length = _hooks.length;
         for (uint256 i; i < length; ++i) {
-            try IERC20xDHook(_hooks[i]).onSettleLiquidity(eid, timestamp, account, liquidity) { }
+            try IERC20xDHook(_hooks[i]).onSettleLiquidity(chainUID, timestamp, account, liquidity) { }
             catch (bytes memory reason) {
-                emit OnSettleLiquidityHookFailure(_hooks[i], eid, timestamp, account, liquidity, reason);
+                emit OnSettleLiquidityHookFailure(_hooks[i], chainUID, timestamp, account, liquidity, reason);
             }
         }
     }
@@ -703,11 +708,15 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     /**
      * @notice Called when the total liquidity is settled from a remote chain
      * @dev Triggered after all individual account liquidity updates are processed
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @param timestamp The timestamp of the settled data
      * @param totalLiquidity The total liquidity across all accounts
      */
-    function onSettleTotalLiquidity(uint32 eid, uint256 timestamp, int256 totalLiquidity) external virtual override {
+    function onSettleTotalLiquidity(bytes32 chainUID, uint256 timestamp, int256 totalLiquidity)
+        external
+        virtual
+        override
+    {
         // Only allow calls from the LiquidityMatrix contract
         if (msg.sender != liquidityMatrix) revert Forbidden();
 
@@ -715,9 +724,9 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         address[] memory _hooks = hooks;
         uint256 length = _hooks.length;
         for (uint256 i; i < length; ++i) {
-            try IERC20xDHook(_hooks[i]).onSettleTotalLiquidity(eid, timestamp, totalLiquidity) { }
+            try IERC20xDHook(_hooks[i]).onSettleTotalLiquidity(chainUID, timestamp, totalLiquidity) { }
             catch (bytes memory reason) {
-                emit OnSettleTotalLiquidityHookFailure(_hooks[i], eid, timestamp, totalLiquidity, reason);
+                emit OnSettleTotalLiquidityHookFailure(_hooks[i], chainUID, timestamp, totalLiquidity, reason);
             }
         }
     }
@@ -725,12 +734,16 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     /**
      * @notice Called when data is settled from a remote chain
      * @dev Triggered during settleData if callbacks are enabled for the app
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The endpoint ID of the remote chain
      * @param timestamp The timestamp of the settled data
      * @param key The data key that was updated
      * @param value The settled data value
      */
-    function onSettleData(uint32 eid, uint256 timestamp, bytes32 key, bytes memory value) external virtual override {
+    function onSettleData(bytes32 chainUID, uint256 timestamp, bytes32 key, bytes memory value)
+        external
+        virtual
+        override
+    {
         // Only allow calls from the LiquidityMatrix contract
         if (msg.sender != liquidityMatrix) revert Forbidden();
 
@@ -738,9 +751,9 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         address[] memory _hooks = hooks;
         uint256 length = _hooks.length;
         for (uint256 i; i < length; ++i) {
-            try IERC20xDHook(_hooks[i]).onSettleData(eid, timestamp, key, value) { }
+            try IERC20xDHook(_hooks[i]).onSettleData(chainUID, timestamp, key, value) { }
             catch (bytes memory reason) {
-                emit OnSettleDataHookFailure(_hooks[i], eid, timestamp, key, value, reason);
+                emit OnSettleDataHookFailure(_hooks[i], chainUID, timestamp, key, value, reason);
             }
         }
     }

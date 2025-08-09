@@ -11,38 +11,38 @@ interface ILiquidityMatrixCallbacks {
     /**
      * @notice Called when remote accounts are successfully mapped to local accounts
      * @dev Allows apps to perform additional logic when account mappings are established
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The unique identifier of the remote chain
      * @param remoteAccount The account address on the remote chain
      * @param localAccount The mapped local account address
      */
-    function onMapAccounts(uint32 eid, address remoteAccount, address localAccount) external;
+    function onMapAccounts(bytes32 chainUID, address remoteAccount, address localAccount) external;
 
     /**
      * @notice Called when liquidity for a specific account is settled from a remote chain
      * @dev Triggered during settleLiquidity if callbacks are enabled for the app
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The unique identifier of the remote chain
      * @param timestamp The timestamp of the settled data
      * @param account The account whose liquidity was updated
      * @param liquidity The settled liquidity value
      */
-    function onSettleLiquidity(uint32 eid, uint256 timestamp, address account, int256 liquidity) external;
+    function onSettleLiquidity(bytes32 chainUID, uint256 timestamp, address account, int256 liquidity) external;
 
     /**
      * @notice Called when the total liquidity is settled from a remote chain
      * @dev Triggered after all individual account liquidity updates are processed
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The unique identifier of the remote chain
      * @param timestamp The timestamp of the settled data
      * @param totalLiquidity The total liquidity across all accounts
      */
-    function onSettleTotalLiquidity(uint32 eid, uint256 timestamp, int256 totalLiquidity) external;
+    function onSettleTotalLiquidity(bytes32 chainUID, uint256 timestamp, int256 totalLiquidity) external;
 
     /**
      * @notice Called when data is settled from a remote chain
      * @dev Triggered during settleData if callbacks are enabled for the app
-     * @param eid The endpoint ID of the remote chain
+     * @param chainUID The unique identifier of the remote chain
      * @param timestamp The timestamp of the settled data
      * @param key The data key that was updated
      * @param value The settled data value
      */
-    function onSettleData(uint32 eid, uint256 timestamp, bytes32 key, bytes memory value) external;
+    function onSettleData(bytes32 chainUID, uint256 timestamp, bytes32 key, bytes memory value) external;
 }

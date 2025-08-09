@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 interface IGatewayApp {
     struct Request {
-        bytes32 chainIdentifier;
+        bytes32 chainUID;
         uint64 timestamp;
         address target;
     }

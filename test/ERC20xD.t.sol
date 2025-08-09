@@ -453,7 +453,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
         IGatewayApp.Request[] memory requests = new IGatewayApp.Request[](CHAINS - 1);
         for (uint256 i = 0; i < requests.length; i++) {
             requests[i] = IGatewayApp.Request({
-                chainIdentifier: bytes32(uint256(i + 2)),
+                chainUID: bytes32(uint256(i + 2)),
                 timestamp: uint64(block.timestamp),
                 target: address(erc20s[i + 1])
             });

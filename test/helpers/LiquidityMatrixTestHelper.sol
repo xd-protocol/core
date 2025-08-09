@@ -51,7 +51,8 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
     Storage remoteStorage;
     address remoteSettler;
 
-    mapping(uint32 fromEid => mapping(uint32 toEid => mapping(address fromAccount => address toAccount))) mappedAccounts;
+    mapping(bytes32 fromChainUID => mapping(bytes32 toChainUID => mapping(address fromAccount => address toAccount)))
+        mappedAccounts;
 
     function initialize(Storage storage s) internal {
         s.appLiquidityTree.root = bytes32(0);
@@ -217,8 +218,8 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
         }
 
         for (uint256 i; i < _remotes.length; ++i) {
-            uint32 eid = _eid(_remotes[i]);
-            (bytes32 _liquidityRoot, uint256 _liquidityTimestamp) = _local.getLastReceivedLiquidityRoot(eid);
+            bytes32 chainUID = _eid(_remotes[i]);
+            (bytes32 _liquidityRoot, uint256 _liquidityTimestamp) = _local.getLastReceivedLiquidityRoot(chainUID);
             assertEq(_liquidityRoot, liquidityRoots[i], "Liquidity root mismatch");
 
             // Only check liquidity timestamp if liquidity root is non-zero
@@ -226,7 +227,7 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
                 assertEq(_liquidityTimestamp, timestamps[i], "Liquidity timestamp mismatch");
             }
 
-            (bytes32 _dataRoot, uint256 _dataTimestamp) = _local.getLastReceivedDataRoot(eid);
+            (bytes32 _dataRoot, uint256 _dataTimestamp) = _local.getLastReceivedDataRoot(chainUID);
             assertEq(_dataRoot, dataRoots[i], "Data root mismatch");
 
             // Only check data timestamp if data root is non-zero
@@ -259,57 +260,58 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
         address[] memory contracts
     ) internal {
         changePrank(_localApp, _localApp);
-        uint32 fromEid = _eid(_local);
+        bytes32 fromChainUID = _eid(_local);
         for (uint32 i; i < remotes.length; ++i) {
             ILiquidityMatrix _remote = remotes[i];
-            uint32 toEid = _eid(_remote);
+            bytes32 toChainUID = _eid(_remote);
             address[] memory from = new address[](contracts.length);
             address[] memory to = new address[](from.length);
             for (uint256 j; j < to.length; ++j) {
                 from[j] = contracts[j];
                 to[j] = contracts[(j + 1) % to.length];
-                mappedAccounts[fromEid][toEid][from[j]] = to[j];
-                IAppMock(remoteApps[i]).setShouldMapAccounts(fromEid, from[j], to[j], true);
+                mappedAccounts[fromChainUID][toChainUID][from[j]] = to[j];
+                IAppMock(remoteApps[i]).setShouldMapAccounts(fromChainUID, from[j], to[j], true);
             }
 
             uint128 gasLimit = uint128(150_000 * to.length);
 
             // Quote the fee for mapping accounts
-            uint256 fee = _local.quoteRequestMapRemoteAccounts(toEid, _localApp, remoteApps[i], from, to, gasLimit);
+            uint256 fee = _local.quoteRequestMapRemoteAccounts(toChainUID, _localApp, remoteApps[i], from, to, gasLimit);
 
             _local.requestMapRemoteAccounts{ value: fee }(
-                toEid, remoteApps[i], from, to, abi.encode(gasLimit, _localApp)
+                toChainUID, remoteApps[i], from, to, abi.encode(gasLimit, _localApp)
             );
 
             // Verify packets sent to the remote gateway - this delivers the message
-            this.verifyPackets(toEid, addressToBytes32(address(_remote.gateway())));
+            this.verifyPackets(uint32(uint256(toChainUID)), addressToBytes32(address(_remote.gateway())));
 
             for (uint256 j; j < to.length; ++j) {
                 assertEq(
-                    _remote.getMappedAccount(remoteApps[i], fromEid, from[j]), mappedAccounts[fromEid][toEid][from[j]]
+                    _remote.getMappedAccount(remoteApps[i], fromChainUID, from[j]),
+                    mappedAccounts[fromChainUID][toChainUID][from[j]]
                 );
             }
         }
     }
 
-    function _eid(ILiquidityMatrix liquidityMatrix) internal view virtual returns (uint32) {
+    function _eid(ILiquidityMatrix liquidityMatrix) internal view virtual returns (bytes32) {
         // In the test environment, we can determine the eid based on the contract address
         if (address(liquidityMatrix) == address(local)) {
-            return EID_LOCAL;
+            return bytes32(uint256(EID_LOCAL));
         } else if (address(liquidityMatrix) == address(remote)) {
-            return EID_REMOTE;
+            return bytes32(uint256(EID_REMOTE));
         } else {
             revert("Unknown LiquidityMatrix");
         }
     }
 
-    function _eid(address addr) internal view virtual returns (uint32) {
+    function _eid(address addr) internal view virtual returns (bytes32) {
         // For LiquidityMatrix addresses, we need to check which endpoint they're associated with
         // This is a simplified approach for testing
         if (address(local) != address(0) && addr == address(local)) {
-            return EID_LOCAL;
+            return bytes32(uint256(EID_LOCAL));
         } else if (address(remote) != address(0) && addr == address(remote)) {
-            return EID_REMOTE;
+            return bytes32(uint256(EID_REMOTE));
         } else {
             revert("Unknown address");
         }
@@ -337,7 +339,7 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
         bytes[] memory responses = new bytes[](remoteReaders.length);
         for (uint256 i; i < remoteReaders.length; ++i) {
             requests[i] = IGatewayApp.Request({
-                chainIdentifier: bytes32(uint256(remoteEids[i])),
+                chainUID: bytes32(uint256(remoteEids[i])),
                 timestamp: uint64(block.timestamp),
                 target: address(remoteReaders[i])
             });
