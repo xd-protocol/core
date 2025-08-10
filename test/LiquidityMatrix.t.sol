@@ -3770,10 +3770,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1400), 100e18);
         assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, bob, 1400), 200e18);
 
-        // After reorg (t=1550): since no settlement for version 2 yet at this timestamp,
-        // it returns the last value from version 1 (at t=1000)
-        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1550), 100e18);
-        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, bob, 1550), 200e18);
+        // After reorg (t=1550): version 2 is active but has no data yet, returns 0
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1550), 0);
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, bob, 1550), 0);
 
         // After version 2 settlement (t=1700): should use version 2 data
         assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1700), 120e18);
@@ -3906,6 +3905,493 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1500), 0);
         assertEq(liquidityMatrices[0].getSettledRemoteTotalLiquidity(apps[0], chainUID), 0);
         assertEq(liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], chainUID, 2000), 0);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    COMPREHENSIVE REORG GETTER TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_reorg_allLiquidityGetters() public {
+        bytes32 chainUID = bytes32(uint256(eids[1]));
+        address[] memory accounts = new address[](2);
+        accounts[0] = alice;
+        accounts[1] = bob;
+        int256[] memory liquidity = new int256[](2);
+
+        // Setup local liquidity
+        changePrank(apps[0], apps[0]);
+        liquidityMatrices[0].updateLocalLiquidity(alice, 50e18);
+        liquidityMatrices[0].updateLocalLiquidity(bob, 75e18);
+
+        // Phase 1: Before reorg - settle liquidity at t=1000
+        vm.warp(1000);
+        liquidity[0] = 100e18;
+        liquidity[1] = 200e18;
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, 1000, 1, accounts, liquidity)
+        );
+
+        // Also settle data for finalization tests
+        bytes32[] memory keys = new bytes32[](2);
+        keys[0] = keccak256("key1");
+        keys[1] = keccak256("key2");
+        bytes[] memory values = new bytes[](2);
+        values[0] = abi.encode("data1");
+        values[1] = abi.encode("data2");
+        liquidityMatrices[0].settleData(ILiquidityMatrix.SettleDataParams(apps[0], chainUID, 1000, 1, keys, values));
+
+        // Test all getters BEFORE reorg (at t=1100)
+        vm.warp(1100);
+
+        // Remote liquidity getters
+        assertEq(
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1100),
+            100e18,
+            "Remote liquidity at 1100"
+        );
+        assertEq(
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, bob, 1100),
+            200e18,
+            "Remote liquidity bob at 1100"
+        );
+        assertEq(
+            liquidityMatrices[0].getSettledRemoteLiquidity(apps[0], chainUID, alice), 100e18, "Settled remote liquidity"
+        );
+        assertEq(
+            liquidityMatrices[0].getFinalizedRemoteLiquidity(apps[0], chainUID, alice),
+            100e18,
+            "Finalized remote liquidity"
+        );
+
+        // Remote total liquidity getters
+        assertEq(
+            liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], chainUID, 1100), 300e18, "Remote total at 1100"
+        );
+        assertEq(liquidityMatrices[0].getSettledRemoteTotalLiquidity(apps[0], chainUID), 300e18, "Settled remote total");
+        assertEq(
+            liquidityMatrices[0].getFinalizedRemoteTotalLiquidity(apps[0], chainUID), 300e18, "Finalized remote total"
+        );
+
+        // Aggregated liquidity getters (local + remote)
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], alice, 1100), 150e18, "Total liquidity at 1100"); // 50 local + 100 remote
+        assertEq(liquidityMatrices[0].getSettledLiquidity(apps[0], alice), 150e18, "Settled total liquidity");
+        assertEq(liquidityMatrices[0].getFinalizedLiquidity(apps[0], alice), 150e18, "Finalized total liquidity");
+
+        // Aggregated total liquidity getters
+        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], 1100), 425e18, "Total at 1100"); // 125 local + 300 remote
+        assertEq(liquidityMatrices[0].getSettledTotalLiquidity(apps[0]), 425e18, "Settled total");
+        assertEq(liquidityMatrices[0].getFinalizedTotalLiquidity(apps[0]), 425e18, "Finalized total");
+
+        // Phase 2: Add reorg at t=1500
+        changePrank(owner, owner);
+        liquidityMatrices[0].addReorg(1500);
+
+        // Test all getters RIGHT AFTER reorg (at t=1600, no new settlements yet)
+        vm.warp(1600);
+
+        // All remote getters should return 0 for version 2
+        assertEq(
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1600),
+            0,
+            "Remote liquidity at 1600 after reorg"
+        );
+        assertEq(
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, bob, 1600),
+            0,
+            "Remote liquidity bob at 1600 after reorg"
+        );
+        assertEq(
+            liquidityMatrices[0].getSettledRemoteLiquidity(apps[0], chainUID, alice), 0, "Settled remote after reorg"
+        );
+        assertEq(
+            liquidityMatrices[0].getFinalizedRemoteLiquidity(apps[0], chainUID, alice),
+            0,
+            "Finalized remote after reorg"
+        );
+
+        assertEq(
+            liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], chainUID, 1600),
+            0,
+            "Remote total at 1600 after reorg"
+        );
+        assertEq(
+            liquidityMatrices[0].getSettledRemoteTotalLiquidity(apps[0], chainUID),
+            0,
+            "Settled remote total after reorg"
+        );
+        assertEq(
+            liquidityMatrices[0].getFinalizedRemoteTotalLiquidity(apps[0], chainUID),
+            0,
+            "Finalized remote total after reorg"
+        );
+
+        // Aggregated getters should only show local liquidity
+        assertEq(
+            liquidityMatrices[0].getLiquidityAt(apps[0], alice, 1600), 50e18, "Total liquidity at 1600 after reorg"
+        ); // Only local
+        assertEq(liquidityMatrices[0].getSettledLiquidity(apps[0], alice), 50e18, "Settled total after reorg");
+        assertEq(liquidityMatrices[0].getFinalizedLiquidity(apps[0], alice), 50e18, "Finalized total after reorg");
+
+        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], 1600), 125e18, "Total at 1600 after reorg"); // Only local (50+75)
+        assertEq(liquidityMatrices[0].getSettledTotalLiquidity(apps[0]), 125e18, "Settled total after reorg");
+        assertEq(liquidityMatrices[0].getFinalizedTotalLiquidity(apps[0]), 125e18, "Finalized total after reorg");
+
+        // Queries before reorg should still return old values
+        assertEq(
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1400),
+            100e18,
+            "Remote liquidity at 1400 (before reorg)"
+        );
+
+        // Phase 3: Settle new data for version 2 at t=1700
+        vm.warp(1700);
+        liquidity[0] = 150e18;
+        liquidity[1] = 250e18;
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, 1700, 2, accounts, liquidity)
+        );
+
+        // Settle data for finalization
+        values[0] = abi.encode("data1_v2");
+        values[1] = abi.encode("data2_v2");
+        liquidityMatrices[0].settleData(ILiquidityMatrix.SettleDataParams(apps[0], chainUID, 1700, 2, keys, values));
+
+        // Test all getters AFTER new settlement (at t=1800)
+        vm.warp(1800);
+
+        // Remote liquidity getters should now return new values
+        assertEq(
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1800),
+            150e18,
+            "Remote liquidity at 1800 after settlement"
+        );
+        assertEq(
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, bob, 1800),
+            250e18,
+            "Remote liquidity bob at 1800"
+        );
+        assertEq(
+            liquidityMatrices[0].getSettledRemoteLiquidity(apps[0], chainUID, alice),
+            150e18,
+            "Settled remote after settlement"
+        );
+        assertEq(
+            liquidityMatrices[0].getFinalizedRemoteLiquidity(apps[0], chainUID, alice),
+            150e18,
+            "Finalized remote after settlement"
+        );
+
+        assertEq(
+            liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], chainUID, 1800), 400e18, "Remote total at 1800"
+        );
+        assertEq(
+            liquidityMatrices[0].getSettledRemoteTotalLiquidity(apps[0], chainUID),
+            400e18,
+            "Settled remote total after settlement"
+        );
+        assertEq(
+            liquidityMatrices[0].getFinalizedRemoteTotalLiquidity(apps[0], chainUID),
+            400e18,
+            "Finalized remote total after settlement"
+        );
+
+        // Aggregated getters should show local + new remote
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], alice, 1800), 200e18, "Total liquidity at 1800"); // 50 local + 150 remote
+        assertEq(liquidityMatrices[0].getSettledLiquidity(apps[0], alice), 200e18, "Settled total after settlement");
+        assertEq(liquidityMatrices[0].getFinalizedLiquidity(apps[0], alice), 200e18, "Finalized total after settlement");
+
+        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], 1800), 525e18, "Total at 1800"); // 125 local + 400 remote
+        assertEq(liquidityMatrices[0].getSettledTotalLiquidity(apps[0]), 525e18, "Settled total after settlement");
+        assertEq(liquidityMatrices[0].getFinalizedTotalLiquidity(apps[0]), 525e18, "Finalized total after settlement");
+    }
+
+    function test_reorg_allDataGetters() public {
+        bytes32 chainUID = bytes32(uint256(eids[1]));
+        bytes32[] memory keys = new bytes32[](3);
+        keys[0] = keccak256("alpha");
+        keys[1] = keccak256("beta");
+        keys[2] = keccak256("gamma");
+        bytes[] memory values = new bytes[](3);
+
+        // Phase 1: Before reorg - settle data at t=1000
+        vm.warp(1000);
+        values[0] = abi.encode("value1", uint256(100));
+        values[1] = abi.encode("value2", uint256(200));
+        values[2] = abi.encode("value3", uint256(300));
+
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].settleData(ILiquidityMatrix.SettleDataParams(apps[0], chainUID, 1000, 1, keys, values));
+
+        // Test data getters BEFORE reorg (at t=1100)
+        vm.warp(1100);
+
+        // Remote data hash getters
+        assertEq(
+            liquidityMatrices[0].getRemoteDataHashAt(apps[0], chainUID, keys[0], 1100),
+            keccak256(values[0]),
+            "Remote data hash at 1100"
+        );
+        assertEq(
+            liquidityMatrices[0].getSettledRemoteDataHash(apps[0], chainUID, keys[0]),
+            keccak256(values[0]),
+            "Settled remote data hash"
+        );
+
+        // For finalized, we need liquidity settled too
+        address[] memory accounts = new address[](1);
+        accounts[0] = alice;
+        int256[] memory liquidity = new int256[](1);
+        liquidity[0] = 100e18;
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, 1000, 1, accounts, liquidity)
+        );
+
+        assertEq(
+            liquidityMatrices[0].getFinalizedRemoteDataHash(apps[0], chainUID, keys[0]),
+            keccak256(values[0]),
+            "Finalized remote data hash"
+        );
+
+        // Check all keys
+        for (uint256 i = 0; i < keys.length; i++) {
+            assertEq(
+                liquidityMatrices[0].getRemoteDataHashAt(apps[0], chainUID, keys[i], 1100),
+                keccak256(values[i]),
+                string.concat("Key ", vm.toString(i), " before reorg")
+            );
+        }
+
+        // Phase 2: Add reorg at t=1500
+        changePrank(owner, owner);
+        liquidityMatrices[0].addReorg(1500);
+
+        // Test data getters RIGHT AFTER reorg (at t=1600, no new settlements)
+        vm.warp(1600);
+
+        // All data getters should return 0 for version 2
+        for (uint256 i = 0; i < keys.length; i++) {
+            assertEq(
+                liquidityMatrices[0].getRemoteDataHashAt(apps[0], chainUID, keys[i], 1600),
+                bytes32(0),
+                string.concat("Key ", vm.toString(i), " after reorg should be 0")
+            );
+        }
+
+        assertEq(
+            liquidityMatrices[0].getSettledRemoteDataHash(apps[0], chainUID, keys[0]), bytes32(0), "Settled after reorg"
+        );
+        assertEq(
+            liquidityMatrices[0].getFinalizedRemoteDataHash(apps[0], chainUID, keys[0]),
+            bytes32(0),
+            "Finalized after reorg"
+        );
+
+        // Queries before reorg should still work
+        assertEq(
+            liquidityMatrices[0].getRemoteDataHashAt(apps[0], chainUID, keys[0], 1400),
+            keccak256(values[0]),
+            "Data at 1400 (before reorg)"
+        );
+
+        // Phase 3: Settle new data for version 2 at t=1700
+        vm.warp(1700);
+        values[0] = abi.encode("value1_v2", uint256(1000));
+        values[1] = abi.encode("value2_v2", uint256(2000));
+        values[2] = abi.encode("value3_v2", uint256(3000));
+
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].settleData(ILiquidityMatrix.SettleDataParams(apps[0], chainUID, 1700, 2, keys, values));
+
+        // Also settle liquidity for finalization
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, 1700, 2, accounts, liquidity)
+        );
+
+        // Test data getters AFTER new settlement (at t=1800)
+        vm.warp(1800);
+
+        // All data getters should return new values
+        for (uint256 i = 0; i < keys.length; i++) {
+            assertEq(
+                liquidityMatrices[0].getRemoteDataHashAt(apps[0], chainUID, keys[i], 1800),
+                keccak256(values[i]),
+                string.concat("Key ", vm.toString(i), " after new settlement")
+            );
+        }
+
+        assertEq(
+            liquidityMatrices[0].getSettledRemoteDataHash(apps[0], chainUID, keys[0]),
+            keccak256(values[0]),
+            "Settled after new settlement"
+        );
+        assertEq(
+            liquidityMatrices[0].getFinalizedRemoteDataHash(apps[0], chainUID, keys[0]),
+            keccak256(values[0]),
+            "Finalized after new settlement"
+        );
+    }
+
+    function test_reorg_rootGetters() public {
+        bytes32 chainUID = bytes32(uint256(eids[1]));
+
+        // Setup and sync to get initial roots
+        changePrank(apps[1], apps[1]);
+        liquidityMatrices[1].updateLocalLiquidity(alice, 100e18);
+        bytes32 key = keccak256("testKey");
+        bytes memory value = abi.encode("testValue");
+        liquidityMatrices[1].updateLocalData(key, value);
+
+        ILiquidityMatrix[] memory remotes = new ILiquidityMatrix[](1);
+        remotes[0] = liquidityMatrices[1];
+
+        vm.warp(1000);
+        _sync(syncers[0], liquidityMatrices[0], remotes);
+
+        // Get roots before reorg
+        (bytes32 liquidityRootBefore, uint64 liquidityTimestampBefore) =
+            liquidityMatrices[0].getLastReceivedLiquidityRoot(chainUID);
+        (bytes32 dataRootBefore, uint64 dataTimestampBefore) = liquidityMatrices[0].getLastReceivedDataRoot(chainUID);
+
+        assertTrue(liquidityRootBefore != bytes32(0), "Liquidity root should exist before reorg");
+        assertTrue(dataRootBefore != bytes32(0), "Data root should exist before reorg");
+        // Note: sync adds 1 to the timestamp internally
+        assertEq(liquidityTimestampBefore, 1001, "Liquidity timestamp before reorg");
+        assertEq(dataTimestampBefore, 1001, "Data timestamp before reorg");
+
+        // Settle the roots
+        address[] memory accounts = new address[](1);
+        accounts[0] = alice;
+        int256[] memory liquidity = new int256[](1);
+        liquidity[0] = 100e18;
+
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, 1001, 1, accounts, liquidity)
+        );
+
+        bytes32[] memory keys = new bytes32[](1);
+        keys[0] = key;
+        bytes[] memory values = new bytes[](1);
+        values[0] = value;
+        liquidityMatrices[0].settleData(ILiquidityMatrix.SettleDataParams(apps[0], chainUID, 1001, 1, keys, values));
+
+        // Check settled and finalized roots before reorg
+        (bytes32 settledLiqRoot, uint64 settledLiqTime) =
+            liquidityMatrices[0].getLastSettledLiquidityRoot(apps[0], chainUID);
+        (bytes32 finalizedLiqRoot, uint64 finalizedLiqTime) =
+            liquidityMatrices[0].getLastFinalizedLiquidityRoot(apps[0], chainUID);
+
+        assertEq(settledLiqRoot, liquidityRootBefore, "Settled liquidity root before reorg");
+        assertEq(finalizedLiqRoot, liquidityRootBefore, "Finalized liquidity root before reorg");
+        assertEq(settledLiqTime, 1001, "Settled time before reorg");
+        assertEq(finalizedLiqTime, 1001, "Finalized time before reorg");
+
+        // Add reorg at t=1500
+        changePrank(owner, owner);
+        liquidityMatrices[0].addReorg(1500);
+
+        // After reorg, settled/finalized roots should be empty for current version
+        (settledLiqRoot, settledLiqTime) = liquidityMatrices[0].getLastSettledLiquidityRoot(apps[0], chainUID);
+        (finalizedLiqRoot, finalizedLiqTime) = liquidityMatrices[0].getLastFinalizedLiquidityRoot(apps[0], chainUID);
+
+        assertEq(settledLiqRoot, bytes32(0), "Settled liquidity root after reorg");
+        assertEq(finalizedLiqRoot, bytes32(0), "Finalized liquidity root after reorg");
+        assertEq(settledLiqTime, 0, "Settled time after reorg");
+        assertEq(finalizedLiqTime, 0, "Finalized time after reorg");
+
+        // Historical queries should still work
+        assertEq(
+            liquidityMatrices[0].getLiquidityRootAt(chainUID, 1001),
+            liquidityRootBefore,
+            "Historical liquidity root at t=1001"
+        );
+        assertEq(liquidityMatrices[0].getDataRootAt(chainUID, 1001), dataRootBefore, "Historical data root at t=1001");
+
+        // Sync new data at t=2000
+        vm.warp(2000);
+        changePrank(apps[1], apps[1]);
+        liquidityMatrices[1].updateLocalLiquidity(alice, 200e18);
+        _sync(syncers[0], liquidityMatrices[0], remotes);
+
+        (bytes32 liquidityRootAfter, uint64 newTimestamp) = liquidityMatrices[0].getLastReceivedLiquidityRoot(chainUID);
+        assertTrue(liquidityRootAfter != bytes32(0), "New liquidity root after reorg");
+        assertTrue(liquidityRootAfter != liquidityRootBefore, "Root should be different after reorg");
+
+        // Settle for version 2 using the actual synced timestamp
+        liquidity[0] = 200e18;
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, newTimestamp, 2, accounts, liquidity)
+        );
+
+        (settledLiqRoot, settledLiqTime) = liquidityMatrices[0].getLastSettledLiquidityRoot(apps[0], chainUID);
+        assertEq(settledLiqRoot, liquidityRootAfter, "Settled liquidity root after new settlement");
+        assertEq(settledLiqTime, newTimestamp, "Settled time after new settlement");
+    }
+
+    function test_reorg_settlementStatusGetters() public {
+        bytes32 chainUID = bytes32(uint256(eids[1]));
+
+        // Setup initial settlement
+        address[] memory accounts = new address[](1);
+        accounts[0] = alice;
+        int256[] memory liquidity = new int256[](1);
+        liquidity[0] = 100e18;
+
+        bytes32[] memory keys = new bytes32[](1);
+        keys[0] = keccak256("key");
+        bytes[] memory values = new bytes[](1);
+        values[0] = abi.encode("value");
+
+        // Settle at t=1000 for version 1
+        vm.warp(1000);
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, 1000, 1, accounts, liquidity)
+        );
+        liquidityMatrices[0].settleData(ILiquidityMatrix.SettleDataParams(apps[0], chainUID, 1000, 1, keys, values));
+
+        // Check settlement status before reorg
+        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], chainUID, 1000), "Liquidity settled at 1000");
+        assertTrue(liquidityMatrices[0].isDataSettled(apps[0], chainUID, 1000), "Data settled at 1000");
+        assertTrue(liquidityMatrices[0].isFinalized(apps[0], chainUID, 1000), "Finalized at 1000");
+
+        // Add reorg at t=1500
+        changePrank(owner, owner);
+        liquidityMatrices[0].addReorg(1500);
+
+        // Check settlement status after reorg
+        // Queries at t=1000 should still return true for version 1
+        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], chainUID, 1000), "Liquidity still settled at 1000");
+        assertTrue(liquidityMatrices[0].isDataSettled(apps[0], chainUID, 1000), "Data still settled at 1000");
+        assertTrue(liquidityMatrices[0].isFinalized(apps[0], chainUID, 1000), "Still finalized at 1000");
+
+        // But queries at t=1600 (version 2) should return false
+        assertFalse(liquidityMatrices[0].isLiquiditySettled(apps[0], chainUID, 1600), "Liquidity not settled at 1600");
+        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], chainUID, 1600), "Data not settled at 1600");
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], chainUID, 1600), "Not finalized at 1600");
+
+        // Settle only liquidity for version 2 at t=1700
+        vm.warp(1700);
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].settleLiquidity(
+            ILiquidityMatrix.SettleLiquidityParams(apps[0], chainUID, 1700, 2, accounts, liquidity)
+        );
+
+        // Check partial settlement (liquidity but not data)
+        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], chainUID, 1700), "Liquidity settled at 1700");
+        assertFalse(liquidityMatrices[0].isDataSettled(apps[0], chainUID, 1700), "Data not settled at 1700");
+        assertFalse(liquidityMatrices[0].isFinalized(apps[0], chainUID, 1700), "Not finalized without data");
+
+        // Now settle data
+        liquidityMatrices[0].settleData(ILiquidityMatrix.SettleDataParams(apps[0], chainUID, 1700, 2, keys, values));
+
+        // Check full settlement
+        assertTrue(liquidityMatrices[0].isLiquiditySettled(apps[0], chainUID, 1700), "Liquidity settled at 1700");
+        assertTrue(liquidityMatrices[0].isDataSettled(apps[0], chainUID, 1700), "Data settled at 1700");
+        assertTrue(liquidityMatrices[0].isFinalized(apps[0], chainUID, 1700), "Finalized at 1700");
     }
 
     function test_edgeCase_finalizationAcrossReorg() public {
