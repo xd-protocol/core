@@ -1116,17 +1116,15 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         bool useCallbacks = localState.useCallbacks;
 
         RemoteState storage state = _remoteStates[params.app][params.chainUID];
-        if (state.versioned[params.version].liquiditySettled[params.timestamp]) {
+        RemoteVersionedState storage versioned = state.versioned[params.version];
+        if (versioned.liquiditySettled[params.timestamp]) {
             revert LiquidityAlreadySettled();
         }
-        state.versioned[params.version].liquiditySettled[params.timestamp] = true;
-        if (params.timestamp > state.versioned[params.version].lastSettledLiquidityTimestamp) {
-            state.versioned[params.version].lastSettledLiquidityTimestamp = params.timestamp;
-            if (
-                params.timestamp > state.versioned[params.version].lastFinalizedTimestamp
-                    && state.versioned[params.version].dataSettled[params.timestamp]
-            ) {
-                state.versioned[params.version].lastFinalizedTimestamp = params.timestamp;
+        versioned.liquiditySettled[params.timestamp] = true;
+        if (params.timestamp > versioned.lastSettledLiquidityTimestamp) {
+            versioned.lastSettledLiquidityTimestamp = params.timestamp;
+            if (params.timestamp > versioned.lastFinalizedTimestamp && versioned.dataSettled[params.timestamp]) {
+                versioned.lastFinalizedTimestamp = params.timestamp;
             }
         }
 
@@ -1143,8 +1141,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
             }
 
             // Update liquidity snapshot and track total change
-            SnapshotsLib.Snapshots storage snapshots = state.versioned[params.version].liquidity[_account];
-            totalLiquidity -= state.versioned[params.version].liquidity[_account].getLastAsInt();
+            SnapshotsLib.Snapshots storage snapshots = versioned.liquidity[_account];
+            totalLiquidity -= versioned.liquidity[_account].getLastAsInt();
             snapshots.setAsInt(liquidity, params.timestamp);
             totalLiquidity += liquidity;
 
@@ -1158,7 +1156,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
             }
         }
 
-        state.versioned[params.version].totalLiquidity.setAsInt(totalLiquidity, params.timestamp);
+        versioned.totalLiquidity.setAsInt(totalLiquidity, params.timestamp);
         if (useCallbacks) {
             try ILiquidityMatrixCallbacks(params.app).onSettleTotalLiquidity(
                 params.chainUID, params.timestamp, totalLiquidity
@@ -1171,7 +1169,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
             params.chainUID,
             params.app,
             _liquidityRoots[params.chainUID][params.version][params.timestamp],
-            params.timestamp
+            params.timestamp,
+            params.version
         );
     }
 
@@ -1183,15 +1182,13 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      */
     function settleData(SettleDataParams memory params) external onlySettler(params.app) {
         RemoteState storage state = _remoteStates[params.app][params.chainUID];
-        if (state.versioned[params.version].dataSettled[params.timestamp]) revert DataAlreadySettled();
-        state.versioned[params.version].dataSettled[params.timestamp] = true;
-        if (params.timestamp > state.versioned[params.version].lastSettledDataTimestamp) {
-            state.versioned[params.version].lastSettledDataTimestamp = params.timestamp;
-            if (
-                params.timestamp > state.versioned[params.version].lastFinalizedTimestamp
-                    && state.versioned[params.version].liquiditySettled[params.timestamp]
-            ) {
-                state.versioned[params.version].lastFinalizedTimestamp = params.timestamp;
+        RemoteVersionedState storage versioned = state.versioned[params.version];
+        if (versioned.dataSettled[params.timestamp]) revert DataAlreadySettled();
+        versioned.dataSettled[params.timestamp] = true;
+        if (params.timestamp > versioned.lastSettledDataTimestamp) {
+            versioned.lastSettledDataTimestamp = params.timestamp;
+            if (params.timestamp > versioned.lastFinalizedTimestamp && versioned.liquiditySettled[params.timestamp]) {
+                versioned.lastFinalizedTimestamp = params.timestamp;
             }
         }
 
@@ -1200,7 +1197,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         for (uint256 i; i < params.keys.length; i++) {
             (bytes32 key, bytes memory value) = (params.keys[i], params.values[i]);
             bytes32 valueHash = keccak256(value);
-            state.versioned[params.version].dataHashes[key].set(valueHash, params.timestamp);
+            versioned.dataHashes[key].set(valueHash, params.timestamp);
 
             // Trigger callback if enabled, catching any failures
             if (useCallbacks) {
@@ -1212,7 +1209,11 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         }
 
         emit SettleData(
-            params.chainUID, params.app, _dataRoots[params.chainUID][params.version][params.timestamp], params.timestamp
+            params.chainUID,
+            params.app,
+            _dataRoots[params.chainUID][params.version][params.timestamp],
+            params.timestamp,
+            params.version
         );
     }
 
@@ -1234,8 +1235,6 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         // Verify the app is registered
         if (!_appStates[_localApp].registered) revert AppNotRegistered();
 
-        RemoteState storage state = _remoteStates[_localApp][_fromChainUID];
-
         bool[] memory shouldMap = new bool[](remotes.length);
         if (ILiquidityMatrixAccountMapper(_localApp).shouldMapAccounts.selector == bytes4(0)) {
             for (uint256 i; i < remotes.length; ++i) {
@@ -1248,11 +1247,15 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
             }
         }
 
+        RemoteState storage state = _remoteStates[_localApp][_fromChainUID];
+        RemoteVersionedState storage current = state.versioned[currentVersion()];
+
         for (uint256 i; i < remotes.length; ++i) {
             if (!shouldMap[i]) continue;
 
             address remote = remotes[i];
             address local = locals[i];
+            if (remote == local) revert IdenticalAccounts();
 
             if (state.mappedAccounts[remote] != address(0)) revert RemoteAccountAlreadyMapped(_fromChainUID, remote);
             if (state.localAccountMapped[local]) revert LocalAccountAlreadyMapped(_fromChainUID, local);
@@ -1260,12 +1263,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
             state.mappedAccounts[remote] = local;
             state.localAccountMapped[local] = true;
 
-            uint256 version = currentVersion();
-            int256 remoteLiquidity = state.versioned[version].liquidity[remote].getLastAsInt();
-            state.versioned[version].liquidity[remote].setAsInt(0);
-
-            int256 currentLocalLiquidity = state.versioned[version].liquidity[local].getLastAsInt();
-            state.versioned[version].liquidity[local].setAsInt(currentLocalLiquidity + remoteLiquidity);
+            int256 remoteLiquidity = current.liquidity[remote].getLastAsInt();
+            current.liquidity[remote].setAsInt(0);
+            current.liquidity[local].setAsInt(remoteLiquidity);
 
             emit MapRemoteAccount(_localApp, _fromChainUID, remote, local);
         }

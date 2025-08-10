@@ -16,6 +16,7 @@ interface ILiquidityMatrix {
     error InvalidLengths();
     error InvalidTimestamp();
     error Forbidden();
+    error IdenticalAccounts();
     error RemoteAccountAlreadyMapped(bytes32 chainUID, address remote);
     error LocalAccountAlreadyMapped(bytes32 chainUID, address local);
     error LiquidityAlreadySettled();
@@ -67,9 +68,11 @@ interface ILiquidityMatrix {
     event Sync(address indexed caller);
 
     event SettleLiquidity(
-        bytes32 indexed chainUID, address indexed app, bytes32 indexed liquidityRoot, uint64 timestamp
+        bytes32 indexed chainUID, address indexed app, bytes32 indexed liquidityRoot, uint64 timestamp, uint256 version
     );
-    event SettleData(bytes32 indexed chainUID, address indexed app, bytes32 indexed dataRoot, uint64 timestamp);
+    event SettleData(
+        bytes32 indexed chainUID, address indexed app, bytes32 indexed dataRoot, uint64 timestamp, uint256 version
+    );
 
     event OnSettleLiquidityFailure(
         bytes32 indexed chainUID, uint64 indexed timestamp, address indexed account, int256 liquidity, bytes reason
