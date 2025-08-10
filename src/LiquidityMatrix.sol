@@ -7,6 +7,7 @@ import { ArrayLib } from "./libraries/ArrayLib.sol";
 import { AddressLib } from "./libraries/AddressLib.sol";
 import { MerkleTreeLib } from "./libraries/MerkleTreeLib.sol";
 import { SnapshotsLib } from "./libraries/SnapshotsLib.sol";
+import { JumpTableLib } from "./libraries/JumpTableLib.sol";
 import { ILiquidityMatrix } from "./interfaces/ILiquidityMatrix.sol";
 import { IGateway } from "./interfaces/IGateway.sol";
 import { IGatewayApp } from "./interfaces/IGatewayApp.sol";
@@ -131,6 +132,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     using AddressLib for address;
     using MerkleTreeLib for MerkleTreeLib.Tree;
     using SnapshotsLib for SnapshotsLib.Snapshots;
+    using JumpTableLib for JumpTableLib.JumpTable;
 
     /*//////////////////////////////////////////////////////////////
                                 TYPES
@@ -195,11 +197,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
 
-    uint64[] public reorgTimestamps;
-
-    // Jump table for efficient version lookup
-    uint256 constant MAX_JUMP_LEVELS = 32; // Supports up to 2^32 reorgs
-    mapping(uint256 => mapping(uint256 => uint256)) public jumpTable; // jumpTable[i][k] = index of reorg 2^k steps back
+    // Binary lifting table for efficient reorg timestamp lookups
+    JumpTableLib.JumpTable internal _reorgTable;
 
     mapping(address app => AppState) internal _appStates;
     MerkleTreeLib.Tree internal _mainLiquidityTree;
@@ -267,57 +266,28 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     //////////////////////////////////////////////////////////////*/
 
     function reorgTimestampsLength() external view returns (uint256) {
-        return reorgTimestamps.length;
+        return _reorgTable.length();
+    }
+
+    function reorgTimestamps(uint256 index) external view returns (uint64) {
+        return _reorgTable.valueAt(index);
     }
 
     function currentVersion() public view returns (uint256) {
-        return reorgTimestamps.length + 1;
+        return _reorgTable.length() + 1;
     }
 
     /**
-     * @notice Gets the version for a given timestamp using the jump table
-     * @dev Uses binary lifting for O(log N) lookup
+     * @notice Gets the version for a given timestamp
+     * @dev Uses the binary lifting table to find which version a timestamp belongs to
      * @param timestamp The timestamp to query
      * @return The version number for the timestamp
      */
     function getVersionForTimestamp(uint64 timestamp) public view returns (uint256) {
-        uint256 n = reorgTimestamps.length;
-
-        // If no reorgs or timestamp is before first reorg, return version 1
-        if (n == 0 || timestamp < reorgTimestamps[0]) {
-            return 1;
-        }
-
-        uint256 current = n - 1;
-
-        // If timestamp is after or at the latest reorg, return current version
-        if (reorgTimestamps[current] <= timestamp) {
-            return current + 2; // version = reorg_index + 2 after that reorg
-        }
-
-        // Use jump table to find the last reorg before timestamp
-        for (uint256 k = MAX_JUMP_LEVELS; k > 0;) {
-            unchecked {
-                k--;
-            }
-            uint256 prev = jumpTable[current][k];
-            if (prev != type(uint256).max && reorgTimestamps[prev] > timestamp) {
-                current = prev;
-            }
-        }
-
-        // Check if we need to go one more step back
-        uint256 prevIndex = jumpTable[current][0];
-        if (prevIndex == type(uint256).max) {
-            // We're at reorg 0 and timestamp is before it
-            return 1;
-        } else if (reorgTimestamps[prevIndex] <= timestamp) {
-            // Timestamp is between prevIndex and current
-            return prevIndex + 2;
-        } else {
-            // Timestamp is before prevIndex
-            return prevIndex + 1;
-        }
+        // findUpperBound returns the index of first reorg timestamp > target timestamp
+        // This index + 1 gives us the version number
+        uint256 upperBoundIndex = _reorgTable.findUpperBound(timestamp);
+        return upperBoundIndex + 1;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -920,37 +890,25 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Adds a new reorg timestamp and updates the jump table
-     * @dev Only callable by owner. Updates jump table for O(log N) version lookups.
+     * @notice Adds a new reorg timestamp
+     * @dev Only callable by owner. The timestamp must be greater than the last reorg timestamp.
      * @param timestamp The timestamp of the reorg
      */
     function addReorg(uint64 timestamp) external onlyOwner {
-        uint256 index = reorgTimestamps.length;
-
-        // Ensure timestamps are increasing
-        if (index > 0) {
-            if (timestamp <= reorgTimestamps[index - 1]) revert InvalidTimestamp();
-        }
-
-        reorgTimestamps.push(timestamp);
-
-        // Build jump table for this reorg
-        // jumpTable[index][0] points to the previous reorg (or max if none)
-        jumpTable[index][0] = (index == 0) ? type(uint256).max : index - 1;
-
-        // Fill higher jump levels
-        for (uint256 k = 1; k < MAX_JUMP_LEVELS; k++) {
-            uint256 midIndex = jumpTable[index][k - 1];
-            if (midIndex == type(uint256).max) {
-                jumpTable[index][k] = type(uint256).max;
-            } else {
-                jumpTable[index][k] = jumpTable[midIndex][k - 1];
+        // Check if timestamp is valid (must be greater than last reorg timestamp)
+        uint256 length = _reorgTable.length();
+        if (length > 0) {
+            uint64 lastTimestamp = _reorgTable.valueAt(length - 1);
+            if (timestamp <= lastTimestamp) {
+                revert InvalidTimestamp();
             }
         }
+
+        _reorgTable.append(timestamp);
     }
 
     /*//////////////////////////////////////////////////////////////
-                      LOCAL STATE LOGIC
+                        LOCAL STATE LOGIC
     //////////////////////////////////////////////////////////////*/
 
     /**
@@ -1054,7 +1012,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     }
 
     /*//////////////////////////////////////////////////////////////
-                      REMOTE STATE LOGIC
+                        REMOTE STATE LOGIC
     //////////////////////////////////////////////////////////////*/
 
     /**
@@ -1314,7 +1272,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     }
 
     /*//////////////////////////////////////////////////////////////
-                         SYNC FUNCTIONALITY
+                            SYNC LOGIC
     //////////////////////////////////////////////////////////////*/
 
     /**
@@ -1355,7 +1313,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     }
 
     /*//////////////////////////////////////////////////////////////
-                      IGATEAPP IMPLEMENTATION
+                      IGatewayApp IMPLEMENTATION
     //////////////////////////////////////////////////////////////*/
 
     /**
