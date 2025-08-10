@@ -10,7 +10,7 @@ import { IBaseERC20xD } from "../interfaces/IBaseERC20xD.sol";
 import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
 import { IGateway } from "../interfaces/IGateway.sol";
 import { IERC20xDHook } from "../interfaces/IERC20xDHook.sol";
-import { ILiquidityMatrixCallbacks } from "../interfaces/ILiquidityMatrixCallbacks.sol";
+import { ILiquidityMatrixHook } from "../interfaces/ILiquidityMatrixHook.sol";
 import { IGatewayApp } from "../interfaces/IGatewayApp.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
 
@@ -29,7 +29,7 @@ import { AddressLib } from "../libraries/AddressLib.sol";
  *        liquidity check confirms sufficient availability.
  *      - Supporting cancellation of pending transfers and updating local liquidity via the
  *        LiquidityMatrix.
- *      - Implementing ILiquidityMatrixCallbacks to receive notifications when remote state is settled.
+ *      - Implementing ILiquidityMatrixHook to receive notifications when remote state is settled.
  *      - Supporting extensible hook system for custom transfer logic.
  *
  *      Outgoing messages (transfers initiated by this contract) are composed and sent to remote chains
@@ -38,7 +38,7 @@ import { AddressLib } from "../libraries/AddressLib.sol";
  *
  *      Note: This contract is abstract and provides the core cross-chain transfer functionality.
  */
-abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20xD, ILiquidityMatrixCallbacks {
+abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20xD, ILiquidityMatrixHook {
     using AddressLib for address;
     using BytesLib for bytes;
 
@@ -88,21 +88,16 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     event OnSettleLiquidityHookFailure(
         address indexed hook,
         bytes32 indexed chainUID,
-        uint256 timestamp,
+        uint64 timestamp,
         address indexed account,
         int256 liquidity,
         bytes reason
     );
     event OnSettleTotalLiquidityHookFailure(
-        address indexed hook, bytes32 indexed chainUID, uint256 timestamp, int256 totalLiquidity, bytes reason
+        address indexed hook, bytes32 indexed chainUID, uint64 timestamp, int256 totalLiquidity, bytes reason
     );
     event OnSettleDataHookFailure(
-        address indexed hook,
-        bytes32 indexed chainUID,
-        uint256 timestamp,
-        bytes32 indexed key,
-        bytes value,
-        bytes reason
+        address indexed hook, bytes32 indexed chainUID, uint64 timestamp, bytes32 indexed key, bytes value, bytes reason
     );
 
     /*//////////////////////////////////////////////////////////////
@@ -182,7 +177,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @return The total supply of the token as a `uint256`.
      */
     function totalSupply() public view override(BaseERC20, IERC20) returns (uint256) {
-        return _toUint(ILiquidityMatrix(liquidityMatrix).getSettledTotalLiquidity(address(this)));
+        return 0; // TODO
     }
 
     /**
@@ -191,7 +186,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @return The synced balance of the account as a `uint256`.
      */
     function balanceOf(address account) public view override(BaseERC20, IERC20) returns (uint256) {
-        return _toUint(ILiquidityMatrix(liquidityMatrix).getSettledLiquidity(address(this), account));
+        return 0; // TODO
     }
 
     /**
@@ -297,10 +292,10 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
 
     /**
      * @notice Updates whether this app uses callbacks from LiquidityMatrix
-     * @param useCallbacks Whether to enable callbacks
+     * @param useHook Whether to enable callbacks
      */
-    function updateUseCallbacks(bool useCallbacks) external onlyOwner {
-        ILiquidityMatrix(liquidityMatrix).updateUseCallbacks(useCallbacks);
+    function updateUseHook(bool useHook) external onlyOwner {
+        ILiquidityMatrix(liquidityMatrix).updateUseHook(useHook);
     }
 
     /**
@@ -653,7 +648,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     }
 
     /*//////////////////////////////////////////////////////////////
-                    ILiquidityMatrixCallbacks
+                    ILiquidityMatrixHook
     //////////////////////////////////////////////////////////////*/
 
     /**
@@ -684,9 +679,8 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @param chainUID The chain unique identifier of the remote chain
      * @param timestamp The timestamp of the settled data
      * @param account The account whose liquidity was updated
-     * @param liquidity The settled liquidity value
      */
-    function onSettleLiquidity(bytes32 chainUID, uint256 timestamp, address account, int256 liquidity)
+    function onSettleLiquidity(bytes32 chainUID, uint256, uint64 timestamp, address account)
         external
         virtual
         override
@@ -698,6 +692,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         address[] memory _hooks = hooks;
         uint256 length = _hooks.length;
         for (uint256 i; i < length; ++i) {
+            int256 liquidity = 0; // TODO
             try IERC20xDHook(_hooks[i]).onSettleLiquidity(chainUID, timestamp, account, liquidity) { }
             catch (bytes memory reason) {
                 emit OnSettleLiquidityHookFailure(_hooks[i], chainUID, timestamp, account, liquidity, reason);
@@ -710,13 +705,8 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @dev Triggered after all individual account liquidity updates are processed
      * @param chainUID The chain unique identifier of the remote chain
      * @param timestamp The timestamp of the settled data
-     * @param totalLiquidity The total liquidity across all accounts
      */
-    function onSettleTotalLiquidity(bytes32 chainUID, uint256 timestamp, int256 totalLiquidity)
-        external
-        virtual
-        override
-    {
+    function onSettleTotalLiquidity(bytes32 chainUID, uint256, uint64 timestamp) external virtual override {
         // Only allow calls from the LiquidityMatrix contract
         if (msg.sender != liquidityMatrix) revert Forbidden();
 
@@ -724,6 +714,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         address[] memory _hooks = hooks;
         uint256 length = _hooks.length;
         for (uint256 i; i < length; ++i) {
+            int256 totalLiquidity = 0; // TODO
             try IERC20xDHook(_hooks[i]).onSettleTotalLiquidity(chainUID, timestamp, totalLiquidity) { }
             catch (bytes memory reason) {
                 emit OnSettleTotalLiquidityHookFailure(_hooks[i], chainUID, timestamp, totalLiquidity, reason);
@@ -737,13 +728,8 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @param chainUID The chain unique identifier of the remote chain
      * @param timestamp The timestamp of the settled data
      * @param key The data key that was updated
-     * @param value The settled data value
      */
-    function onSettleData(bytes32 chainUID, uint256 timestamp, bytes32 key, bytes memory value)
-        external
-        virtual
-        override
-    {
+    function onSettleData(bytes32 chainUID, uint256, uint64 timestamp, bytes32 key) external virtual override {
         // Only allow calls from the LiquidityMatrix contract
         if (msg.sender != liquidityMatrix) revert Forbidden();
 
@@ -751,6 +737,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         address[] memory _hooks = hooks;
         uint256 length = _hooks.length;
         for (uint256 i; i < length; ++i) {
+            bytes memory value = ""; // TODO
             try IERC20xDHook(_hooks[i]).onSettleData(chainUID, timestamp, key, value) { }
             catch (bytes memory reason) {
                 emit OnSettleDataHookFailure(_hooks[i], chainUID, timestamp, key, value, reason);

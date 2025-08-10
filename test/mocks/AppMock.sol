@@ -36,15 +36,15 @@ contract AppMock is IAppMock {
         // Empty
     }
 
-    function onSettleLiquidity(bytes32 chainUID, uint256, address account, int256 liquidity) external {
-        _remoteLiquidity[chainUID][account] = liquidity;
+    function onSettleLiquidity(bytes32 chainUID, uint256, uint64, address account) external {
+        _remoteLiquidity[chainUID][account] = 0; // TODO
     }
 
-    function onSettleTotalLiquidity(bytes32 chainUID, uint256, int256 totalLiquidity) external {
-        _remoteTotalLiquidity[chainUID] = totalLiquidity;
+    function onSettleTotalLiquidity(bytes32 chainUID, uint256, uint64) external {
+        _remoteTotalLiquidity[chainUID] = 0;
     }
 
-    function onSettleData(bytes32 chainUID, uint256, bytes32 key, bytes memory value) external {
-        _remoteData[chainUID][key] = value;
+    function onSettleData(bytes32 chainUID, uint256, uint64, bytes32 key) external {
+        _remoteData[chainUID][key] = "";
     }
 }

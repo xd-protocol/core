@@ -60,9 +60,9 @@ interface IBaseERC20xD is IERC20Permit, IGatewayApp {
 
     /**
      * @notice Updates whether to use callbacks
-     * @param useCallbacks True to enable callbacks
+     * @param useHook True to enable callbacks
      */
-    function updateUseCallbacks(bool useCallbacks) external;
+    function updateUseHook(bool useHook) external;
 
     /**
      * @notice Updates the settler address

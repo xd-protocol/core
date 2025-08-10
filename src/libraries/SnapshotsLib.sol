@@ -29,10 +29,45 @@ library SnapshotsLib {
 
     /**
      * @notice Retrieves the value of the last snapshot.
+     * @return The value of the closest snapshot, converted to `bool`.
+     */
+    function getAsBool(Snapshots storage snapshots) internal view returns (bool) {
+        return getAsBool(snapshots, block.timestamp);
+    }
+
+    /**
+     * @notice Retrieves the value of the last snapshot.
+     * @return The value of the closest snapshot, converted to `uint256`.
+     */
+    function getAsUint(Snapshots storage snapshots) internal view returns (uint256) {
+        return getAsUint(snapshots, block.timestamp);
+    }
+
+    /**
+     * @notice Retrieves the value of the last snapshot.
      * @return The value of the closest snapshot, converted to `int256`.
      */
-    function getLastAsInt(Snapshots storage snapshots) internal view returns (int256) {
+    function getAsInt(Snapshots storage snapshots) internal view returns (int256) {
         return getAsInt(snapshots, block.timestamp);
+    }
+
+    /**
+     * @notice Retrieves the value of the closest snapshot with a timestamp less than or equal to `since`.
+     * @param since The timestamp to find the closest snapshot for.
+     * @return The value of the closest snapshot, converted to `bool`.
+     */
+    function getAsBool(Snapshots storage snapshots, uint256 since) internal view returns (bool) {
+        bytes32 value = get(snapshots, since);
+        return value != bytes32(0);
+    }
+
+    /**
+     * @notice Retrieves the value of the closest snapshot with a timestamp less than or equal to `since`.
+     * @param since The timestamp to find the closest snapshot for.
+     * @return The value of the closest snapshot, converted to `uint256`.
+     */
+    function getAsUint(Snapshots storage snapshots, uint256 since) internal view returns (uint256) {
+        return uint256(get(snapshots, since));
     }
 
     /**
@@ -48,7 +83,7 @@ library SnapshotsLib {
      * @notice Retrieves the value of the last snapshot.
      * @return The value of the closest snapshot.
      */
-    function getLast(Snapshots storage snapshots) internal view returns (bytes32) {
+    function get(Snapshots storage snapshots) internal view returns (bytes32) {
         return get(snapshots, block.timestamp);
     }
 
@@ -81,6 +116,39 @@ library SnapshotsLib {
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Sets a new snapshot with a given `int256` value and the current block timestamp.
+     * @param value The `int256` value to store in the snapshot.
+     */
+    function setAsBool(Snapshots storage snapshots, bool value) internal {
+        setAsBool(snapshots, value, block.timestamp);
+    }
+
+    /**
+     * @notice Sets a new snapshot with a given `int256` value and the current block timestamp.
+     * @param value The `int256` value to store in the snapshot.
+     */
+    function setAsBool(Snapshots storage snapshots, bool value, uint256 timestamp) internal {
+        set(snapshots, bytes32(uint256(value ? 1 : 0)), timestamp);
+    }
+
+    /**
+     * @notice Sets a new snapshot with a given `uint256` value and the current block timestamp.
+     * @param value The `uint256` value to store in the snapshot.
+     */
+    function setAsUint(Snapshots storage snapshots, uint256 value) internal {
+        setAsUint(snapshots, value, block.timestamp);
+    }
+
+    /**
+     * @notice Sets a new snapshot with a given `uint256` value and a specific timestamp.
+     * @param value The `uint256` value to store in the snapshot.
+     * @param timestamp The timestamp to associate with the snapshot.
+     */
+    function setAsUint(Snapshots storage snapshots, uint256 value, uint256 timestamp) internal {
+        set(snapshots, bytes32(value), timestamp);
+    }
 
     /**
      * @notice Sets a new snapshot with a given `int256` value and the current block timestamp.

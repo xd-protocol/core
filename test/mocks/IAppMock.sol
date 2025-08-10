@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { ILiquidityMatrixCallbacks } from "src/interfaces/ILiquidityMatrixCallbacks.sol";
+import { ILiquidityMatrixHook } from "src/interfaces/ILiquidityMatrixHook.sol";
 import { ILiquidityMatrixAccountMapper } from "src/interfaces/ILiquidityMatrixAccountMapper.sol";
 
-interface IAppMock is ILiquidityMatrixCallbacks, ILiquidityMatrixAccountMapper {
+interface IAppMock is ILiquidityMatrixHook, ILiquidityMatrixAccountMapper {
     function remoteLiquidity(bytes32 chainUID, address account) external view returns (int256);
 
     function remoteTotalLiquidity(bytes32 chainUID) external view returns (int256);
