@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { IRemoteAppChronicle } from "./interfaces/IRemoteAppChronicle.sol";
-import { ILiquidityMatrix } from "./interfaces/ILiquidityMatrix.sol";
-import { ILiquidityMatrixHook } from "./interfaces/ILiquidityMatrixHook.sol";
-import { SnapshotsLib } from "./libraries/SnapshotsLib.sol";
-import { ArrayLib } from "./libraries/ArrayLib.sol";
-import { MerkleTreeLib } from "./libraries/MerkleTreeLib.sol";
+import { IRemoteAppChronicle } from "../interfaces/IRemoteAppChronicle.sol";
+import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
+import { ILiquidityMatrixHook } from "../interfaces/ILiquidityMatrixHook.sol";
+import { SnapshotsLib } from "../libraries/SnapshotsLib.sol";
+import { ArrayLib } from "../libraries/ArrayLib.sol";
+import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
 
 /**
  * @title RemoteAppChronicle

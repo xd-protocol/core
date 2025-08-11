@@ -8,8 +8,8 @@ import {
     EVMCallComputeV1
 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
-import { LocalAppChronicleDeployer } from "src/LocalAppChronicleDeployer.sol";
-import { RemoteAppChronicleDeployer } from "src/RemoteAppChronicleDeployer.sol";
+import { LocalAppChronicleDeployer } from "src/chronicles/LocalAppChronicleDeployer.sol";
+import { RemoteAppChronicleDeployer } from "src/chronicles/RemoteAppChronicleDeployer.sol";
 import { LayerZeroGateway } from "src/gateways/LayerZeroGateway.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";

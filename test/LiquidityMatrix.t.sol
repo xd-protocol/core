@@ -6,8 +6,8 @@ import {
     MessagingReceipt
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
-import { LocalAppChronicleDeployer } from "src/LocalAppChronicleDeployer.sol";
-import { RemoteAppChronicleDeployer } from "src/RemoteAppChronicleDeployer.sol";
+import { LocalAppChronicleDeployer } from "src/chronicles/LocalAppChronicleDeployer.sol";
+import { RemoteAppChronicleDeployer } from "src/chronicles/RemoteAppChronicleDeployer.sol";
 import { LayerZeroGateway } from "src/gateways/LayerZeroGateway.sol";
 import { IRemoteAppChronicle } from "src/interfaces/IRemoteAppChronicle.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";

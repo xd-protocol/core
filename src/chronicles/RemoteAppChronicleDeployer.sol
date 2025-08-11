@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { IRemoteAppChronicleDeployer } from "./interfaces/IRemoteAppChronicleDeployer.sol";
+import { IRemoteAppChronicleDeployer } from "../interfaces/IRemoteAppChronicleDeployer.sol";
 import { RemoteAppChronicle } from "./RemoteAppChronicle.sol";
 
 /**

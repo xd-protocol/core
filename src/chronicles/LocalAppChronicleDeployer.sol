@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { ILocalAppChronicleDeployer } from "./interfaces/ILocalAppChronicleDeployer.sol";
+import { ILocalAppChronicleDeployer } from "../interfaces/ILocalAppChronicleDeployer.sol";
 import { LocalAppChronicle } from "./LocalAppChronicle.sol";
 
 /**

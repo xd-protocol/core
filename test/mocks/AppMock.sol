@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import { IAppMock } from "./IAppMock.sol";
 import { ILiquidityMatrix } from "../../src/interfaces/ILiquidityMatrix.sol";
-import { RemoteAppChronicle } from "../../src/RemoteAppChronicle.sol";
+import { RemoteAppChronicle } from "../../src/chronicles/RemoteAppChronicle.sol";
 
 contract AppMock is IAppMock {
     address immutable liquidityMatrix;
