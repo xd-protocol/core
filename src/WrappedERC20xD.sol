@@ -44,6 +44,7 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
      * @param _liquidityMatrix The address of the LiquidityMatrix contract.
      * @param _gateway The address of the Gateway contract.
      * @param _owner The owner of the contract.
+     * @param _settler The address of the whitelisted settler for this token.
      */
     constructor(
         address _underlying,
@@ -52,8 +53,9 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
         uint8 _decimals,
         address _liquidityMatrix,
         address _gateway,
-        address _owner
-    ) BaseERC20xD(_name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner) {
+        address _owner,
+        address _settler
+    ) BaseERC20xD(_name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner, _settler) {
         underlying = _underlying;
     }
 

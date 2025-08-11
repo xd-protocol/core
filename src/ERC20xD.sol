@@ -23,6 +23,7 @@ contract ERC20xD is BaseERC20xD, IERC20xD {
      * @param _liquidityMatrix The address of the LiquidityMatrix contract.
      * @param _gateway The address of the Gateway contract.
      * @param _owner The owner of this contract.
+     * @param _settler The address of the whitelisted settler for this token.
      */
     constructor(
         string memory _name,
@@ -30,8 +31,9 @@ contract ERC20xD is BaseERC20xD, IERC20xD {
         uint8 _decimals,
         address _liquidityMatrix,
         address _gateway,
-        address _owner
-    ) BaseERC20xD(_name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner) { }
+        address _owner,
+        address _settler
+    ) BaseERC20xD(_name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner, _settler) { }
 
     /*//////////////////////////////////////////////////////////////
                              VIEW FUNCTIONS

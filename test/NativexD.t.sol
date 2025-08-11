@@ -35,7 +35,15 @@ contract NativexDTest is BaseERC20xDTestHelper {
         vaults[i] = new StakingVaultMock();
         return BaseERC20xD(
             address(
-                new NativexD("Test Native xD", "TNxD", 18, address(liquidityMatrices[i]), address(gateways[i]), owner)
+                new NativexD(
+                    "Test Native xD",
+                    "TNxD",
+                    18,
+                    address(liquidityMatrices[i]),
+                    address(gateways[i]),
+                    owner,
+                    settlers[i]
+                )
             )
         );
     }

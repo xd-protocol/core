@@ -48,7 +48,8 @@ contract WrappedERC20xDTest is BaseERC20xDTestHelper {
                     18,
                     address(liquidityMatrices[i]),
                     address(gateways[i]),
-                    owner
+                    owner,
+                    settlers[i]
                 )
             )
         );

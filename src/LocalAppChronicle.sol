@@ -55,8 +55,8 @@ contract LocalAppChronicle {
                               MODIFIERS
     //////////////////////////////////////////////////////////////*/
 
-    modifier onlyApp() {
-        if (msg.sender != app) revert Forbidden();
+    modifier onlyAppOrLiquidityMatrix() {
+        if (msg.sender != app && msg.sender != liquidityMatrix) revert Forbidden();
         _;
     }
 
@@ -122,7 +122,7 @@ contract LocalAppChronicle {
      */
     function updateLiquidity(address account, int256 liquidity)
         external
-        onlyApp
+        onlyAppOrLiquidityMatrix
         returns (uint256 topTreeIndex, uint256 appTreeIndex)
     {
         appTreeIndex = _liquidityTree.update(bytes32(uint256(uint160(account))), bytes32(uint256(liquidity)));
@@ -147,7 +147,7 @@ contract LocalAppChronicle {
 
     function updateData(bytes32 key, bytes memory value)
         external
-        onlyApp
+        onlyAppOrLiquidityMatrix
         returns (uint256 topTreeIndex, uint256 appTreeIndex)
     {
         bytes32 hash = keccak256(value);

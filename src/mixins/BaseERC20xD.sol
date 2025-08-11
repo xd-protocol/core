@@ -132,6 +132,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @param _liquidityMatrix The address of the LiquidityMatrix contract.
      * @param _gateway The address of the Gateway contract.
      * @param _owner The address that will be granted ownership privileges.
+     * @param _settler The address of the whitelisted settler for this token.
      */
     constructor(
         string memory _name,
@@ -139,14 +140,15 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         uint8 _decimals,
         address _liquidityMatrix,
         address _gateway,
-        address _owner
+        address _owner,
+        address _settler
     ) BaseERC20(_name, _symbol, _decimals) Ownable(_owner) {
         liquidityMatrix = _liquidityMatrix;
         gateway = _gateway;
         _pendingTransfers.push();
 
         // Register this contract as an app in the LiquidityMatrix with callbacks enabled
-        ILiquidityMatrix(_liquidityMatrix).registerApp(false, true, address(0));
+        ILiquidityMatrix(_liquidityMatrix).registerApp(false, true, _settler);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -177,7 +179,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @return The total supply of the token as a `uint256`.
      */
     function totalSupply() public view override(BaseERC20, IERC20) returns (uint256) {
-        return 0; // TODO
+        return _toUint(ILiquidityMatrix(liquidityMatrix).getAggregatedSettledTotalLiquidity(address(this)));
     }
 
     /**
@@ -186,7 +188,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @return The synced balance of the account as a `uint256`.
      */
     function balanceOf(address account) public view override(BaseERC20, IERC20) returns (uint256) {
-        return 0; // TODO
+        return _toUint(ILiquidityMatrix(liquidityMatrix).getAggregatedSettledLiquidityAt(address(this), account));
     }
 
     /**
@@ -692,7 +694,8 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         address[] memory _hooks = hooks;
         uint256 length = _hooks.length;
         for (uint256 i; i < length; ++i) {
-            int256 liquidity = 0; // TODO
+            int256 liquidity =
+                ILiquidityMatrix(liquidityMatrix).getLiquidityAt(address(this), chainUID, account, timestamp);
             try IERC20xDHook(_hooks[i]).onSettleLiquidity(chainUID, timestamp, account, liquidity) { }
             catch (bytes memory reason) {
                 emit OnSettleLiquidityHookFailure(_hooks[i], chainUID, timestamp, account, liquidity, reason);
@@ -714,7 +717,8 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         address[] memory _hooks = hooks;
         uint256 length = _hooks.length;
         for (uint256 i; i < length; ++i) {
-            int256 totalLiquidity = 0; // TODO
+            int256 totalLiquidity =
+                ILiquidityMatrix(liquidityMatrix).getTotalLiquidityAt(address(this), chainUID, timestamp);
             try IERC20xDHook(_hooks[i]).onSettleTotalLiquidity(chainUID, timestamp, totalLiquidity) { }
             catch (bytes memory reason) {
                 emit OnSettleTotalLiquidityHookFailure(_hooks[i], chainUID, timestamp, totalLiquidity, reason);

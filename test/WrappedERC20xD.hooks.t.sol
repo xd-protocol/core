@@ -155,6 +155,7 @@ contract WrappedERC20xDHooksTest is Test {
     address constant owner = address(0x1);
     address constant alice = address(0x2);
     address constant bob = address(0x3);
+    address constant settler = address(0x4);
 
     event AfterTransferHookFailure(
         address indexed hook, address indexed from, address indexed to, uint256 amount, bytes reason
@@ -167,9 +168,12 @@ contract WrappedERC20xDHooksTest is Test {
         gateway = new LayerZeroGatewayMock();
         underlying = new ERC20Mock("USDC", "USDC", 6);
 
+        // Whitelist settler in liquidityMatrix
+        liquidityMatrix.updateSettlerWhitelisted(settler, true);
+
         // Deploy wrapped token
         wrappedToken = new WrappedERC20xD(
-            address(underlying), "Wrapped USDC", "wUSDC", 6, address(liquidityMatrix), address(gateway), owner
+            address(underlying), "Wrapped USDC", "wUSDC", 6, address(liquidityMatrix), address(gateway), owner, settler
         );
 
         // Set read target for local chain (chain ID 1 from gateway mock)

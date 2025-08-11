@@ -16,7 +16,7 @@ contract SnapshotsLibTest is Test {
     function test_set_and_get_single() public {
         snapshots.set(bytes32(uint256(100)));
 
-        assertEq(uint256(snapshots.getLast()), 100);
+        assertEq(uint256(snapshots.get()), 100);
         assertEq(uint256(snapshots.get(block.timestamp)), 100);
         assertEq(uint256(snapshots.get(block.timestamp + 1)), 100);
     }
@@ -44,8 +44,8 @@ contract SnapshotsLibTest is Test {
 
     function test_get_empty_snapshots() public view {
         assertEq(uint256(snapshots.get(block.timestamp)), 0);
-        assertEq(uint256(snapshots.getLast()), 0);
-        assertEq(snapshots.getLastAsInt(), 0);
+        assertEq(uint256(snapshots.get()), 0);
+        assertEq(snapshots.getAsInt(), 0);
         assertEq(snapshots.getAsInt(block.timestamp), 0);
     }
 
@@ -228,7 +228,7 @@ contract SnapshotsLibTest is Test {
         assertEq(snapshots.getAsInt(1000), -100);
         assertEq(snapshots.getAsInt(2000), 200);
         assertEq(snapshots.getAsInt(3000), -300);
-        assertEq(snapshots.getLastAsInt(), -300);
+        assertEq(snapshots.getAsInt(), -300);
     }
 
     function test_setAsInt_with_timestamp() public {
@@ -272,7 +272,7 @@ contract SnapshotsLibTest is Test {
 
         // Zero value should be stored
         assertEq(uint256(snapshots.get(1000)), 0);
-        assertEq(uint256(snapshots.getLast()), 0);
+        assertEq(uint256(snapshots.get()), 0);
     }
 
     function test_set_max_value() public {
@@ -281,7 +281,7 @@ contract SnapshotsLibTest is Test {
         snapshots.set(bytes32(maxValue));
 
         assertEq(uint256(snapshots.get(1000)), maxValue);
-        assertEq(uint256(snapshots.getLast()), maxValue);
+        assertEq(uint256(snapshots.get()), maxValue);
     }
 
     function test_binary_search_boundaries() public {
@@ -317,7 +317,7 @@ contract SnapshotsLibTest is Test {
 
         assertEq(uint256(snapshots.get(timestamp)), value);
         assertEq(uint256(snapshots.get(timestamp + 1)), value);
-        assertEq(uint256(snapshots.getLast()), value);
+        assertEq(uint256(snapshots.get()), value);
     }
 
     function testFuzz_set_past_timestamps(uint256[5] memory values, uint256[5] memory timestamps) public {
@@ -376,7 +376,7 @@ contract SnapshotsLibTest is Test {
         snapshots.setAsInt(value);
 
         assertEq(snapshots.getAsInt(timestamp), value);
-        assertEq(snapshots.getLastAsInt(), value);
+        assertEq(snapshots.getAsInt(), value);
     }
 
     /*//////////////////////////////////////////////////////////////

@@ -38,6 +38,7 @@ contract NativexD is BaseERC20xD, INativexD {
      * @param _liquidityMatrix The address of the LiquidityMatrix contract.
      * @param _gateway The address of the Gateway contract.
      * @param _owner The address that will be granted ownership privileges.
+     * @param _settler The address of the whitelisted settler for this token.
      */
     constructor(
         string memory _name,
@@ -45,8 +46,9 @@ contract NativexD is BaseERC20xD, INativexD {
         uint8 _decimals,
         address _liquidityMatrix,
         address _gateway,
-        address _owner
-    ) BaseERC20xD(_name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner) { }
+        address _owner,
+        address _settler
+    ) BaseERC20xD(_name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner, _settler) { }
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC

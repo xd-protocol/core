@@ -11,8 +11,9 @@ contract ERC20xDMock is BaseERC20xD {
         uint8 _decimals,
         address _liquidityMatrix,
         address _gateway,
-        address _owner
-    ) BaseERC20xD(_name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner) { }
+        address _owner,
+        address _settler
+    ) BaseERC20xD(_name, _symbol, _decimals, _liquidityMatrix, _gateway, _owner, _settler) { }
 
     function testTransferFrom(address from, address to, uint256 amount) external returns (bool) {
         // Directly call _transferFrom which handles hooks

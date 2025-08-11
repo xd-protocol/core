@@ -35,6 +35,7 @@ interface ILiquidityMatrix {
         address indexed app, uint256 indexed version, bool syncMappedAccountsOnly, bool useHook, address settler
     );
     event AddLocalAppChronicle(address indexed app, uint256 indexed version, address indexed chronicle);
+    event AddRemoteAppChronicle(address indexed app, bytes32 indexed chainUID, uint256 version, address chronicle);
     event UpdateSyncMappedAccountsOnly(address indexed app, bool syncMappedAccountsOnly);
     event UpdateUseHook(address indexed app, bool useHook);
     event UpdateSettler(address indexed app, address settler);
@@ -61,28 +62,6 @@ interface ILiquidityMatrix {
     event UpdateGateway(address indexed gateway);
     event UpdateSyncer(address indexed syncer);
     event Sync(address indexed caller);
-
-    /*//////////////////////////////////////////////////////////////
-                                TYPES
-    //////////////////////////////////////////////////////////////*/
-
-    struct SettleLiquidityParams {
-        address app;
-        bytes32 chainUID;
-        uint64 timestamp;
-        uint256 version;
-        address[] accounts;
-        int256[] liquidity;
-    }
-
-    struct SettleDataParams {
-        address app;
-        bytes32 chainUID;
-        uint64 timestamp;
-        uint256 version;
-        bytes32[] keys;
-        bytes[] values;
-    }
 
     /*//////////////////////////////////////////////////////////////
                         LOCAL VIEW FUNCTIONS
@@ -154,6 +133,10 @@ interface ILiquidityMatrix {
     function getLocalTotalLiquidity(address app) external view returns (int256 liquidity);
 
     function getLocalTotalLiquidityAt(address app, uint64 timestamp) external view returns (int256);
+
+    function getLocalData(address app, bytes32 key) external view returns (bytes memory);
+
+    function getLocalDataAt(address app, bytes32 key, uint64 timestamp) external view returns (bytes memory);
 
     /*//////////////////////////////////////////////////////////////
                         REMOTE VIEW FUNCTIONS
@@ -351,6 +334,20 @@ interface ILiquidityMatrix {
                         REMOTE STATE VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
+    function getAggregatedSettledTotalLiquidity(address app) external view returns (int256 liquidity);
+
+    function getAggregatedSettledTotalLiquidity(address app, bytes32[] memory chainUIDs)
+        external
+        view
+        returns (int256 liquidity);
+
+    function getAggregatedFinalizedTotalLiquidity(address app) external view returns (int256 liquidity);
+
+    function getAggregatedFinalizedTotalLiquidity(address app, bytes32[] memory chainUIDs)
+        external
+        view
+        returns (int256 liquidity);
+
     function getAggregatedTotalLiquidityAt(address app, uint64 timestamp) external view returns (int256 liquidity);
 
     function getAggregatedTotalLiquidityAt(address app, bytes32[] memory chainUIDs, uint64 timestamp)
@@ -370,7 +367,16 @@ interface ILiquidityMatrix {
         view
         returns (int256 liquidity);
 
-    function getTotalLiquidityAt(address app, bytes32 chainUID, uint256 version, uint64 timestamp)
+    function getAggregatedSettledLiquidityAt(address app, address account) external view returns (int256 liquidity);
+
+    function getAggregatedSettledLiquidityAt(address app, bytes32[] memory chainUIDs, address account)
+        external
+        view
+        returns (int256 liquidity);
+
+    function getAggregatedFinalizedLiquidityAt(address app, address account) external view returns (int256 liquidity);
+
+    function getAggregatedFinalizedLiquidityAt(address app, bytes32[] memory chainUIDs, address account)
         external
         view
         returns (int256 liquidity);
@@ -386,11 +392,6 @@ interface ILiquidityMatrix {
         returns (int256 liquidity);
 
     function getLiquidityAt(address app, bytes32 chainUID, address account, uint64 timestamp)
-        external
-        view
-        returns (int256 liquidity);
-
-    function getLiquidityAt(address app, bytes32 chainUID, uint256 version, address account, uint64 timestamp)
         external
         view
         returns (int256 liquidity);
@@ -446,6 +447,8 @@ interface ILiquidityMatrix {
     function updateSettler(address settler) external;
 
     function addLocalAppChronicle(address app, uint256 version) external;
+
+    function addRemoteAppChronicle(address app, bytes32 chainUID, uint256 version) external;
 
     function updateTopLiquidityTree(uint256 version, address app, bytes32 appLiquidityRoot)
         external

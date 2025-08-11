@@ -12,6 +12,7 @@ import { LayerZeroGateway } from "src/gateways/LayerZeroGateway.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { IGatewayApp } from "src/interfaces/IGatewayApp.sol";
+import { RemoteAppChronicle } from "src/RemoteAppChronicle.sol";
 import { LiquidityMatrixTestHelper } from "./LiquidityMatrixTestHelper.sol";
 import { SettlerMock } from "../mocks/SettlerMock.sol";
 
@@ -54,18 +55,20 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             _gateways[i] = address(gateways[i]);
 
             // Set gateway and syncer in LiquidityMatrix
-            liquidityMatrices[i].setGateway(address(gateways[i]));
-            liquidityMatrices[i].setSyncer(syncers[i]);
+            liquidityMatrices[i].updateGateway(address(gateways[i]));
+            liquidityMatrices[i].updateSyncer(syncers[i]);
 
             // Register LiquidityMatrix as an app with the gateway
             gateways[i].registerApp(address(liquidityMatrices[i]));
 
             settlers[i] = address(new SettlerMock(address(liquidityMatrices[i])));
+
+            // Whitelist settler BEFORE creating ERC20xD (which calls registerApp in constructor)
+            liquidityMatrices[i].updateSettlerWhitelisted(settlers[i], true);
+
             erc20s[i] = _newBaseERC20xD(i);
             _erc20s[i] = address(erc20s[i]);
             // gateways[i].registerApp(_erc20s[i]);
-
-            liquidityMatrices[i].updateSettlerWhitelisted(settlers[i], true);
 
             vm.label(address(liquidityMatrices[i]), string.concat("LiquidityMatrix", vm.toString(i)));
             vm.label(address(gateways[i]), string.concat("Gateway", vm.toString(i)));
@@ -118,6 +121,21 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             for (uint32 j; j < CHAINS; ++j) {
                 if (i != j) {
                     erc20s[i].updateReadTarget(bytes32(uint256(eids[j])), bytes32(uint256(uint160(address(erc20s[j])))));
+                }
+            }
+        }
+
+        // Create RemoteAppChronicles for cross-chain functionality
+        for (uint32 i; i < CHAINS; ++i) {
+            changePrank(settlers[i], settlers[i]);
+            for (uint32 j; j < CHAINS; ++j) {
+                if (i != j) {
+                    // Create RemoteAppChronicle for each ERC20xD on each remote chain
+                    liquidityMatrices[i].addRemoteAppChronicle(
+                        address(erc20s[i]),
+                        bytes32(uint256(eids[j])),
+                        1 // Version 1 (initial version)
+                    );
                 }
             }
         }
@@ -175,10 +193,10 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
                 liquidity[j] = remote.getLocalLiquidity(address(remoteApp), users[j]);
             }
 
-            local.settleLiquidity(
-                ILiquidityMatrix.SettleLiquidityParams(
-                    address(localApp), bytes32(uint256(eids[i])), uint64(rootTimestamp), 1, users, liquidity
-                )
+            // Get the RemoteAppChronicle and settle liquidity there
+            address chronicle = local.getCurrentRemoteAppChronicle(address(localApp), bytes32(uint256(eids[i])));
+            RemoteAppChronicle(chronicle).settleLiquidity(
+                RemoteAppChronicle.SettleLiquidityParams(uint64(rootTimestamp), users, liquidity)
             );
         }
 

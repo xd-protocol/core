@@ -249,7 +249,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     //////////////////////////////////////////////////////////////*/
 
     function currentVersion() public view returns (uint256) {
-        return _versions.length + 1;
+        return _versions.length;
     }
 
     /**
@@ -377,6 +377,14 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return _getCurrentLocalAppChronicleOrRevert(app).getTotalLiquidityAt(timestamp);
     }
 
+    function getLocalData(address app, bytes32 key) external view returns (bytes memory) {
+        return _getCurrentLocalAppChronicleOrRevert(app).getData(key);
+    }
+
+    function getLocalDataAt(address app, bytes32 key, uint64 timestamp) external view returns (bytes memory) {
+        return _getCurrentLocalAppChronicleOrRevert(app).getDataAt(key, timestamp);
+    }
+
     /*//////////////////////////////////////////////////////////////
                         REMOTE VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -457,6 +465,16 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     function getCurrentRemoteAppChronicle(address app, bytes32 chainUID) public view returns (address) {
         return getRemoteAppChronicle(app, chainUID, currentVersion());
+    }
+
+    function _getCurrentRemoteAppChronicleOrRevert(address app, bytes32 chainUID)
+        internal
+        view
+        returns (RemoteAppChronicle)
+    {
+        address chronicle = getRemoteAppChronicle(app, chainUID, currentVersion());
+        if (chronicle == address(0)) revert RemoteAppChronicleNotSet(chainUID);
+        return RemoteAppChronicle(chronicle);
     }
 
     function getRemoteAppChronicleAt(address app, bytes32 chainUID, uint64 timestamp) public view returns (address) {
@@ -672,6 +690,46 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
                         REMOTE STATE VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
+    function getAggregatedSettledTotalLiquidity(address app) external view returns (int256 liquidity) {
+        (bytes32[] memory chainUIDs,) = chainConfigs();
+        return getAggregatedSettledTotalLiquidity(app, chainUIDs);
+    }
+
+    function getAggregatedSettledTotalLiquidity(address app, bytes32[] memory chainUIDs)
+        public
+        view
+        returns (int256 liquidity)
+    {
+        liquidity = _getCurrentLocalAppChronicleOrRevert(app).getTotalLiquidity();
+
+        for (uint256 i; i < chainUIDs.length; ++i) {
+            bytes32 chainUID = chainUIDs[i];
+            RemoteAppChronicle chronicle = _getCurrentRemoteAppChronicleOrRevert(app, chainUID);
+            uint64 timestamp = chronicle.getLastSettledLiquidityTimestamp();
+            liquidity += chronicle.getTotalLiquidityAt(timestamp);
+        }
+    }
+
+    function getAggregatedFinalizedTotalLiquidity(address app) external view returns (int256 liquidity) {
+        (bytes32[] memory chainUIDs,) = chainConfigs();
+        return getAggregatedFinalizedTotalLiquidity(app, chainUIDs);
+    }
+
+    function getAggregatedFinalizedTotalLiquidity(address app, bytes32[] memory chainUIDs)
+        public
+        view
+        returns (int256 liquidity)
+    {
+        liquidity = _getCurrentLocalAppChronicleOrRevert(app).getTotalLiquidity();
+
+        for (uint256 i; i < chainUIDs.length; ++i) {
+            bytes32 chainUID = chainUIDs[i];
+            RemoteAppChronicle chronicle = _getCurrentRemoteAppChronicleOrRevert(app, chainUID);
+            uint64 timestamp = chronicle.getLastFinalizedTimestamp();
+            liquidity += chronicle.getTotalLiquidityAt(timestamp);
+        }
+    }
+
     /**
      * @notice Gets the total liquidity at the timestamp
      * @param app The application address
@@ -690,12 +748,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     {
         liquidity = _getCurrentLocalAppChronicleOrRevert(app).getTotalLiquidityAt(timestamp);
 
-        uint256 version = getVersion(timestamp);
         for (uint256 i; i < chainUIDs.length; ++i) {
             bytes32 chainUID = chainUIDs[i];
-            address chronicle = _remoteAppStates[app][chainUID].chronicles[version];
-            if (chronicle == address(0)) revert RemoteAppChronicleNotSet(chainUID);
-            liquidity += RemoteAppChronicle(chronicle).getTotalLiquidityAt(timestamp);
+            liquidity += _getCurrentRemoteAppChronicleOrRevert(app, chainUID).getTotalLiquidityAt(timestamp);
         }
     }
 
@@ -704,18 +759,47 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         view
         returns (int256 liquidity)
     {
-        uint256 version = getVersion(timestamp);
-        return getTotalLiquidityAt(app, chainUID, version, timestamp);
+        return _getCurrentRemoteAppChronicleOrRevert(app, chainUID).getTotalLiquidityAt(timestamp);
     }
 
-    function getTotalLiquidityAt(address app, bytes32 chainUID, uint256 version, uint64 timestamp)
+    function getAggregatedSettledLiquidityAt(address app, address account) external view returns (int256 liquidity) {
+        (bytes32[] memory chainUIDs,) = chainConfigs();
+        return getAggregatedSettledLiquidityAt(app, chainUIDs, account);
+    }
+
+    function getAggregatedSettledLiquidityAt(address app, bytes32[] memory chainUIDs, address account)
         public
         view
         returns (int256 liquidity)
     {
-        address chronicle = _remoteAppStates[app][chainUID].chronicles[version];
-        if (chronicle == address(0)) revert RemoteAppChronicleNotSet(chainUID);
-        return RemoteAppChronicle(chronicle).getTotalLiquidityAt(timestamp);
+        liquidity = _getCurrentLocalAppChronicleOrRevert(app).getLiquidity(account);
+
+        for (uint256 i; i < chainUIDs.length; ++i) {
+            bytes32 chainUID = chainUIDs[i];
+            RemoteAppChronicle chronicle = _getCurrentRemoteAppChronicleOrRevert(app, chainUID);
+            uint64 timestamp = chronicle.getLastSettledLiquidityTimestamp();
+            liquidity += chronicle.getLiquidityAt(account, timestamp);
+        }
+    }
+
+    function getAggregatedFinalizedLiquidityAt(address app, address account) external view returns (int256 liquidity) {
+        (bytes32[] memory chainUIDs,) = chainConfigs();
+        return getAggregatedFinalizedLiquidityAt(app, chainUIDs, account);
+    }
+
+    function getAggregatedFinalizedLiquidityAt(address app, bytes32[] memory chainUIDs, address account)
+        public
+        view
+        returns (int256 liquidity)
+    {
+        liquidity = _getCurrentLocalAppChronicleOrRevert(app).getLiquidity(account);
+
+        for (uint256 i; i < chainUIDs.length; ++i) {
+            bytes32 chainUID = chainUIDs[i];
+            RemoteAppChronicle chronicle = _getCurrentRemoteAppChronicleOrRevert(app, chainUID);
+            uint64 timestamp = chronicle.getLastFinalizedTimestamp();
+            liquidity += chronicle.getLiquidityAt(account, timestamp);
+        }
     }
 
     /**
@@ -741,12 +825,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     {
         liquidity = _getCurrentLocalAppChronicleOrRevert(app).getLiquidityAt(account, timestamp);
 
-        uint256 version = getVersion(timestamp);
         for (uint256 i; i < chainUIDs.length; ++i) {
             bytes32 chainUID = chainUIDs[i];
-            address chronicle = _remoteAppStates[app][chainUID].chronicles[version];
-            if (chronicle == address(0)) revert RemoteAppChronicleNotSet(chainUID);
-            liquidity += RemoteAppChronicle(chronicle).getLiquidityAt(account, timestamp);
+            liquidity += _getCurrentRemoteAppChronicleOrRevert(app, chainUID).getLiquidityAt(account, timestamp);
         }
     }
 
@@ -755,18 +836,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         view
         returns (int256 liquidity)
     {
-        uint256 version = getVersion(timestamp);
-        return getLiquidityAt(app, chainUID, version, account, timestamp);
-    }
-
-    function getLiquidityAt(address app, bytes32 chainUID, uint256 version, address account, uint64 timestamp)
-        public
-        view
-        returns (int256 liquidity)
-    {
-        address chronicle = _remoteAppStates[app][chainUID].chronicles[version];
-        if (chronicle == address(0)) revert RemoteAppChronicleNotSet(chainUID);
-        return RemoteAppChronicle(chronicle).getLiquidityAt(account, timestamp);
+        return _getCurrentRemoteAppChronicleOrRevert(app, chainUID).getLiquidityAt(account, timestamp);
     }
 
     function getDataAt(address app, bytes32 chainUID, bytes32 key, uint64 timestamp)
@@ -774,10 +844,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         view
         returns (bytes memory value)
     {
-        uint256 version = getVersion(timestamp);
-        address chronicle = _remoteAppStates[app][chainUID].chronicles[version];
-        if (chronicle == address(0)) revert RemoteAppChronicleNotSet(chainUID);
-        return RemoteAppChronicle(chronicle).getDataAt(key, timestamp);
+        return _getCurrentRemoteAppChronicleOrRevert(app, chainUID).getDataAt(key, timestamp);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -868,6 +935,22 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         appState.chronicles[version] = chronicle;
 
         emit AddLocalAppChronicle(app, version, chronicle);
+    }
+
+    function addRemoteAppChronicle(address app, bytes32 chainUID, uint256 version) external onlyAppSettler(app) {
+        if (version > currentVersion()) revert InvalidVersion();
+
+        AppState storage appState = _appStates[app];
+        if (!appState.registered) revert AppNotRegistered();
+
+        RemoteAppState storage remoteState = _remoteAppStates[app][chainUID];
+        if (remoteState.chronicles[version] != address(0)) revert AppChronicleAlreadyAdded();
+
+        address chronicle =
+            address(new RemoteAppChronicle{ salt: bytes32(version) }(address(this), app, chainUID, version));
+        remoteState.chronicles[version] = chronicle;
+
+        emit AddRemoteAppChronicle(app, chainUID, version, chronicle);
     }
 
     function updateTopLiquidityTree(uint256 version, address app, bytes32 appLiquidityRoot)

@@ -43,19 +43,21 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
     function setUp() public virtual override {
         super.setUp();
 
+        // Stop any ongoing prank from parent setUp
+        vm.stopPrank();
+
         for (uint256 i; i < CHAINS; ++i) {
             ERC20xD erc20 = ERC20xD(payable(address(erc20s[i])));
+            vm.startPrank(owner);
             for (uint256 j; j < users.length; ++j) {
                 erc20.mint(users[j], 100e18);
             }
+            vm.stopPrank();
         }
-
-        // Stop any ongoing prank from parent setUp
-        vm.stopPrank();
     }
 
     function _newBaseERC20xD(uint256 i) internal override returns (BaseERC20xD) {
-        return new ERC20xD("xD", "xD", 18, address(liquidityMatrices[i]), address(gateways[i]), owner);
+        return new ERC20xD("xD", "xD", 18, address(liquidityMatrices[i]), address(gateways[i]), owner, settlers[i]);
     }
 
     /*//////////////////////////////////////////////////////////////
