@@ -250,8 +250,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
                             CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address _owner) Ownable(_owner) {
-        _versions.push(block.timestamp);
+    constructor(address _owner, uint256 _timestamp) Ownable(_owner) {
+        _versions.push(_timestamp);
     }
 
     /*//////////////////////////////////////////////////////////////

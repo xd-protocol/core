@@ -43,8 +43,8 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         for (uint32 i; i < CHAINS; ++i) {
             eids[i] = i + 1;
             syncers[i] = makeAddr(string.concat("syncer", vm.toString(i)));
-            // Create LiquidityMatrix (only takes owner)
-            liquidityMatrices[i] = new LiquidityMatrix(owner);
+            // Create LiquidityMatrix with owner and timestamp
+            liquidityMatrices[i] = new LiquidityMatrix(owner, 1);
 
             // Create Gateway first
             gateways[i] =
