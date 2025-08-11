@@ -26,6 +26,7 @@ interface ILiquidityMatrix {
     error LocalAppChronicleNotSet();
     error RemoteAccountAlreadyMapped(bytes32 chainUID, address remote);
     error RemoteAppChronicleNotSet(bytes32 chainUID);
+    error ChronicleDeploymentFailed();
 
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
@@ -62,6 +63,9 @@ interface ILiquidityMatrix {
     event UpdateGateway(address indexed gateway);
     event UpdateSyncer(address indexed syncer);
     event Sync(address indexed caller);
+    event AddVersion(uint256 indexed version, uint64 indexed timestamp);
+    event UpdateLocalAppChronicleDeployer(address indexed deployer);
+    event UpdateRemoteAppChronicleDeployer(address indexed deployer);
 
     /*//////////////////////////////////////////////////////////////
                         VERSION FUNCTIONS
@@ -69,7 +73,7 @@ interface ILiquidityMatrix {
 
     /**
      * @notice Returns the current version number for state management
-     * @dev Version increments when a reorganization is added via addReorg
+     * @dev Version increments when a new version is added via addVersion
      * @return The current version number
      */
     function currentVersion() external view returns (uint256);
@@ -587,11 +591,26 @@ interface ILiquidityMatrix {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Adds a blockchain reorganization event at a specific timestamp
-     * @dev Only callable by whitelisted settler. Creates a new version for state isolation.
-     * @param timestamp The timestamp when the reorg occurred
+     * @notice Creates a new version for state isolation
+     * @dev Only callable by whitelisted settlers. Used for handling reorganizations
+     *      or other state isolation requirements.
+     * @param timestamp The timestamp of the new version
      */
-    function addReorg(uint64 timestamp) external;
+    function addVersion(uint64 timestamp) external;
+
+    /**
+     * @notice Updates the LocalAppChronicle deployer
+     * @dev Only callable by owner. Used to upgrade chronicle creation logic.
+     * @param deployer The new LocalAppChronicle deployer contract
+     */
+    function updateLocalAppChronicleDeployer(address deployer) external;
+
+    /**
+     * @notice Updates the RemoteAppChronicle deployer
+     * @dev Only callable by owner. Used to upgrade chronicle creation logic.
+     * @param deployer The new RemoteAppChronicle deployer contract
+     */
+    function updateRemoteAppChronicleDeployer(address deployer) external;
 
     /*//////////////////////////////////////////////////////////////
                         LOCAL STATE LOGIC

@@ -4,8 +4,8 @@ pragma solidity ^0.8.28;
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
-import { LocalAppChronicle } from "./LocalAppChronicle.sol";
-import { RemoteAppChronicle } from "./RemoteAppChronicle.sol";
+import { ILocalAppChronicleDeployer } from "./interfaces/ILocalAppChronicleDeployer.sol";
+import { IRemoteAppChronicleDeployer } from "./interfaces/IRemoteAppChronicleDeployer.sol";
 import { ArrayLib } from "./libraries/ArrayLib.sol";
 import { AddressLib } from "./libraries/AddressLib.sol";
 import { MerkleTreeLib } from "./libraries/MerkleTreeLib.sol";
@@ -15,6 +15,8 @@ import { IGateway } from "./interfaces/IGateway.sol";
 import { IGatewayApp } from "./interfaces/IGatewayApp.sol";
 import { ILiquidityMatrixHook } from "./interfaces/ILiquidityMatrixHook.sol";
 import { ILiquidityMatrixAccountMapper } from "./interfaces/ILiquidityMatrixAccountMapper.sol";
+import { ILocalAppChronicle } from "./interfaces/ILocalAppChronicle.sol";
+import { IRemoteAppChronicle } from "./interfaces/IRemoteAppChronicle.sol";
 
 /**
  * @title LiquidityMatrix
@@ -83,7 +85,7 @@ import { ILiquidityMatrixAccountMapper } from "./interfaces/ILiquidityMatrixAcco
  *
  * 1. **Version Creation**:
  *    - Initial version 1 created at deployment
- *    - New versions created via `addReorg(timestamp)` by whitelisted settlers
+ *    - New versions created via `addVersion(timestamp)` by whitelisted settlers
  *    - Each version has its own set of chronicle contracts
  *
  * 2. **Chronicle Lifecycle**:
@@ -197,6 +199,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     address public syncer;
     // Rate limiting: timestamp of last sync request
     uint64 internal _lastSyncRequestTimestamp;
+    // Deployers for chronicle contracts
+    address public localAppChronicleDeployer;
+    address public remoteAppChronicleDeployer;
 
     /*//////////////////////////////////////////////////////////////
                               MODIFIERS
@@ -250,8 +255,10 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
                             CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address _owner, uint256 _timestamp) Ownable(_owner) {
+    constructor(address _owner, uint256 _timestamp, address _localDeployer, address _remoteDeployer) Ownable(_owner) {
         _versions.push(_timestamp);
+        localAppChronicleDeployer = _localDeployer;
+        remoteAppChronicleDeployer = _remoteDeployer;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -313,10 +320,10 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @param app The application address
      * @return The LocalAppChronicle contract
      */
-    function _getCurrentLocalAppChronicleOrRevert(address app) public view returns (LocalAppChronicle) {
+    function _getCurrentLocalAppChronicleOrRevert(address app) public view returns (ILocalAppChronicle) {
         address chronicle = getCurrentLocalAppChronicle(app);
         if (chronicle == address(0)) revert LocalAppChronicleNotSet();
-        return LocalAppChronicle(chronicle);
+        return ILocalAppChronicle(chronicle);
     }
 
     /// @inheritdoc ILiquidityMatrix
@@ -460,11 +467,11 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     function _getCurrentRemoteAppChronicleOrRevert(address app, bytes32 chainUID)
         internal
         view
-        returns (RemoteAppChronicle)
+        returns (IRemoteAppChronicle)
     {
         address chronicle = getRemoteAppChronicle(app, chainUID, currentVersion());
         if (chronicle == address(0)) revert RemoteAppChronicleNotSet(chainUID);
-        return RemoteAppChronicle(chronicle);
+        return IRemoteAppChronicle(chronicle);
     }
 
     function getRemoteAppChronicleAt(address app, bytes32 chainUID, uint64 timestamp) public view returns (address) {
@@ -485,11 +492,11 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     function _getRemoteAppChronicleOrRevert(address app, bytes32 chainUID, uint256 version)
         internal
         view
-        returns (RemoteAppChronicle)
+        returns (IRemoteAppChronicle)
     {
         address chronicle = getRemoteAppChronicle(app, chainUID, version);
         if (chronicle == address(0)) revert RemoteAppChronicleNotSet(chainUID);
-        return RemoteAppChronicle(chronicle);
+        return IRemoteAppChronicle(chronicle);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -701,7 +708,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
         for (uint256 i; i < chainUIDs.length; ++i) {
             bytes32 chainUID = chainUIDs[i];
-            RemoteAppChronicle chronicle = _getCurrentRemoteAppChronicleOrRevert(app, chainUID);
+            IRemoteAppChronicle chronicle = _getCurrentRemoteAppChronicleOrRevert(app, chainUID);
             uint64 timestamp = chronicle.getLastSettledLiquidityTimestamp();
             liquidity += chronicle.getTotalLiquidityAt(timestamp);
         }
@@ -721,7 +728,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
         for (uint256 i; i < chainUIDs.length; ++i) {
             bytes32 chainUID = chainUIDs[i];
-            RemoteAppChronicle chronicle = _getCurrentRemoteAppChronicleOrRevert(app, chainUID);
+            IRemoteAppChronicle chronicle = _getCurrentRemoteAppChronicleOrRevert(app, chainUID);
             uint64 timestamp = chronicle.getLastFinalizedTimestamp();
             liquidity += chronicle.getTotalLiquidityAt(timestamp);
         }
@@ -773,7 +780,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
         for (uint256 i; i < chainUIDs.length; ++i) {
             bytes32 chainUID = chainUIDs[i];
-            RemoteAppChronicle chronicle = _getCurrentRemoteAppChronicleOrRevert(app, chainUID);
+            IRemoteAppChronicle chronicle = _getCurrentRemoteAppChronicleOrRevert(app, chainUID);
             uint64 timestamp = chronicle.getLastSettledLiquidityTimestamp();
             liquidity += chronicle.getLiquidityAt(account, timestamp);
         }
@@ -793,7 +800,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
         for (uint256 i; i < chainUIDs.length; ++i) {
             bytes32 chainUID = chainUIDs[i];
-            RemoteAppChronicle chronicle = _getCurrentRemoteAppChronicleOrRevert(app, chainUID);
+            IRemoteAppChronicle chronicle = _getCurrentRemoteAppChronicleOrRevert(app, chainUID);
             uint64 timestamp = chronicle.getLastFinalizedTimestamp();
             liquidity += chronicle.getLiquidityAt(account, timestamp);
         }
@@ -849,17 +856,38 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Adds a new reorg timestamp
-     * @dev Only callable by settler. The timestamp must be greater than the last reorg timestamp.
-     * @param timestamp The timestamp of the reorg
+     * @notice Creates a new version for state isolation
+     * @dev Only callable by settler. The timestamp must be greater than the last version timestamp.
+     * @param timestamp The timestamp of the new version
      */
-    function addReorg(uint64 timestamp) external onlySettler {
+    function addVersion(uint64 timestamp) external onlySettler {
         uint64 lastTimestamp = uint64(_versions.last());
         if (timestamp <= lastTimestamp) {
             revert InvalidTimestamp();
         }
 
         _versions.push(timestamp);
+        emit AddVersion(currentVersion(), timestamp);
+    }
+
+    /**
+     * @notice Updates the LocalAppChronicle deployer
+     * @dev Only callable by owner. Used to upgrade chronicle creation logic.
+     * @param deployer The new LocalAppChronicle deployer contract
+     */
+    function updateLocalAppChronicleDeployer(address deployer) external onlyOwner {
+        localAppChronicleDeployer = deployer;
+        emit UpdateLocalAppChronicleDeployer(deployer);
+    }
+
+    /**
+     * @notice Updates the RemoteAppChronicle deployer
+     * @dev Only callable by owner. Used to upgrade chronicle creation logic.
+     * @param deployer The new RemoteAppChronicle deployer contract
+     */
+    function updateRemoteAppChronicleDeployer(address deployer) external onlyOwner {
+        remoteAppChronicleDeployer = deployer;
+        emit UpdateRemoteAppChronicleDeployer(deployer);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -887,7 +915,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         state.useHook = useHook;
         state.settler = settler;
 
-        address chronicle = address(new LocalAppChronicle{ salt: bytes32(version) }(address(this), app, version));
+        address chronicle = ILocalAppChronicleDeployer(localAppChronicleDeployer).deploy(address(this), app, version);
+        if (chronicle == address(0)) revert ChronicleDeploymentFailed();
         state.chronicles[version] = chronicle;
 
         emit AddLocalAppChronicle(app, version, chronicle);
@@ -934,7 +963,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         if (!appState.registered) revert AppNotRegistered();
         if (appState.chronicles[version] != address(0)) revert AppChronicleAlreadyAdded();
 
-        address chronicle = address(new LocalAppChronicle{ salt: bytes32(version) }(address(this), app, version));
+        address chronicle = ILocalAppChronicleDeployer(localAppChronicleDeployer).deploy(address(this), app, version);
+        if (chronicle == address(0)) revert ChronicleDeploymentFailed();
+
         appState.chronicles[version] = chronicle;
 
         emit AddLocalAppChronicle(app, version, chronicle);
@@ -957,7 +988,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         if (remoteState.chronicles[version] != address(0)) revert AppChronicleAlreadyAdded();
 
         address chronicle =
-            address(new RemoteAppChronicle{ salt: bytes32(version) }(address(this), app, chainUID, version));
+            IRemoteAppChronicleDeployer(remoteAppChronicleDeployer).deploy(address(this), app, chainUID, version);
+        if (chronicle == address(0)) revert ChronicleDeploymentFailed();
+
         remoteState.chronicles[version] = chronicle;
 
         emit AddRemoteAppChronicle(app, chainUID, version, chronicle);

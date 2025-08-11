@@ -8,6 +8,8 @@ import {
     EVMCallComputeV1
 } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/ReadCodecV1.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
+import { LocalAppChronicleDeployer } from "src/LocalAppChronicleDeployer.sol";
+import { RemoteAppChronicleDeployer } from "src/RemoteAppChronicleDeployer.sol";
 import { LayerZeroGateway } from "src/gateways/LayerZeroGateway.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
@@ -42,11 +44,15 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
         address[] memory _liquidityMatrices = new address[](CHAINS);
         address[] memory _gateways = new address[](CHAINS);
         address[] memory _erc20s = new address[](CHAINS);
+        // Deploy deployers once (shared across all chains for testing)
+        LocalAppChronicleDeployer localDeployer = new LocalAppChronicleDeployer();
+        RemoteAppChronicleDeployer remoteDeployer = new RemoteAppChronicleDeployer();
+
         for (uint32 i; i < CHAINS; ++i) {
             eids[i] = i + 1;
             syncers[i] = makeAddr(string.concat("syncer", vm.toString(i)));
-            // Create LiquidityMatrix with owner and timestamp
-            liquidityMatrices[i] = new LiquidityMatrix(owner, 1);
+            // Create LiquidityMatrix with owner, timestamp, and deployers
+            liquidityMatrices[i] = new LiquidityMatrix(owner, 1, address(localDeployer), address(remoteDeployer));
             _liquidityMatrices[i] = address(liquidityMatrices[i]);
 
             // Create gateway with endpoint first (needed by Synchronizer)

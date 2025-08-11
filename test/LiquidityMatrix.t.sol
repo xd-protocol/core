@@ -6,6 +6,8 @@ import {
     MessagingReceipt
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
+import { LocalAppChronicleDeployer } from "src/LocalAppChronicleDeployer.sol";
+import { RemoteAppChronicleDeployer } from "src/RemoteAppChronicleDeployer.sol";
 import { LayerZeroGateway } from "src/gateways/LayerZeroGateway.sol";
 import { IRemoteAppChronicle } from "src/interfaces/IRemoteAppChronicle.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
@@ -40,11 +42,16 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         changePrank(owner, owner);
         address[] memory oapps = new address[](CHAINS);
+
+        // Deploy deployers once (shared across all chains for testing)
+        LocalAppChronicleDeployer localDeployer = new LocalAppChronicleDeployer();
+        RemoteAppChronicleDeployer remoteDeployer = new RemoteAppChronicleDeployer();
+
         for (uint32 i; i < CHAINS; ++i) {
             eids[i] = i + 1;
             syncers[i] = makeAddr(string.concat("syncer", vm.toString(i)));
-            // Create LiquidityMatrix with owner and timestamp
-            liquidityMatrices[i] = new LiquidityMatrix(owner, 1);
+            // Create LiquidityMatrix with owner, timestamp, and deployers
+            liquidityMatrices[i] = new LiquidityMatrix(owner, 1, address(localDeployer), address(remoteDeployer));
 
             // Create Gateway first
             gateways[i] =
@@ -2257,7 +2264,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
                         REORG PROTECTION TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_addReorg_basic() public {
+    function test_addVersion_basic() public {
         uint64 reorgTimestamp = uint64(block.timestamp + 1000);
 
         // Initially version should be 1
@@ -2267,7 +2274,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Add a reorg (need to use a whitelisted settler)
         changePrank(settlers[0], settlers[0]);
-        liquidityMatrices[0].addReorg(reorgTimestamp);
+        liquidityMatrices[0].addVersion(reorgTimestamp);
 
         // After reorg, timestamps before should be version 1, after should be version 2
         assertEq(liquidityMatrices[0].getVersion(reorgTimestamp - 1), 1);
@@ -2275,7 +2282,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         assertEq(liquidityMatrices[0].getVersion(reorgTimestamp + 1), 2);
     }
 
-    function test_addReorg_multipleReorgs() public {
+    function test_addVersion_multipleReorgs() public {
         uint64 reorg1 = uint64(block.timestamp + 1000);
         uint64 reorg2 = reorg1 + 1000;
         uint64 reorg3 = reorg2 + 1000;
@@ -2283,9 +2290,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         changePrank(settlers[0], settlers[0]);
 
         // Add multiple reorgs
-        liquidityMatrices[0].addReorg(reorg1);
-        liquidityMatrices[0].addReorg(reorg2);
-        liquidityMatrices[0].addReorg(reorg3);
+        liquidityMatrices[0].addVersion(reorg1);
+        liquidityMatrices[0].addVersion(reorg2);
+        liquidityMatrices[0].addVersion(reorg3);
 
         // Check versions at different timestamps
         assertEq(liquidityMatrices[0].getVersion(reorg1 - 1), 1);
@@ -2299,27 +2306,27 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         assertEq(liquidityMatrices[0].getVersion(reorg3 + 1), 4);
     }
 
-    function test_addReorg_revertNonOwner() public {
+    function test_addVersion_revertNonOwner() public {
         uint64 reorgTimestamp = uint64(block.timestamp);
 
         changePrank(alice, alice);
         vm.expectRevert();
-        liquidityMatrices[0].addReorg(reorgTimestamp);
+        liquidityMatrices[0].addVersion(reorgTimestamp);
     }
 
-    function test_addReorg_revertInvalidTimestamp() public {
+    function test_addVersion_revertInvalidTimestamp() public {
         changePrank(settlers[0], settlers[0]);
 
         // Add a reorg at timestamp 1000
-        liquidityMatrices[0].addReorg(1000);
+        liquidityMatrices[0].addVersion(1000);
 
         // Try to add a reorg at an earlier timestamp (should revert)
         vm.expectRevert(ILiquidityMatrix.InvalidTimestamp.selector);
-        liquidityMatrices[0].addReorg(999);
+        liquidityMatrices[0].addVersion(999);
 
         // Try to add a reorg at the same timestamp (should revert)
         vm.expectRevert(ILiquidityMatrix.InvalidTimestamp.selector);
-        liquidityMatrices[0].addReorg(1000);
+        liquidityMatrices[0].addVersion(1000);
     }
 
     function test_getVersion_noReorgs() public view {
@@ -2341,7 +2348,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         reorgTimestamps[4] = uint64(block.timestamp + 5000);
 
         for (uint256 i = 0; i < reorgTimestamps.length; i++) {
-            liquidityMatrices[0].addReorg(reorgTimestamps[i]);
+            liquidityMatrices[0].addVersion(reorgTimestamps[i]);
         }
 
         uint256 version = liquidityMatrices[0].getVersion(timestamp);
@@ -2389,7 +2396,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         skip(100);
         uint64 reorgTimestamp = uint64(block.timestamp);
         changePrank(settlers[0], settlers[0]);
-        liquidityMatrices[0].addReorg(reorgTimestamp);
+        liquidityMatrices[0].addVersion(reorgTimestamp);
 
         // Create RemoteAppChronicle for version 2
         liquidityMatrices[0].addRemoteAppChronicle(apps[0], chainUID, 2);
@@ -2430,7 +2437,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         skip(100);
         uint64 reorgTimestamp = uint64(block.timestamp);
         changePrank(settlers[0], settlers[0]);
-        liquidityMatrices[0].addReorg(reorgTimestamp);
+        liquidityMatrices[0].addVersion(reorgTimestamp);
 
         // Create RemoteAppChronicle for version 2
         liquidityMatrices[0].addRemoteAppChronicle(apps[0], chainUID, 2);
@@ -2480,7 +2487,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Reorg happens at t=1500 (between the two settlements)
         changePrank(settlers[0], settlers[0]);
-        liquidityMatrices[0].addReorg(1500);
+        liquidityMatrices[0].addVersion(1500);
         // Create RemoteAppChronicle for version 2
         liquidityMatrices[0].addRemoteAppChronicle(apps[0], chainUID, 2);
 
@@ -2529,7 +2536,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // First reorg at t=1500
         changePrank(settlers[0], settlers[0]);
-        liquidityMatrices[0].addReorg(1500);
+        liquidityMatrices[0].addVersion(1500);
         // Create RemoteAppChronicle for version 2
         liquidityMatrices[0].addRemoteAppChronicle(apps[0], chainUID, 2);
 
@@ -2544,7 +2551,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Second reorg at t=2500
         changePrank(settlers[0], settlers[0]);
-        liquidityMatrices[0].addReorg(2500);
+        liquidityMatrices[0].addVersion(2500);
         // Create RemoteAppChronicle for version 3
         liquidityMatrices[0].addRemoteAppChronicle(apps[0], chainUID, 3);
 
@@ -2559,7 +2566,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Third reorg at t=3500
         changePrank(settlers[0], settlers[0]);
-        liquidityMatrices[0].addReorg(3500);
+        liquidityMatrices[0].addVersion(3500);
         // Create RemoteAppChronicle for version 4
         liquidityMatrices[0].addRemoteAppChronicle(apps[0], chainUID, 4);
 
@@ -2586,7 +2593,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         // Add many reorgs to test scalability
         uint256 numReorgs = 1000;
         for (uint256 i = 1; i <= numReorgs; i++) {
-            liquidityMatrices[0].addReorg(uint64(block.timestamp + i * 100));
+            liquidityMatrices[0].addVersion(uint64(block.timestamp + i * 100));
         }
 
         // Verify version calculation is still efficient
@@ -2612,7 +2619,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Add reorg at t=1000
         changePrank(settlers[0], settlers[0]);
-        liquidityMatrices[0].addReorg(1000);
+        liquidityMatrices[0].addVersion(1000);
         // Create RemoteAppChronicle for version 2
         liquidityMatrices[0].addRemoteAppChronicle(apps[0], chainUID, 2);
 
@@ -2634,7 +2641,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Add a reorg
         changePrank(settlers[0], settlers[0]);
-        liquidityMatrices[0].addReorg(1000);
+        liquidityMatrices[0].addVersion(1000);
         // Create RemoteAppChronicle for version 2
         liquidityMatrices[0].addRemoteAppChronicle(apps[0], chainUID, 2);
 
@@ -2739,7 +2746,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Phase 2: Add reorg at t=1500
         changePrank(settlers[0], settlers[0]);
-        liquidityMatrices[0].addReorg(1500);
+        liquidityMatrices[0].addVersion(1500);
         // Create LocalAppChronicle for version 2
         liquidityMatrices[0].addLocalAppChronicle(apps[0], 2);
         // Create RemoteAppChronicles for version 2 (need for all remote chains)
@@ -2952,7 +2959,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Phase 2: Add reorg at t=1500
         changePrank(settlers[0], settlers[0]);
-        liquidityMatrices[0].addReorg(1500);
+        liquidityMatrices[0].addVersion(1500);
         // Create RemoteAppChronicle for version 2
         liquidityMatrices[0].addRemoteAppChronicle(apps[0], chainUID, 2);
 
@@ -3086,7 +3093,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Add reorg at t=1500
         changePrank(settlers[0], settlers[0]);
-        liquidityMatrices[0].addReorg(1500);
+        liquidityMatrices[0].addVersion(1500);
         // Create RemoteAppChronicle for version 2
         liquidityMatrices[0].addRemoteAppChronicle(apps[0], chainUID, 2);
 
@@ -3149,7 +3156,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Add reorg at t=1500
         changePrank(settlers[0], settlers[0]);
-        liquidityMatrices[0].addReorg(1500);
+        liquidityMatrices[0].addVersion(1500);
         // Create RemoteAppChronicle for version 2
         liquidityMatrices[0].addRemoteAppChronicle(apps[0], chainUID, 2);
 
@@ -3228,7 +3235,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Add reorg at t=1500
         changePrank(settlers[0], settlers[0]);
-        liquidityMatrices[0].addReorg(1500);
+        liquidityMatrices[0].addVersion(1500);
         // Create RemoteAppChronicle for version 2
         liquidityMatrices[0].addRemoteAppChronicle(apps[0], chainUID, 2);
 
