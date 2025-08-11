@@ -1,0 +1,241 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+/**
+ * @title IRemoteAppChronicle
+ * @notice Interface for managing settled state from remote chains for a specific app/chain/version combination
+ * @dev Each RemoteAppChronicle instance handles settlement of cross-chain data for one app on one remote chain
+ *      in a specific version. This enables version-isolated state management for reorganization protection.
+ *
+ *      The chronicle processes two types of settlements:
+ *      - Liquidity settlements: Account balances from remote chains
+ *      - Data settlements: Arbitrary key-value data from remote chains
+ *
+ *      When both liquidity and data are settled for the same timestamp, the state becomes "finalized",
+ *      representing a complete snapshot of the remote chain's state at that point in time.
+ */
+interface IRemoteAppChronicle {
+    /*//////////////////////////////////////////////////////////////
+                                TYPES
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Parameters for settling liquidity from a remote chain
+     * @param timestamp The timestamp of the remote state being settled
+     * @param accounts Array of account addresses
+     * @param liquidity Array of liquidity values corresponding to accounts
+     */
+    struct SettleLiquidityParams {
+        uint64 timestamp;
+        address[] accounts;
+        int256[] liquidity;
+    }
+
+    /**
+     * @notice Parameters for settling data from a remote chain
+     * @param timestamp The timestamp of the remote state being settled
+     * @param keys Array of data keys
+     * @param values Array of data values corresponding to keys
+     */
+    struct SettleDataParams {
+        uint64 timestamp;
+        bytes32[] keys;
+        bytes[] values;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                EVENTS
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Emitted when a liquidity settlement hook fails
+     * @param timestamp The timestamp of the settlement
+     * @param account The account that failed to process
+     * @param liquidity The liquidity value that failed to process
+     * @param reason The error reason from the failed hook call
+     */
+    event OnSettleLiquidityFailure(uint64 indexed timestamp, address indexed account, int256 liquidity, bytes reason);
+
+    /**
+     * @notice Emitted when a total liquidity settlement hook fails
+     * @param timestamp The timestamp of the settlement
+     * @param totalLiquidity The total liquidity value that failed to process
+     * @param reason The error reason from the failed hook call
+     */
+    event OnSettleTotalLiquidityFailure(uint64 indexed timestamp, int256 totalLiquidity, bytes reason);
+
+    /**
+     * @notice Emitted when a data settlement hook fails
+     * @param timestamp The timestamp of the settlement
+     * @param key The data key that failed to process
+     * @param value The data value that failed to process
+     * @param reason The error reason from the failed hook call
+     */
+    event OnSettleDataFailure(uint64 indexed timestamp, bytes32 indexed key, bytes value, bytes reason);
+
+    /**
+     * @notice Emitted when liquidity is successfully settled
+     * @param timestamp The timestamp of the settled state
+     */
+    event SettleLiquidity(uint64 indexed timestamp);
+
+    /**
+     * @notice Emitted when data is successfully settled
+     * @param timestamp The timestamp of the settled state
+     */
+    event SettleData(uint64 indexed timestamp);
+
+    /*//////////////////////////////////////////////////////////////
+                                ERRORS
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Thrown when caller is not the authorized settler
+     */
+    error Forbidden();
+
+    /**
+     * @notice Thrown when attempting to settle liquidity that's already settled
+     */
+    error LiquidityAlreadySettled();
+
+    /**
+     * @notice Thrown when attempting to settle data that's already settled
+     */
+    error DataAlreadySettled();
+
+    /*//////////////////////////////////////////////////////////////
+                            VIEW FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Returns the LiquidityMatrix contract address
+     * @return The address of the LiquidityMatrix that deployed this chronicle
+     */
+    function liquidityMatrix() external view returns (address);
+
+    /**
+     * @notice Returns the application this chronicle serves
+     * @return The application address
+     */
+    function app() external view returns (address);
+
+    /**
+     * @notice Returns the chain unique identifier of the remote chain
+     * @return The chain UID this chronicle tracks
+     */
+    function chainUID() external view returns (bytes32);
+
+    /**
+     * @notice Returns the version number this chronicle is associated with
+     * @return The version number for state isolation
+     */
+    function version() external view returns (uint256);
+
+    /**
+     * @notice Checks if state is finalized at a specific timestamp
+     * @dev State is finalized when both liquidity and data are settled for the same timestamp
+     * @param timestamp The timestamp to check
+     * @return True if both liquidity and data are settled at this timestamp
+     */
+    function isFinalized(uint64 timestamp) external view returns (bool);
+
+    /**
+     * @notice Checks if liquidity is settled at a specific timestamp
+     * @param timestamp The timestamp to check
+     * @return True if liquidity has been settled at this timestamp
+     */
+    function isLiquiditySettled(uint64 timestamp) external view returns (bool);
+
+    /**
+     * @notice Checks if data is settled at a specific timestamp
+     * @param timestamp The timestamp to check
+     * @return True if data has been settled at this timestamp
+     */
+    function isDataSettled(uint64 timestamp) external view returns (bool);
+
+    /**
+     * @notice Gets the total liquidity at a specific timestamp
+     * @param timestamp The timestamp to query
+     * @return liquidity The total liquidity across all accounts at that timestamp
+     */
+    function getTotalLiquidityAt(uint64 timestamp) external view returns (int256 liquidity);
+
+    /**
+     * @notice Gets the liquidity for a specific account at a timestamp
+     * @param account The account address
+     * @param timestamp The timestamp to query
+     * @return liquidity The account's liquidity at that timestamp
+     */
+    function getLiquidityAt(address account, uint64 timestamp) external view returns (int256 liquidity);
+
+    /**
+     * @notice Gets the data value for a key at a specific timestamp
+     * @param key The data key
+     * @param timestamp The timestamp to query
+     * @return data The data value at that timestamp
+     */
+    function getDataAt(bytes32 key, uint64 timestamp) external view returns (bytes memory data);
+
+    /**
+     * @notice Gets the most recent timestamp when liquidity was settled
+     * @return The last settled liquidity timestamp, or 0 if never settled
+     */
+    function getLastSettledLiquidityTimestamp() external view returns (uint64);
+
+    /**
+     * @notice Gets the most recent settled liquidity timestamp at or before a given timestamp
+     * @param timestamp The timestamp to search from
+     * @return The nearest settled liquidity timestamp at or before the input
+     */
+    function getSettledLiquidityTimestampAt(uint64 timestamp) external view returns (uint64);
+
+    /**
+     * @notice Gets the most recent timestamp when data was settled
+     * @return The last settled data timestamp, or 0 if never settled
+     */
+    function getLastSettledDataTimestamp() external view returns (uint64);
+
+    /**
+     * @notice Gets the most recent settled data timestamp at or before a given timestamp
+     * @param timestamp The timestamp to search from
+     * @return The nearest settled data timestamp at or before the input
+     */
+    function getSettledDataTimestampAt(uint64 timestamp) external view returns (uint64);
+
+    /**
+     * @notice Gets the most recent timestamp when state was finalized
+     * @return The last finalized timestamp, or 0 if never finalized
+     */
+    function getLastFinalizedTimestamp() external view returns (uint64);
+
+    /**
+     * @notice Gets the most recent finalized timestamp at or before a given timestamp
+     * @param timestamp The timestamp to search from
+     * @return The nearest finalized timestamp at or before the input
+     */
+    function getFinalizedTimestampAt(uint64 timestamp) external view returns (uint64);
+
+    /*//////////////////////////////////////////////////////////////
+                                LOGIC
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Settles liquidity data from a remote chain
+     * @dev Only callable by the app's authorized settler.
+     *      Processes account liquidity updates, handles account mapping,
+     *      and triggers optional hooks for the application.
+     *      Reverts if liquidity is already settled for the timestamp.
+     * @param params Settlement parameters containing timestamp, accounts, and liquidity values
+     */
+    function settleLiquidity(SettleLiquidityParams memory params) external;
+
+    /**
+     * @notice Settles data from a remote chain
+     * @dev Only callable by the app's authorized settler.
+     *      Processes key-value data updates and triggers optional hooks.
+     *      Reverts if data is already settled for the timestamp.
+     * @param params Settlement parameters containing timestamp, keys, and values
+     */
+    function settleData(SettleDataParams memory params) external;
+}

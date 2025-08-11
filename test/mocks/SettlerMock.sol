@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
-import { RemoteAppChronicle } from "src/RemoteAppChronicle.sol";
+import { IRemoteAppChronicle } from "src/interfaces/IRemoteAppChronicle.sol";
 
 contract SettlerMock {
     address immutable liquidityMatrix;
@@ -52,8 +52,8 @@ contract SettlerMock {
         address chronicle = ILiquidityMatrix(liquidityMatrix).getCurrentRemoteAppChronicle(app, chainUID);
 
         // Call settleLiquidity on the RemoteAppChronicle
-        RemoteAppChronicle(chronicle).settleLiquidity(
-            RemoteAppChronicle.SettleLiquidityParams(uint64(timestamp), accounts, liquidity)
+        IRemoteAppChronicle(chronicle).settleLiquidity(
+            IRemoteAppChronicle.SettleLiquidityParams(uint64(timestamp), accounts, liquidity)
         );
     }
 
@@ -88,6 +88,6 @@ contract SettlerMock {
         address chronicle = ILiquidityMatrix(liquidityMatrix).getCurrentRemoteAppChronicle(app, chainUID);
 
         // Call settleData on the RemoteAppChronicle
-        RemoteAppChronicle(chronicle).settleData(RemoteAppChronicle.SettleDataParams(uint64(timestamp), keys, values));
+        IRemoteAppChronicle(chronicle).settleData(IRemoteAppChronicle.SettleDataParams(uint64(timestamp), keys, values));
     }
 }

@@ -18,22 +18,23 @@ import { ILiquidityMatrixAccountMapper } from "./interfaces/ILiquidityMatrixAcco
 
 /**
  * @title LiquidityMatrix
- * @notice Core ledger contract managing hierarchical Merkle trees to track and synchronize liquidity and data updates across applications.
- * @dev This contract serves as the main state management layer with minimal LayerZero dependencies (only for MessagingReceipt type).
+ * @notice Core ledger contract managing versioned state through chronicle contracts for blockchain reorganization protection.
+ * @dev This contract serves as the main coordination layer for cross-chain liquidity tracking with version-based state isolation.
  *      Cross-chain synchronization is handled through the IGateway interface, allowing for pluggable gateway implementations.
  *      Implements IGatewayApp to handle cross-chain read operations and message reception.
  *
  * ## Architecture Overview:
  *
- * This contract maintains two top Merkle trees:
- * - **Top Liquidity Tree**: Tracks liquidity data for all registered applications.
- * - **Top Data Tree**: Tracks arbitrary key-value data for all registered applications.
+ * This contract coordinates versioned state management through chronicle contracts:
+ * - **LocalAppChronicle**: Manages local state (liquidity, data) for each app version
+ * - **RemoteAppChronicle**: Manages remote state settlements for each app/chain/version combination
+ * - **Version System**: Isolates state changes to protect against blockchain reorganizations
  *
- * Each application maintains its own pair of Merkle trees:
- * - **Liquidity Tree**: Tracks account-specific liquidity data within the application.
- * - **Data Tree**: Tracks key-value pairs specific to the application.
+ * Each version maintains its own set of Merkle trees:
+ * - **Top Liquidity Tree**: Aggregates liquidity roots from all apps in that version
+ * - **Top Data Tree**: Aggregates data roots from all apps in that version
  *
- * ## Relationship Between Top and App Trees:
+ * ## Relationship Between Chronicles and Trees:
  *
  * The roots of application-specific trees (liquidity and data) are added as nodes to their respective top trees.
  * This hierarchical structure allows efficient propagation of changes:
@@ -76,57 +77,66 @@ import { ILiquidityMatrixAccountMapper } from "./interfaces/ILiquidityMatrixAcco
  *   | + Node(Key 2)          |   | + Node(Key B)          |   | + Node(Key Y)          |
  *   +------------------------+   +------------------------+   +------------------------+
  *
- * ## Lifecycle of a Root (Remote State):
+ * ## Version Management and Reorganization Protection:
  *
- * A root progresses through the following states:
+ * The system uses versions to isolate state during blockchain reorganizations:
  *
- * 1. **None**:
- *    - The initial state where no root exists for a given chain and timestamp.
+ * 1. **Version Creation**:
+ *    - Initial version 1 created at deployment
+ *    - New versions created via `addReorg(timestamp)` by whitelisted settlers
+ *    - Each version has its own set of chronicle contracts
  *
- * 2. **Received**:
- *    - Roots are received via `onReceiveRoots` and stored in `_liquidityRoots` or `_dataRoots` for their respective timestamps.
- *    - Roots are accessible for verification but remain unprocessed.
+ * 2. **Chronicle Lifecycle**:
+ *    - LocalAppChronicle: Created per app/version via `addLocalAppChronicle`
+ *    - RemoteAppChronicle: Created per app/chain/version via `addRemoteAppChronicle`
+ *    - Chronicles manage all state operations for their specific version
  *
- * 3. **Settled**:
- *    - Settled roots are tracked in `liquiditySettled` or `dataSettled` mappings.
- *    - Once settled, data is processed via `settleLiquidity` or `settleData`, updating local states and triggering application-specific callbacks.
+ * 3. **State Isolation**:
+ *    - Each version's data is completely isolated from other versions
+ *    - After a reorg, previous version's state is preserved but inaccessible from new version
+ *    - Historical queries use `getVersion(timestamp)` to access correct version's data
  *
- * 4. **Finalized**:
- *    - A root becomes finalized when both the liquidity root and data root for the same timestamp are settled.
- *    - Finalized roots represent a complete and validated cross-chain state.
+ * 4. **Settlement Flow**:
+ *    - Roots received via `onReceiveRoots` are stored per version
+ *    - RemoteAppChronicle handles settlement of liquidity and data
+ *    - Settlement triggers optional hooks for application callbacks
  *
  * ## Key Functionalities:
  *
  * 1. **App Registration & Configuration**:
- *    - Applications must register to start using the contract.
- *    - During registration, their individual liquidity and data trees are initialized.
- *    - Apps can configure sync behavior, callbacks, and authorized settlers.
+ *    - Applications register via `registerApp` to initialize state tracking
+ *    - Configuration includes sync behavior (mapped accounts only), hook callbacks, and authorized settler
+ *    - Apps must create chronicle contracts for each version they use
  *
- * 2. **Updating Liquidity**:
- *    - Liquidity updates are recorded in the app's liquidity tree.
- *    - The new liquidity tree root is propagated to the top liquidity tree.
+ * 2. **Local State Management**:
+ *    - Liquidity updates via `updateLocalLiquidity` are delegated to LocalAppChronicle
+ *    - Data updates via `updateLocalData` are delegated to LocalAppChronicle
+ *    - LocalAppChronicle maintains app-specific Merkle trees and updates top-level trees
  *
- * 3. **Updating Data**:
- *    - Key-value data updates are recorded in the app's data tree.
- *    - The new data tree root is propagated to the top data tree.
+ * 3. **Remote State Management**:
+ *    - Remote roots received via `onReceiveRoots` from gateway or internal calls
+ *    - Settlement handled by RemoteAppChronicle via `settleLiquidity` and `settleData`
+ *    - Supports finalization when both liquidity and data roots are settled
  *
- * 4. **Cross-Chain Settlement**:
- *    - Settlers process roots from remote chains without proof verification (trust-based).
- *    - Updates snapshots and triggers application-specific callbacks.
- *    - Supports both per-app settlers and globally whitelisted settlers.
+ * 4. **Cross-Chain Operations**:
+ *    - Sync operation fetches roots from all configured chains via gateway
+ *    - Account mapping requests sent cross-chain via `requestMapRemoteAccounts`
+ *    - Implements IGatewayApp for read result aggregation via `reduce` and `onRead`
  *
- * 5. **Gateway Integration**:
- *    - Configurable gateway for cross-chain communication.
- *    - Handles cross-chain read operations via IGatewayApp interface.
- *    - Supports syncing operations across multiple chains.
+ * 5. **Settler System**:
+ *    - Per-app settlers configured during registration
+ *    - Global settler whitelist maintained via `updateSettlerWhitelisted`
+ *    - Settlers authorized to add reorgs and create chronicle contracts
  *
- * 6. **Account Mapping**:
- *    - Maps remote chain accounts to local accounts for unified liquidity tracking.
- *    - Prevents duplicate mappings and maintains bidirectional lookups.
+ * 6. **Query Functions**:
+ *    - Local state queries via LocalAppChronicle (current and historical)
+ *    - Remote state queries via RemoteAppChronicle (settled and finalized)
+ *    - Aggregated queries combine local and remote liquidity across chains
  *
- * 7. **Tree Root Retrieval**:
- *    - Allows querying of the current roots of the top liquidity and data trees.
- *    - Enables synchronization across chains or with off-chain systems.
+ * 7. **Version-Aware Historical Access**:
+ *    - `getVersion(timestamp)` determines which version was active at a given time
+ *    - Root queries like `getLiquidityRootAt` automatically use correct version
+ *    - Chronicle contracts provide point-in-time state snapshots
  */
 contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGatewayApp {
     using ArrayLib for uint256[];
@@ -248,15 +258,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
                             VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
+    /// @inheritdoc ILiquidityMatrix
     function currentVersion() public view returns (uint256) {
         return _versions.length;
     }
 
-    /**
-     * @notice Gets the version for a given timestamp
-     * @param timestamp The timestamp to query
-     * @return version The version number for the timestamp
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getVersion(uint64 timestamp) public view returns (uint256 version) {
         for (uint256 i = _versions.length; i > 0;) {
             unchecked {
@@ -273,16 +280,11 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
                         LOCAL VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Gets the current top tree roots and timestamp
-     * @return version The version of the state
-     * @return liquidityRoot The top liquidity tree root
-     * @return dataRoot The top data tree root
-     * @return timestamp The current block timestamp
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getTopRoots()
         public
         view
+        override
         returns (uint256 version, bytes32 liquidityRoot, bytes32 dataRoot, uint64 timestamp)
     {
         version = currentVersion();
@@ -290,97 +292,79 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return (version, state.topLiquidityTree.root, state.topDataTree.root, uint64(block.timestamp));
     }
 
-    /**
-     * @notice Returns the settings for a registered application
-     * @param app The application address
-     * @return registered Whether the app is registered
-     * @return syncMappedAccountsOnly Whether to sync only mapped accounts
-     * @return useHook Whether callbacks are enabled
-     * @return settler The authorized settler address
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getAppSetting(address app)
         external
         view
+        override
         returns (bool registered, bool syncMappedAccountsOnly, bool useHook, address settler)
     {
         AppState storage state = _appStates[app];
         return (state.registered, state.syncMappedAccountsOnly, state.useHook, state.settler);
     }
 
+    /// @inheritdoc ILiquidityMatrix
     function getCurrentLocalAppChronicle(address app) public view returns (address) {
         return getLocalAppChronicle(app, currentVersion());
     }
 
+    /**
+     * @notice Gets the current local app chronicle, reverting if not set
+     * @param app The application address
+     * @return The LocalAppChronicle contract
+     */
     function _getCurrentLocalAppChronicleOrRevert(address app) public view returns (LocalAppChronicle) {
         address chronicle = getCurrentLocalAppChronicle(app);
         if (chronicle == address(0)) revert LocalAppChronicleNotSet();
         return LocalAppChronicle(chronicle);
     }
 
+    /// @inheritdoc ILiquidityMatrix
     function getLocalAppChronicleAt(address app, uint64 timestamp) public view returns (address) {
         return getLocalAppChronicle(app, getVersion(timestamp));
     }
 
+    /// @inheritdoc ILiquidityMatrix
     function getLocalAppChronicle(address app, uint256 version) public view returns (address) {
         return _appStates[app].chronicles[version];
     }
 
-    /**
-     * @notice Gets the current root of an app's liquidity tree
-     * @param app The application address
-     * @return The liquidity tree root
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getLocalLiquidityRoot(address app) public view returns (bytes32) {
         return _getCurrentLocalAppChronicleOrRevert(app).getLiquidityRoot();
     }
 
-    /**
-     * @notice Gets the current root of an app's data tree
-     * @param app The application address
-     * @return The data tree root
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getLocalDataRoot(address app) public view returns (bytes32) {
         return _getCurrentLocalAppChronicleOrRevert(app).getDataRoot();
     }
 
-    /**
-     * @notice Gets the current local liquidity for an account in an app
-     * @param app The application address
-     * @param account The account address
-     * @return liquidity The current liquidity for the account
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getLocalLiquidity(address app, address account) external view returns (int256) {
         return _getCurrentLocalAppChronicleOrRevert(app).getLiquidity(account);
     }
 
-    /**
-     * @notice Gets the local liquidity for an account at a specific timestamp
-     * @param app The application address
-     * @param account The account address
-     * @param timestamp The timestamp to query
-     * @return liquidity The liquidity at the timestamp
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getLocalLiquidityAt(address app, address account, uint64 timestamp) external view returns (int256) {
         return _getCurrentLocalAppChronicleOrRevert(app).getLiquidityAt(account, timestamp);
     }
 
-    /**
-     * @notice Gets the current total local liquidity for an app
-     * @param app The application address
-     * @return liquidity The current total liquidity
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getLocalTotalLiquidity(address app) external view returns (int256) {
         return _getCurrentLocalAppChronicleOrRevert(app).getTotalLiquidity();
     }
 
+    /// @inheritdoc ILiquidityMatrix
     function getLocalTotalLiquidityAt(address app, uint64 timestamp) external view returns (int256) {
         return _getCurrentLocalAppChronicleOrRevert(app).getTotalLiquidityAt(timestamp);
     }
 
+    /// @inheritdoc ILiquidityMatrix
     function getLocalData(address app, bytes32 key) external view returns (bytes memory) {
         return _getCurrentLocalAppChronicleOrRevert(app).getData(key);
     }
 
+    /// @inheritdoc ILiquidityMatrix
     function getLocalDataAt(address app, bytes32 key, uint64 timestamp) external view returns (bytes memory) {
         return _getCurrentLocalAppChronicleOrRevert(app).getDataAt(key, timestamp);
     }
@@ -467,6 +451,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return getRemoteAppChronicle(app, chainUID, currentVersion());
     }
 
+    /**
+     * @notice Gets the current remote app chronicle, reverting if not set
+     * @param app The application address
+     * @param chainUID The chain unique identifier
+     * @return The RemoteAppChronicle contract
+     */
     function _getCurrentRemoteAppChronicleOrRevert(address app, bytes32 chainUID)
         internal
         view
@@ -485,6 +475,13 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return _remoteAppStates[app][chainUID].chronicles[version];
     }
 
+    /**
+     * @notice Gets the remote app chronicle for a version, reverting if not set
+     * @param app The application address
+     * @param chainUID The chain unique identifier
+     * @param version The version number
+     * @return The RemoteAppChronicle contract
+     */
     function _getRemoteAppChronicleOrRevert(address app, bytes32 chainUID, uint256 version)
         internal
         view
@@ -924,6 +921,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         emit UpdateSettler(msg.sender, settler);
     }
 
+    /**
+     * @notice Creates a new LocalAppChronicle for an app at a specific version
+     * @dev Only callable by the app's settler. Required after a reorg to enable local state tracking.
+     * @param app The application address
+     * @param version The version number for the chronicle
+     */
     function addLocalAppChronicle(address app, uint256 version) external onlyAppSettler(app) {
         if (version > currentVersion()) revert InvalidVersion();
 
@@ -937,6 +940,13 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         emit AddLocalAppChronicle(app, version, chronicle);
     }
 
+    /**
+     * @notice Creates a new RemoteAppChronicle for an app and chain at a specific version
+     * @dev Only callable by the app's settler. Required after a reorg to enable remote state tracking.
+     * @param app The application address
+     * @param chainUID The chain unique identifier
+     * @param version The version number for the chronicle
+     */
     function addRemoteAppChronicle(address app, bytes32 chainUID, uint256 version) external onlyAppSettler(app) {
         if (version > currentVersion()) revert InvalidVersion();
 
@@ -953,6 +963,14 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         emit AddRemoteAppChronicle(app, chainUID, version, chronicle);
     }
 
+    /**
+     * @notice Updates the top-level liquidity tree with an app's liquidity root
+     * @dev Only callable by LocalAppChronicle contracts
+     * @param version The version number
+     * @param app The application address
+     * @param appLiquidityRoot The app's liquidity tree root
+     * @return treeIndex The index in the top liquidity tree
+     */
     function updateTopLiquidityTree(uint256 version, address app, bytes32 appLiquidityRoot)
         external
         onlyLocalAppChronicle(app, version)
@@ -964,6 +982,14 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         emit UpdateTopLiquidityTree(version, app, appLiquidityRoot, state.topLiquidityTree.root);
     }
 
+    /**
+     * @notice Updates the top-level data tree with an app's data root
+     * @dev Only callable by LocalAppChronicle contracts
+     * @param version The version number
+     * @param app The application address
+     * @param appDataRoot The app's data tree root
+     * @return treeIndex The index in the top data tree
+     */
     function updateTopDataTree(uint256 version, address app, bytes32 appDataRoot)
         external
         onlyLocalAppChronicle(app, version)
@@ -1054,8 +1080,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /**
      * @notice Receives and stores Merkle roots from remote chains
-     * @dev Called by the synchronizer after successful cross-chain sync
+     * @dev Only callable by the gateway or this contract (via onRead)
      * @param chainUID The chain unique identifier of the remote chain
+     * @param version The version number from the remote chain
      * @param liquidityRoot The liquidity Merkle root from the remote chain
      * @param dataRoot The data Merkle root from the remote chain
      * @param timestamp The timestamp when the roots were generated

@@ -12,7 +12,7 @@ import { LayerZeroGateway } from "src/gateways/LayerZeroGateway.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { IGatewayApp } from "src/interfaces/IGatewayApp.sol";
-import { RemoteAppChronicle } from "src/RemoteAppChronicle.sol";
+import { IRemoteAppChronicle } from "src/interfaces/IRemoteAppChronicle.sol";
 import { LiquidityMatrixTestHelper } from "./LiquidityMatrixTestHelper.sol";
 import { SettlerMock } from "../mocks/SettlerMock.sol";
 
@@ -195,8 +195,8 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
 
             // Get the RemoteAppChronicle and settle liquidity there
             address chronicle = local.getCurrentRemoteAppChronicle(address(localApp), bytes32(uint256(eids[i])));
-            RemoteAppChronicle(chronicle).settleLiquidity(
-                RemoteAppChronicle.SettleLiquidityParams(uint64(rootTimestamp), users, liquidity)
+            IRemoteAppChronicle(chronicle).settleLiquidity(
+                IRemoteAppChronicle.SettleLiquidityParams(uint64(rootTimestamp), users, liquidity)
             );
         }
 
