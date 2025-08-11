@@ -263,7 +263,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
                 --i;
             }
             if (_versions[i] <= timestamp) {
-                version = i + 1;
+                return i + 1;
             }
         }
         return 1;
@@ -602,7 +602,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @return root The data root at the timestamp
      */
     function getDataRootAt(bytes32 chainUID, uint64 timestamp) external view returns (bytes32 root) {
-        return getDataRootAt(chainUID, currentVersion(), timestamp);
+        return getDataRootAt(chainUID, getVersion(timestamp), timestamp);
     }
 
     function getDataRootAt(bytes32 chainUID, uint256 version, uint64 timestamp) public view returns (bytes32 root) {

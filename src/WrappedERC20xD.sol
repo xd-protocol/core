@@ -111,16 +111,6 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
     }
 
     /**
-     * @notice Quotes the fee for wrapping tokens.
-     * @param gasLimit The gas limit (unused for local operations)
-     * @return fee The fee required for the wrap operation.
-     */
-    function quoteWrap(uint128 gasLimit) external pure virtual returns (uint256) {
-        // Wrap is a local operation, no cross-chain fee needed
-        return 0;
-    }
-
-    /**
      * @notice Quotes the fee for unwrapping tokens.
      * @param gasLimit The gas limit for the cross-chain operation.
      * @return fee The fee required for the unwrap operation.

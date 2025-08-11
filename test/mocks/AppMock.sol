@@ -2,6 +2,8 @@
 pragma solidity ^0.8.28;
 
 import { IAppMock } from "./IAppMock.sol";
+import { ILiquidityMatrix } from "../../src/interfaces/ILiquidityMatrix.sol";
+import { RemoteAppChronicle } from "../../src/RemoteAppChronicle.sol";
 
 contract AppMock is IAppMock {
     address immutable liquidityMatrix;
@@ -36,15 +38,21 @@ contract AppMock is IAppMock {
         // Empty
     }
 
-    function onSettleLiquidity(bytes32 chainUID, uint256, uint64, address account) external {
-        _remoteLiquidity[chainUID][account] = 0; // TODO
+    function onSettleLiquidity(bytes32 chainUID, uint256, /* version */ uint64 timestamp, address account) external {
+        // Get the liquidity from the chronicle
+        address chronicle = ILiquidityMatrix(liquidityMatrix).getCurrentRemoteAppChronicle(address(this), chainUID);
+        _remoteLiquidity[chainUID][account] = RemoteAppChronicle(chronicle).getLiquidityAt(account, timestamp);
     }
 
-    function onSettleTotalLiquidity(bytes32 chainUID, uint256, uint64) external {
-        _remoteTotalLiquidity[chainUID] = 0;
+    function onSettleTotalLiquidity(bytes32 chainUID, uint256, /* version */ uint64 timestamp) external {
+        // Get the total liquidity from the chronicle
+        address chronicle = ILiquidityMatrix(liquidityMatrix).getCurrentRemoteAppChronicle(address(this), chainUID);
+        _remoteTotalLiquidity[chainUID] = RemoteAppChronicle(chronicle).getTotalLiquidityAt(timestamp);
     }
 
-    function onSettleData(bytes32 chainUID, uint256, uint64, bytes32 key) external {
-        _remoteData[chainUID][key] = "";
+    function onSettleData(bytes32 chainUID, uint256, /* version */ uint64 timestamp, bytes32 key) external {
+        // Get the data from the chronicle
+        address chronicle = ILiquidityMatrix(liquidityMatrix).getCurrentRemoteAppChronicle(address(this), chainUID);
+        _remoteData[chainUID][key] = RemoteAppChronicle(chronicle).getDataAt(key, timestamp);
     }
 }

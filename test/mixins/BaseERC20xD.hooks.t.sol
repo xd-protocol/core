@@ -949,7 +949,7 @@ contract BaseERC20xDHooksTest is Test {
         uint256 version = 1;
         uint64 timestamp = uint64(block.timestamp + 2000);
         bytes32 key = keccak256("test.key");
-        bytes memory value = abi.encode("test value", 12_345);
+        // bytes memory value = abi.encode("test value", 12_345);
 
         vm.prank(address(liquidityMatrix));
         token.onSettleData(chainUID, version, timestamp, key);

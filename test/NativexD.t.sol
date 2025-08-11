@@ -220,18 +220,6 @@ contract NativexDTest is BaseERC20xDTestHelper {
                           QUOTE WRAP/UNWRAP TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_quoteWrap() public view {
-        NativexD wrapped = NativexD(payable(address(erc20s[0])));
-
-        // Quote wrap should always return 0 for local operations
-        uint256 fee = wrapped.quoteWrap(500_000);
-        assertEq(fee, 0);
-
-        // Gas limit parameter shouldn't matter
-        fee = wrapped.quoteWrap(1_000_000);
-        assertEq(fee, 0);
-    }
-
     function test_quoteUnwrap() public {
         NativexD wrapped = NativexD(payable(address(erc20s[0])));
 
