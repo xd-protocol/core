@@ -234,3 +234,82 @@ Three types of chronicles manage versioned state:
 6. **Hook Failures**: Hook failures are caught and emitted as events, they don't revert the main transaction
 
 7. **Aggregation Functions**: LiquidityMatrix provides aggregated view functions that sum liquidity across local and all remote chains
+
+## Test File Conventions
+
+### Test File Structure
+Test files follow a consistent organizational pattern using comment blocks to separate different test categories:
+
+```solidity
+/*//////////////////////////////////////////////////////////////
+                        SECTION_NAME TESTS
+//////////////////////////////////////////////////////////////*/
+```
+
+### Naming Conventions
+1. **Unit Test Files**: Named after the contract being tested (e.g., `LiquidityMatrix.t.sol` for `LiquidityMatrix.sol`)
+2. **Integration Test Files**: Include `.integration` in the name (e.g., `LiquidityMatrix.integration.t.sol`)
+3. **Test Functions**: Use descriptive names following the pattern:
+   - `test_functionName()` - Basic test case
+   - `test_functionName_specificScenario()` - Specific scenario or edge case
+   - `test_functionName_revertCondition()` - Tests for revert conditions
+   - `testFuzz_functionName(params)` - Fuzz tests
+
+### Test Organization Pattern
+Tests are organized by the function or feature being tested:
+
+1. **Unit Tests** (`LiquidityMatrix.t.sol`):
+   - Grouped by individual function tests
+   - Each section tests a specific contract function
+   - Includes both success and failure cases
+   - Example sections:
+     - `getAppSetting() TESTS`
+     - `getLocalLiquidity() TESTS`
+     - `updateLocalLiquidity() TESTS`
+     - `registerApp() TESTS`
+
+2. **Integration Tests** (`LiquidityMatrix.integration.t.sol`):
+   - Grouped by feature or scenario
+   - Tests complex interactions between multiple components
+   - Example sections:
+     - `ADDITIONAL PRODUCTION SCENARIO TESTS`
+     - `REORG PROTECTION TESTS`
+     - `COMPREHENSIVE REORG GETTER TESTS`
+
+3. **View Function Tests**:
+   - Grouped together under `VIEW FUNCTION TESTS`
+   - Test read-only functions and getters
+
+4. **Internal Functions**:
+   - Helper functions placed at the end under `INTERNAL FUNCTIONS`
+   - Prefixed with underscore (e.g., `_syncAndSettleLiquidity()`)
+
+### Test Structure Within Sections
+Each test section typically includes:
+1. Basic functionality test
+2. Edge cases
+3. Revert conditions (prefixed with `test_functionName_revert`)
+4. Fuzz tests when applicable
+
+### Example Test Section Structure
+```solidity
+/*//////////////////////////////////////////////////////////////
+                    updateLocalLiquidity() TESTS
+//////////////////////////////////////////////////////////////*/
+
+function test_updateLocalLiquidity() public {
+    // Basic functionality test
+}
+
+function test_updateLocalLiquidity_multipleUpdates() public {
+    // Specific scenario test
+}
+
+function test_updateLocalLiquidity_revertNotAuthorized() public {
+    // Revert condition test
+}
+
+function testFuzz_updateLocalLiquidity(int256 amount) public {
+    // Fuzz test
+}
+```
