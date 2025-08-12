@@ -1269,7 +1269,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
                         settleLiquidity() TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_settleLiquidity_basic(bytes32 /* seed */ ) public {
+    function test_settleLiquidity_basic() public {
         // Use the settler that was configured during app registration
         address settler = settlers[0];
 
@@ -1329,7 +1329,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         assertTrue(IRemoteAppChronicle(chronicle).isLiquiditySettled(uint64(rootTimestamp)));
     }
 
-    function test_settleLiquidity_withCallbacks(bytes32 /* seed */ ) public {
+    function test_settleLiquidity_withCallbacks() public {
         // Use the settler that was configured during app registration
         address settler = settlers[0];
 
@@ -1461,7 +1461,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes32[] memory proof = MerkleTreeLib.getProof(appKeys, appRoots, 0);
 
         RemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams({
+            RemoteAppChronicle.SettleLiquidityParams({
                 timestamp: uint64(block.timestamp),
                 accounts: accounts,
                 liquidity: liquidity,
@@ -1830,7 +1830,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes32[] memory proof = MerkleTreeLib.getProof(appKeys, appRoots, 0);
 
         RemoteAppChronicle(chronicle).settleData(
-            IRemoteAppChronicle.SettleDataParams({
+            RemoteAppChronicle.SettleDataParams({
                 timestamp: uint64(block.timestamp),
                 keys: keys,
                 values: values,

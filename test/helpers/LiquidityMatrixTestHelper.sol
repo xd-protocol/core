@@ -397,7 +397,7 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
             vm.expectRevert(expectedError);
         }
         RemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams({
+            RemoteAppChronicle.SettleLiquidityParams({
                 timestamp: timestamp,
                 accounts: accounts,
                 liquidity: liquidity,
@@ -449,7 +449,7 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
             vm.expectRevert(expectedError);
         }
         RemoteAppChronicle(chronicle).settleData(
-            IRemoteAppChronicle.SettleDataParams({
+            RemoteAppChronicle.SettleDataParams({
                 timestamp: timestamp,
                 keys: keys,
                 values: values,
