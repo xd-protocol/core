@@ -200,7 +200,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     // Address authorized to initiate sync operations
     address public syncer;
     // Rate limiting: timestamp of last sync request
-    uint64 internal _lastSyncRequestTimestamp;
+    mapping(uint256 version => uint64) internal _lastSyncRequestTimestamp;
     // Deployers for chronicle contracts
     address public localAppChronicleDeployer;
     address public remoteAppChronicleDeployer;
@@ -261,6 +261,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         _versions.push(_timestamp);
         localAppChronicleDeployer = _localDeployer;
         remoteAppChronicleDeployer = _remoteDeployer;
+
+        emit AddVersion(1, uint64(_timestamp));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -1220,8 +1222,9 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      */
     function sync(bytes memory data) external payable onlySyncer returns (MessagingReceipt memory receipt) {
         // Rate limiting: only one sync per block
-        if (block.timestamp <= _lastSyncRequestTimestamp) revert AlreadyRequested();
-        _lastSyncRequestTimestamp = uint64(block.timestamp);
+        uint256 version = currentVersion();
+        if (block.timestamp <= _lastSyncRequestTimestamp[version]) revert AlreadyRequested();
+        _lastSyncRequestTimestamp[version] = uint64(block.timestamp);
 
         // Build callData for getTopRoots
         bytes memory callData = abi.encodeWithSelector(ILiquidityMatrix.getTopRoots.selector);

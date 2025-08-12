@@ -222,6 +222,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
             totalBurned += burnAmount;
         }
 
+        skip(1);
         _syncAndSettleLiquidity();
         assertEq(erc20s[0].balanceOf(alice), CHAINS * 100e18 - totalBurned);
     }
@@ -531,6 +532,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
             token.mint(alice, (i + 1) * 50e18);
         }
 
+        skip(1);
         _syncAndSettleLiquidity();
 
         // Total minted: 50 + 100 + 150 = 300
@@ -542,6 +544,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
         ERC20xD(payable(address(erc20s[1]))).burn{ value: fee }(200e18, abi.encode(GAS_LIMIT, alice));
         _executeTransfer(erc20s[1], alice, "");
 
+        skip(1);
         _syncAndSettleLiquidity();
         assertEq(erc20s[0].balanceOf(alice), CHAINS * 100e18 + 100e18);
     }

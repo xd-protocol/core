@@ -196,7 +196,6 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
         // Use LiquidityMatrix's sync directly (it's now a gateway app)
         uint256 fee = _local.quoteSync(gasLimit);
         _local.sync{ value: fee }(abi.encode(gasLimit, msg.sender));
-        skip(1);
 
         bytes[] memory responses = new bytes[](_remotes.length);
         uint32[] memory remoteEids = new uint32[](_remotes.length);

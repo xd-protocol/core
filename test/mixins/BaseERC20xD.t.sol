@@ -654,6 +654,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         assertEq(erc20s[2].localBalanceOf(charlie), int256(100e18 - amount3));
 
         // Sync and check global balances
+        skip(1);
         _syncAndSettleLiquidity();
 
         // After all transfers:
@@ -681,6 +682,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         _executeTransfer(erc20s[0], alice, "");
 
         // Sync liquidity to update all chains
+        skip(1);
         _syncAndSettleLiquidity();
 
         // Now try to transfer more than remaining balance from another chain
@@ -724,6 +726,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         _executeTransfer(erc20s[2], charlie, "");
 
         // Sync to update global balances
+        skip(1);
         _syncAndSettleLiquidity();
 
         assertEq(erc20s[0].balanceOf(alice), CHAINS * 100e18 - aliceAmount + charlieAmount);
@@ -771,6 +774,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         _executeTransfer(erc20s[0], alice, "");
 
         // Sync and verify final balances
+        skip(1);
         _syncAndSettleLiquidity();
 
         assertEq(erc20s[0].pendingNonce(alice), 0);
@@ -808,6 +812,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         _executeTransfer(erc20s[2], alice, "");
 
         // Sync and verify final balances
+        skip(1);
         _syncAndSettleLiquidity();
 
         assertEq(erc20s[0].balanceOf(alice), CHAINS * 100e18 - amount1 - amount2 - amount3);
