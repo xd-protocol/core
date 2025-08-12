@@ -963,7 +963,7 @@ contract BaseERC20xDHooksTest is Test {
         assertEq(hookChainUID, chainUID);
         assertEq(hookTimestamp, timestamp);
         assertEq(hookKey, key);
-        assertEq(hookValue, hex""); // TODO: value is now fetched from LiquidityMatrix, not passed directly
+        assertEq(hookValue, abi.encode("test value", 12_345)); // Value is now fetched from LiquidityMatrix
     }
 
     function test_onSettleData_multipleHooks() public {
@@ -990,14 +990,14 @@ contract BaseERC20xDHooksTest is Test {
         vm.prank(owner);
         token.addHook(address(hook1));
 
-        // Expect failure event (value is empty bytes in current implementation)
+        // Expect failure event (value is now fetched from LiquidityMatrix)
         vm.expectEmit(true, true, false, true);
         emit OnSettleDataHookFailure(
             address(hook1),
             bytes32(uint256(30_000)),
             uint64(block.timestamp),
             keccak256("key"),
-            "",
+            abi.encode("test value", 12_345),
             abi.encodeWithSignature("Error(string)", "HookMock: Intentional revert")
         );
 

@@ -599,7 +599,8 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         address[] memory _hooks = hooks;
         uint256 length = _hooks.length;
         for (uint256 i; i < length; ++i) {
-            bytes memory value = ""; // TODO
+            bytes memory value =
+                ILiquidityMatrix(liquidityMatrix).getRemoteDataAt(address(this), chainUID, key, timestamp);
             try IERC20xDHook(_hooks[i]).onSettleData(chainUID, timestamp, key, value) { }
             catch (bytes memory reason) {
                 emit OnSettleDataHookFailure(_hooks[i], chainUID, timestamp, key, value, reason);
