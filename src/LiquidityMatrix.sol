@@ -246,13 +246,6 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         _;
     }
 
-    modifier onlyAppOrMatrix() {
-        // Direct calls must be from registered apps
-        (bool registered,,,) = this.getAppSetting(msg.sender);
-        if (!registered) revert Forbidden();
-        _;
-    }
-
     /*//////////////////////////////////////////////////////////////
                             CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
@@ -1480,7 +1473,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         address[] memory locals,
         address[] memory remotes,
         bytes memory data
-    ) external payable onlyAppOrMatrix returns (bytes32 guid) {
+    ) external payable onlyApp returns (bytes32 guid) {
         // Validate input arrays
         if (remotes.length != locals.length) revert InvalidLengths();
         for (uint256 i; i < locals.length; ++i) {
