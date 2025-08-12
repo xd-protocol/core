@@ -842,8 +842,8 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         changePrank(settlers[0], settlers[0]);
         _settleLiquidity(liquidityMatrices[0], liquidityMatrices[1], apps[0], chainUID, timestamp2, accounts, liquidity);
 
-        // Verify version 2 data (version 1 data not accessible from v2)
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, timestamp1), 0); // Before v2
+        // Verify version-aware data access works correctly
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, timestamp1), 50e18); // Version 1 data now accessible
         assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, timestamp2), 75e18); // V2 data
     }
 
@@ -902,8 +902,8 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         changePrank(settlers[0], settlers[0]);
         _settleData(liquidityMatrices[0], liquidityMatrices[1], apps[0], chainUID, timestamp2, keys, values);
 
-        // Verify version 2 data (version 1 data not accessible from v2)
-        assertEq(keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, key, timestamp1)), keccak256("")); // Empty in v2
+        // Verify version-aware data access works correctly
+        assertEq(keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, key, timestamp1)), keccak256(value1)); // Version 1 data now accessible
         assertEq(keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, key, timestamp2)), keccak256(value2)); // V2 data
     }
 
@@ -975,10 +975,10 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         changePrank(settlers[0], settlers[0]);
         _settleLiquidity(liquidityMatrices[0], liquidityMatrices[1], apps[0], chainUID, 1600, accounts, liquidity);
 
-        // Verify: Query at different timestamps returns correct version data
-        // Before reorg (t=1400): in version 2 context, no data yet
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1400), 0);
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, bob, 1400), 0);
+        // Verify: Query at different timestamps returns correct version-aware data
+        // Before reorg (t=1400): uses version 1 data, so returns t=1000 settlement values
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1400), 100e18);
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, bob, 1400), 200e18);
 
         // After reorg (t=1550): version 2 is active but has no data yet, returns 0
         assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1550), 0);
@@ -1075,11 +1075,11 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         changePrank(settlers[0], settlers[0]);
         _settleLiquidity(liquidityMatrices[0], liquidityMatrices[1], apps[0], chainUID, 4000, accounts, liquidity);
 
-        // Verify current version's data (version 4 after last reorg)
-        // All previous version data is not accessible from version 4
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1200), 0); // Before v4 data
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 2200), 0); // Before v4 data
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 3200), 0); // Before v4 data
+        // Verify historical data access now works across all versions after reorgs
+        // Historical queries now automatically use the correct version's chronicle
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1200), 100e18); // Version 1 data
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 2200), 200e18); // Version 2 data
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 3200), 300e18); // Version 3 data
         assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 4200), 400e18); // Version 4 data
     }
 
@@ -1325,11 +1325,11 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
             "Finalized total after reorg"
         );
 
-        // Queries before reorg timestamp in version 2 return 0 (no data in v2 yet)
+        // Queries before reorg timestamp use version 1 data (historical access works)
         assertEq(
             liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1400),
-            0,
-            "Remote liquidity at 1400 (before reorg, but in v2)"
+            100e18,
+            "Remote liquidity at 1400 (before reorg, uses v1 data)"
         );
 
         // Phase 3: Settle new data for version 2 at t=1700
@@ -1523,11 +1523,11 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
             "Finalized after reorg"
         );
 
-        // Queries before reorg timestamp in version 2 return empty
+        // Queries before reorg timestamp use version 1 data (historical access works)
         assertEq(
             keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, keys[0], 1400)),
-            keccak256(""),
-            "Data at 1400 (before reorg, but in v2)"
+            keccak256(abi.encode("value1", uint256(100))),
+            "Data at 1400 (before reorg, uses v1 data)"
         );
 
         // Phase 3: Settle new data for version 2 at t=1700

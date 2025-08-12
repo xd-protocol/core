@@ -768,7 +768,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
         for (uint256 i; i < chainUIDs.length; ++i) {
             bytes32 chainUID = chainUIDs[i];
-            liquidity += _getCurrentRemoteAppChronicleOrRevert(app, chainUID).getTotalLiquidityAt(timestamp);
+            liquidity +=
+                _getRemoteAppChronicleOrRevert(app, chainUID, getVersion(timestamp)).getTotalLiquidityAt(timestamp);
         }
     }
 
@@ -777,7 +778,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         view
         returns (int256 liquidity)
     {
-        return _getCurrentRemoteAppChronicleOrRevert(app, chainUID).getTotalLiquidityAt(timestamp);
+        return _getRemoteAppChronicleOrRevert(app, chainUID, getVersion(timestamp)).getTotalLiquidityAt(timestamp);
     }
 
     function getAggregatedSettledLiquidityAt(address app, address account) external view returns (int256 liquidity) {
@@ -845,7 +846,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
         for (uint256 i; i < chainUIDs.length; ++i) {
             bytes32 chainUID = chainUIDs[i];
-            liquidity += _getCurrentRemoteAppChronicleOrRevert(app, chainUID).getLiquidityAt(account, timestamp);
+            liquidity +=
+                _getRemoteAppChronicleOrRevert(app, chainUID, getVersion(timestamp)).getLiquidityAt(account, timestamp);
         }
     }
 
@@ -854,7 +856,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         view
         returns (int256 liquidity)
     {
-        return _getCurrentRemoteAppChronicleOrRevert(app, chainUID).getLiquidityAt(account, timestamp);
+        return _getRemoteAppChronicleOrRevert(app, chainUID, getVersion(timestamp)).getLiquidityAt(account, timestamp);
     }
 
     function getDataAt(address app, bytes32 chainUID, bytes32 key, uint64 timestamp)
@@ -862,7 +864,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         view
         returns (bytes memory value)
     {
-        return _getCurrentRemoteAppChronicleOrRevert(app, chainUID).getDataAt(key, timestamp);
+        return _getRemoteAppChronicleOrRevert(app, chainUID, getVersion(timestamp)).getDataAt(key, timestamp);
     }
 
     /*//////////////////////////////////////////////////////////////
