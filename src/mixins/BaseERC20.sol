@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { IERC20Permit } from "../interfaces/IERC20Permit.sol";
+import { IERC20 } from "forge-std/interfaces/IERC20.sol";
 
 /**
  * @title BaseERC20
  * @notice An abstract ERC20 contract providing foundational functionality and storage.
  */
-abstract contract BaseERC20 is IERC20Permit {
+abstract contract BaseERC20 is IERC20 {
     /*//////////////////////////////////////////////////////////////
                             METADATA STORAGE
     //////////////////////////////////////////////////////////////*/
@@ -23,27 +23,15 @@ abstract contract BaseERC20 is IERC20Permit {
     mapping(address account => mapping(address => uint256)) public allowance;
 
     /*//////////////////////////////////////////////////////////////
-                            EIP-2612 STORAGE
-    //////////////////////////////////////////////////////////////*/
-
-    uint256 internal immutable INITIAL_CHAIN_ID;
-    bytes32 internal immutable INITIAL_DOMAIN_SEPARATOR;
-
-    mapping(address => uint256) public nonces;
-
-    /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
-
-    error PermitDeadlineExpired();
-    error InvalidSigner();
 
     /*//////////////////////////////////////////////////////////////
                                CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Initializes the ERC20 token with metadata and EIP-712 domain separators.
+     * @notice Initializes the ERC20 token with metadata.
      * @param _name The name of the token.
      * @param _symbol The symbol of the token.
      * @param _decimals The number of decimals the token uses.
@@ -52,9 +40,6 @@ abstract contract BaseERC20 is IERC20Permit {
         name = _name;
         symbol = _symbol;
         decimals = _decimals;
-
-        INITIAL_CHAIN_ID = block.chainid;
-        INITIAL_DOMAIN_SEPARATOR = computeDomainSeparator();
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -109,85 +94,4 @@ abstract contract BaseERC20 is IERC20Permit {
      * @return true if the transfer is successful.
      */
     function transferFrom(address from, address to, uint256 amount) public virtual returns (bool);
-
-    /*//////////////////////////////////////////////////////////////
-                             EIP-2612 LOGIC
-    //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @notice Permits `spender` to spend `value` tokens on behalf of `owner` via EIP-2612 signature.
-     * @param owner The address granting the allowance.
-     * @param spender The address being granted the allowance.
-     * @param value The maximum amount of tokens the spender is allowed to transfer.
-     * @param deadline The timestamp by which the permit must be used.
-     * @param v The recovery byte of the signature.
-     * @param r Half of the ECDSA signature pair.
-     * @param s Half of the ECDSA signature pair.
-     */
-    function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
-        public
-        virtual
-    {
-        if (deadline < block.timestamp) revert PermitDeadlineExpired();
-
-        // Unchecked because the only math done is incrementing
-        // the owner's nonce which cannot realistically overflow.
-        unchecked {
-            address recoveredAddress = ecrecover(
-                keccak256(
-                    abi.encodePacked(
-                        "\x19\x01",
-                        DOMAIN_SEPARATOR(),
-                        keccak256(
-                            abi.encode(
-                                keccak256(
-                                    "Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"
-                                ),
-                                owner,
-                                spender,
-                                value,
-                                nonces[owner]++,
-                                deadline
-                            )
-                        )
-                    )
-                ),
-                v,
-                r,
-                s
-            );
-
-            if (recoveredAddress == address(0) || recoveredAddress != owner) revert InvalidSigner();
-
-            allowance[recoveredAddress][spender] = value;
-        }
-
-        emit Approval(owner, spender, value);
-    }
-
-    /**
-     * @notice Returns the EIP-712 domain separator for this contract
-     * @return The domain separator bytes32 value
-     * @dev Uses cached separator if on initial chain, otherwise computes it dynamically
-     */
-    function DOMAIN_SEPARATOR() public view virtual returns (bytes32) {
-        return block.chainid == INITIAL_CHAIN_ID ? INITIAL_DOMAIN_SEPARATOR : computeDomainSeparator();
-    }
-
-    /**
-     * @notice Computes the EIP-712 domain separator for the current chain
-     * @return The computed domain separator
-     * @dev Called when chain ID differs from initial deployment chain
-     */
-    function computeDomainSeparator() internal view virtual returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                keccak256(bytes(name)),
-                keccak256("1"),
-                block.chainid,
-                address(this)
-            )
-        );
-    }
 }

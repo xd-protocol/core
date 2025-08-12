@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import { IERC20Permit } from "./IERC20Permit.sol";
+import { IERC20 } from "forge-std/interfaces/IERC20.sol";
 import { IGatewayApp } from "./IGatewayApp.sol";
 
-interface IBaseERC20xD is IERC20Permit, IGatewayApp {
+interface IBaseERC20xD is IERC20, IGatewayApp {
     /*//////////////////////////////////////////////////////////////
                                 TYPES
     //////////////////////////////////////////////////////////////*/
