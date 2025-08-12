@@ -165,7 +165,7 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
 
         ILiquidityMatrix _liquidityMatrix = ILiquidityMatrix(liquidityMatrix);
         // Get the remote chain's top liquidity tree root
-        bytes32 topLiquidityRoot = _liquidityMatrix.getLiquidityRootAt(chainUID, version, params.timestamp);
+        bytes32 topLiquidityRoot = _liquidityMatrix.getRemoteLiquidityRootAt(chainUID, version, params.timestamp);
         if (topLiquidityRoot == bytes32(0)) revert RootNotReceived();
 
         // Get the remote app and remote app index
@@ -236,7 +236,7 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
 
         ILiquidityMatrix _liquidityMatrix = ILiquidityMatrix(liquidityMatrix);
         // Get the remote chain's top data tree root
-        bytes32 topDataRoot = _liquidityMatrix.getDataRootAt(chainUID, version, params.timestamp);
+        bytes32 topDataRoot = _liquidityMatrix.getRemoteDataRootAt(chainUID, version, params.timestamp);
         if (topDataRoot == bytes32(0)) revert RootNotReceived();
 
         // Get the remote app and remote app index

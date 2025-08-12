@@ -188,7 +188,7 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
 
         // Settlement on chain 0
         bytes32 chain1Eid = _eid(liquidityMatrices[1]);
-        (, uint256 chain1Timestamp) = liquidityMatrices[0].getLastReceivedLiquidityRoot(chain1Eid);
+        (, uint256 chain1Timestamp) = liquidityMatrices[0].getLastReceivedRemoteLiquidityRoot(chain1Eid);
 
         changePrank(settler, settler);
         address[] memory chain1Accounts = new address[](2);
@@ -211,11 +211,15 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         // Verify cross-chain view - need to check both local and remote
         // trader[0]: local 1000e18 + remote 2000e18 = 3000e18
         assertEq(liquidityMatrices[0].getLocalLiquidity(apps[0], traders[0]), 1000e18);
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chain1Eid, traders[0], uint64(chain1Timestamp)), 2000e18);
+        assertEq(
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chain1Eid, traders[0], uint64(chain1Timestamp)), 2000e18
+        );
         // trader[1]: local -500e18, no remote
         assertEq(liquidityMatrices[0].getLocalLiquidity(apps[0], traders[1]), -500e18);
         // trader[2]: local 0, remote 1500e18
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chain1Eid, traders[2], uint64(chain1Timestamp)), 1500e18);
+        assertEq(
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chain1Eid, traders[2], uint64(chain1Timestamp)), 1500e18
+        );
     }
 
     function test_settlementTracking_comprehensive() public {
@@ -245,8 +249,9 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         bytes32 appDataRoot1 = ILocalAppChronicle(remoteLocalChronicle).getDataRoot();
 
         _sync(syncers[0], liquidityMatrices[0], remotes);
-        (bytes32 topLiqRoot1, uint256 t1) = liquidityMatrices[0].getLastReceivedLiquidityRoot(bytes32(uint256(eids[1])));
-        (bytes32 topDataRoot1,) = liquidityMatrices[0].getLastReceivedDataRoot(bytes32(uint256(eids[1])));
+        (bytes32 topLiqRoot1, uint256 t1) =
+            liquidityMatrices[0].getLastReceivedRemoteLiquidityRoot(bytes32(uint256(eids[1])));
+        (bytes32 topDataRoot1,) = liquidityMatrices[0].getLastReceivedRemoteDataRoot(bytes32(uint256(eids[1])));
 
         // Root 2 at timestamp T2 - Update to new values
         skip(100);
@@ -259,8 +264,9 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         bytes32 appDataRoot2 = ILocalAppChronicle(remoteLocalChronicle).getDataRoot();
 
         _sync(syncers[0], liquidityMatrices[0], remotes);
-        (bytes32 topLiqRoot2, uint256 t2) = liquidityMatrices[0].getLastReceivedLiquidityRoot(bytes32(uint256(eids[1])));
-        (bytes32 topDataRoot2,) = liquidityMatrices[0].getLastReceivedDataRoot(bytes32(uint256(eids[1])));
+        (bytes32 topLiqRoot2, uint256 t2) =
+            liquidityMatrices[0].getLastReceivedRemoteLiquidityRoot(bytes32(uint256(eids[1])));
+        (bytes32 topDataRoot2,) = liquidityMatrices[0].getLastReceivedRemoteDataRoot(bytes32(uint256(eids[1])));
 
         // Root 3 at timestamp T3 - Update to final values
         skip(100);
@@ -273,8 +279,9 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         bytes32 appDataRoot3 = ILocalAppChronicle(remoteLocalChronicle).getDataRoot();
 
         _sync(syncers[0], liquidityMatrices[0], remotes);
-        (bytes32 topLiqRoot3, uint256 t3) = liquidityMatrices[0].getLastReceivedLiquidityRoot(bytes32(uint256(eids[1])));
-        (bytes32 topDataRoot3,) = liquidityMatrices[0].getLastReceivedDataRoot(bytes32(uint256(eids[1])));
+        (bytes32 topLiqRoot3, uint256 t3) =
+            liquidityMatrices[0].getLastReceivedRemoteLiquidityRoot(bytes32(uint256(eids[1])));
+        (bytes32 topDataRoot3,) = liquidityMatrices[0].getLastReceivedRemoteDataRoot(bytes32(uint256(eids[1])));
 
         // Initial state - nothing settled
         address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], bytes32(uint256(eids[1])));
@@ -291,16 +298,16 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
 
         // Check getters return zero/empty
         (bytes32 root, uint256 timestamp) =
-            liquidityMatrices[0].getLastSettledLiquidityRoot(apps[0], bytes32(uint256(eids[1])));
+            liquidityMatrices[0].getLastSettledRemoteLiquidityRoot(apps[0], bytes32(uint256(eids[1])));
         assertEq(root, bytes32(0));
         assertEq(timestamp, 0);
-        (root, timestamp) = liquidityMatrices[0].getLastSettledDataRoot(apps[0], bytes32(uint256(eids[1])));
+        (root, timestamp) = liquidityMatrices[0].getLastSettledRemoteDataRoot(apps[0], bytes32(uint256(eids[1])));
         assertEq(root, bytes32(0));
         assertEq(timestamp, 0);
-        (root, timestamp) = liquidityMatrices[0].getLastFinalizedLiquidityRoot(apps[0], bytes32(uint256(eids[1])));
+        (root, timestamp) = liquidityMatrices[0].getLastFinalizedRemoteLiquidityRoot(apps[0], bytes32(uint256(eids[1])));
         assertEq(root, bytes32(0));
         assertEq(timestamp, 0);
-        (root, timestamp) = liquidityMatrices[0].getLastFinalizedDataRoot(apps[0], bytes32(uint256(eids[1])));
+        (root, timestamp) = liquidityMatrices[0].getLastFinalizedRemoteDataRoot(apps[0], bytes32(uint256(eids[1])));
         assertEq(root, bytes32(0));
         assertEq(timestamp, 0);
 
@@ -346,7 +353,7 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         assertFalse(remoteChronicle.isFinalized(uint64(t3)));
 
         // Check getters using RemoteAppChronicle
-        // Note: getLastSettledLiquidityRoot, getLastSettledDataRoot, getLastFinalizedLiquidityRoot were removed
+        // Note: getLastSettledRemoteLiquidityRoot, getLastSettledRemoteDataRoot, getLastFinalizedRemoteLiquidityRoot were removed
         // Using RemoteAppChronicle methods instead
         uint64 lastSettledLiqTime = remoteChronicle.getLastSettledLiquidityTimestamp();
         assertEq(lastSettledLiqTime, t1); // t1 was the last (only) settled liquidity timestamp
@@ -513,12 +520,12 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         assertEq(lastFinalizedTime, t3);
 
         // Verify roots at specific timestamps
-        assertEq(liquidityMatrices[0].getLiquidityRootAt(bytes32(uint256(eids[1])), uint64(t1)), topLiqRoot1);
-        assertEq(liquidityMatrices[0].getLiquidityRootAt(bytes32(uint256(eids[1])), uint64(t2)), topLiqRoot2);
-        assertEq(liquidityMatrices[0].getLiquidityRootAt(bytes32(uint256(eids[1])), uint64(t3)), topLiqRoot3);
-        assertEq(liquidityMatrices[0].getDataRootAt(bytes32(uint256(eids[1])), uint64(t1)), topDataRoot1);
-        assertEq(liquidityMatrices[0].getDataRootAt(bytes32(uint256(eids[1])), uint64(t2)), topDataRoot2);
-        assertEq(liquidityMatrices[0].getDataRootAt(bytes32(uint256(eids[1])), uint64(t3)), topDataRoot3);
+        assertEq(liquidityMatrices[0].getRemoteLiquidityRootAt(bytes32(uint256(eids[1])), uint64(t1)), topLiqRoot1);
+        assertEq(liquidityMatrices[0].getRemoteLiquidityRootAt(bytes32(uint256(eids[1])), uint64(t2)), topLiqRoot2);
+        assertEq(liquidityMatrices[0].getRemoteLiquidityRootAt(bytes32(uint256(eids[1])), uint64(t3)), topLiqRoot3);
+        assertEq(liquidityMatrices[0].getRemoteDataRootAt(bytes32(uint256(eids[1])), uint64(t1)), topDataRoot1);
+        assertEq(liquidityMatrices[0].getRemoteDataRootAt(bytes32(uint256(eids[1])), uint64(t2)), topDataRoot2);
+        assertEq(liquidityMatrices[0].getRemoteDataRootAt(bytes32(uint256(eids[1])), uint64(t3)), topDataRoot3);
     }
 
     function test_outOfOrderSettlement() public {
@@ -570,13 +577,17 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
 
         // Verify we can query the data
         assertEq(
-            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 2000), 100e18, "V1: Alice liquidity at t=2000"
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 2000),
+            100e18,
+            "V1: Alice liquidity at t=2000"
         );
         assertEq(
-            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, bob, 2000), 200e18, "V1: Bob liquidity at t=2000"
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, bob, 2000),
+            200e18,
+            "V1: Bob liquidity at t=2000"
         );
         assertEq(
-            keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, keys[0], 2000)),
+            keccak256(liquidityMatrices[0].getRemoteDataAt(apps[0], chainUID, keys[0], 2000)),
             keccak256(values[0]),
             "V1: Data key1 at t=2000"
         );
@@ -611,24 +622,24 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
 
         // Queries at t=2000 should now return 0 (version 2 has no data)
         assertEq(
-            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 2000),
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 2000),
             0,
             "V2: Alice liquidity at t=2000 should be 0"
         );
         assertEq(
-            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, bob, 2000),
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, bob, 2000),
             0,
             "V2: Bob liquidity at t=2000 should be 0"
         );
         assertEq(
-            keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, keys[0], 2000)),
+            keccak256(liquidityMatrices[0].getRemoteDataAt(apps[0], chainUID, keys[0], 2000)),
             keccak256(""),
             "V2: Data at t=2000 should be empty"
         );
 
         // Even queries before t=2000 but after t=1500 should return 0 in version 2
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1600), 0, "V2: No data at t=1600");
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1900), 0, "V2: No data at t=1900");
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1600), 0, "V2: No data at t=1600");
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1900), 0, "V2: No data at t=1900");
 
         // Version 1 chronicle still has its data (but not accessible via main getters)
         assertTrue(remoteChronicleV1.isLiquiditySettled(2000), "V1 chronicle: Still has liquidity at t=2000");
@@ -660,20 +671,24 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         // Verify new settlement in version 2
         assertTrue(remoteChronicleV2.isFinalized(2100), "V2: Should be finalized at t=2100");
         assertEq(
-            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 2100), 150e18, "V2: Alice liquidity at t=2100"
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 2100),
+            150e18,
+            "V2: Alice liquidity at t=2100"
         );
         assertEq(
-            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, bob, 2100), 250e18, "V2: Bob liquidity at t=2100"
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, bob, 2100),
+            250e18,
+            "V2: Bob liquidity at t=2100"
         );
         assertEq(
-            keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, keys[0], 2100)),
+            keccak256(liquidityMatrices[0].getRemoteDataAt(apps[0], chainUID, keys[0], 2100)),
             keccak256(values[0]),
             "V2: Data at t=2100"
         );
 
         // But t=2000 still returns 0 in version 2
         assertEq(
-            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 2000),
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 2000),
             0,
             "V2: t=2000 still empty after new settlement"
         );
@@ -843,8 +858,8 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         _settleLiquidity(liquidityMatrices[0], liquidityMatrices[1], apps[0], chainUID, timestamp2, accounts, liquidity);
 
         // Verify version-aware data access works correctly
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, timestamp1), 50e18); // Version 1 data now accessible
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, timestamp2), 75e18); // V2 data
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, timestamp1), 50e18); // Version 1 data now accessible
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, timestamp2), 75e18); // V2 data
     }
 
     function test_settleData_withVersion() public {
@@ -903,8 +918,8 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         _settleData(liquidityMatrices[0], liquidityMatrices[1], apps[0], chainUID, timestamp2, keys, values);
 
         // Verify version-aware data access works correctly
-        assertEq(keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, key, timestamp1)), keccak256(value1)); // Version 1 data now accessible
-        assertEq(keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, key, timestamp2)), keccak256(value2)); // V2 data
+        assertEq(keccak256(liquidityMatrices[0].getRemoteDataAt(apps[0], chainUID, key, timestamp1)), keccak256(value1)); // Version 1 data now accessible
+        assertEq(keccak256(liquidityMatrices[0].getRemoteDataAt(apps[0], chainUID, key, timestamp2)), keccak256(value2)); // V2 data
     }
 
     function test_integration_reorgWithActiveSettlements() public {
@@ -977,16 +992,16 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
 
         // Verify: Query at different timestamps returns correct version-aware data
         // Before reorg (t=1400): uses version 1 data, so returns t=1000 settlement values
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1400), 100e18);
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, bob, 1400), 200e18);
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1400), 100e18);
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, bob, 1400), 200e18);
 
         // After reorg (t=1550): version 2 is active but has no data yet, returns 0
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1550), 0);
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, bob, 1550), 0);
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1550), 0);
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, bob, 1550), 0);
 
         // After version 2 settlement (t=1700): should use version 2 data
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1700), 120e18);
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, bob, 1700), 220e18);
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1700), 120e18);
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, bob, 1700), 220e18);
     }
 
     function test_integration_multipleReorgsWithSettlements() public {
@@ -1077,10 +1092,10 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
 
         // Verify historical data access now works across all versions after reorgs
         // Historical queries now automatically use the correct version's chronicle
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1200), 100e18); // Version 1 data
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 2200), 200e18); // Version 2 data
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 3200), 300e18); // Version 3 data
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 4200), 400e18); // Version 4 data
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1200), 100e18); // Version 1 data
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 2200), 200e18); // Version 2 data
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 3200), 300e18); // Version 3 data
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 4200), 400e18); // Version 4 data
     }
 
     function test_edgeCase_manyReorgs() public {
@@ -1145,10 +1160,10 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
 
         // Query at various timestamps without any settlements
         // getSettledRemoteLiquidity removed - no settlements means no chronicle yet
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 500), 0);
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1500), 0);
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 500), 0);
+        assertEq(liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1500), 0);
         // getSettledRemoteTotalLiquidity removed - no remote total when no settlements
-        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], chainUID, 2000), 0);
+        assertEq(liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], chainUID, 2000), 0);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -1206,23 +1221,33 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
 
         // Remote liquidity getters
         assertEq(
-            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1100), 100e18, "Remote liquidity at 1100"
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1100),
+            100e18,
+            "Remote liquidity at 1100"
         );
         assertEq(
-            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, bob, 1100), 200e18, "Remote liquidity bob at 1100"
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, bob, 1100),
+            200e18,
+            "Remote liquidity bob at 1100"
         );
         // Verify using RemoteAppChronicle method
         assertEq(IRemoteAppChronicle(chronicle).getLiquidityAt(alice, 1000), 100e18, "Settled remote liquidity");
         assertEq(
-            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1000), 100e18, "Finalized remote liquidity"
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1000),
+            100e18,
+            "Finalized remote liquidity"
         );
 
         // Remote total liquidity getters
-        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], chainUID, 1100), 300e18, "Remote total at 1100");
-        // getSettledRemoteTotalLiquidity removed - use getTotalLiquidityAt
-        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], chainUID, 1000), 300e18, "Settled remote total");
         assertEq(
-            liquidityMatrices[0].getTotalLiquidityAt(apps[0], chainUID, uint64(block.timestamp)),
+            liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], chainUID, 1100), 300e18, "Remote total at 1100"
+        );
+        // getSettledRemoteTotalLiquidity removed - use getTotalLiquidityAt
+        assertEq(
+            liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], chainUID, 1000), 300e18, "Settled remote total"
+        );
+        assertEq(
+            liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], chainUID, uint64(block.timestamp)),
             300e18,
             "Finalized remote total"
         );
@@ -1269,27 +1294,31 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
 
         // All remote getters should return 0 for version 2
         assertEq(
-            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1600),
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1600),
             0,
             "Remote liquidity at 1600 after reorg"
         );
         assertEq(
-            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, bob, 1600),
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, bob, 1600),
             0,
             "Remote liquidity bob at 1600 after reorg"
         );
         // After reorg, get the new chronicle for version 2
         chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
         assertEq(IRemoteAppChronicle(chronicle).getLastSettledLiquidityTimestamp(), 0, "Settled remote after reorg");
-        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1500), 0, "Finalized remote after reorg");
+        assertEq(
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1500), 0, "Finalized remote after reorg"
+        );
 
         assertEq(
-            liquidityMatrices[0].getTotalLiquidityAt(apps[0], chainUID, 1600), 0, "Remote total at 1600 after reorg"
+            liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], chainUID, 1600),
+            0,
+            "Remote total at 1600 after reorg"
         );
         // getSettledRemoteTotalLiquidity removed - check chronicle state
         assertEq(IRemoteAppChronicle(chronicle).getTotalLiquidityAt(1600), 0, "Settled remote total after reorg");
         assertEq(
-            liquidityMatrices[0].getTotalLiquidityAt(apps[0], chainUID, uint64(block.timestamp)),
+            liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], chainUID, uint64(block.timestamp)),
             0,
             "Finalized remote total after reorg"
         );
@@ -1327,7 +1356,7 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
 
         // Queries before reorg timestamp use version 1 data (historical access works)
         assertEq(
-            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1400),
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1400),
             100e18,
             "Remote liquidity at 1400 (before reorg, uses v1 data)"
         );
@@ -1364,30 +1393,34 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
 
         // Remote liquidity getters should now return new values
         assertEq(
-            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1800),
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1800),
             150e18,
             "Remote liquidity at 1800 after settlement"
         );
         assertEq(
-            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, bob, 1800), 250e18, "Remote liquidity bob at 1800"
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, bob, 1800),
+            250e18,
+            "Remote liquidity bob at 1800"
         );
         // getSettledRemoteLiquidity removed - use chronicle method
         assertEq(IRemoteAppChronicle(chronicle).getLiquidityAt(alice, 1700), 150e18, "Settled remote after settlement");
         assertEq(
-            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1700),
+            liquidityMatrices[0].getRemoteLiquidityAt(apps[0], chainUID, alice, 1700),
             150e18,
             "Finalized remote after settlement"
         );
 
-        assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], chainUID, 1800), 400e18, "Remote total at 1800");
+        assertEq(
+            liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], chainUID, 1800), 400e18, "Remote total at 1800"
+        );
         // getSettledRemoteTotalLiquidity removed - use getTotalLiquidityAt
         assertEq(
-            liquidityMatrices[0].getTotalLiquidityAt(apps[0], chainUID, 1700),
+            liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], chainUID, 1700),
             400e18,
             "Settled remote total after settlement"
         );
         assertEq(
-            liquidityMatrices[0].getTotalLiquidityAt(apps[0], chainUID, uint64(block.timestamp)),
+            liquidityMatrices[0].getRemoteTotalLiquidityAt(apps[0], chainUID, uint64(block.timestamp)),
             400e18,
             "Finalized remote total after settlement"
         );
@@ -1451,12 +1484,12 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
 
         // Remote data hash getters
         assertEq(
-            keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, keys[0], 1100)),
+            keccak256(liquidityMatrices[0].getRemoteDataAt(apps[0], chainUID, keys[0], 1100)),
             keccak256(values[0]),
             "Remote data hash at 1100"
         );
         assertEq(
-            keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, keys[0], 1000)),
+            keccak256(liquidityMatrices[0].getRemoteDataAt(apps[0], chainUID, keys[0], 1000)),
             keccak256(values[0]),
             "Settled remote data hash"
         );
@@ -1476,7 +1509,7 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         _settleLiquidity(liquidityMatrices[0], liquidityMatrices[1], apps[0], chainUID, 1100, accounts, liquidity);
 
         assertEq(
-            keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, keys[0], 1000)),
+            keccak256(liquidityMatrices[0].getRemoteDataAt(apps[0], chainUID, keys[0], 1000)),
             keccak256(values[0]),
             "Finalized remote data hash"
         );
@@ -1484,7 +1517,7 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         // Check all keys
         for (uint256 i = 0; i < keys.length; i++) {
             assertEq(
-                keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, keys[i], 1100)),
+                keccak256(liquidityMatrices[0].getRemoteDataAt(apps[0], chainUID, keys[i], 1100)),
                 keccak256(values[i]),
                 string.concat("Key ", vm.toString(i), " before reorg")
             );
@@ -1506,26 +1539,26 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         // All data getters should return empty for version 2
         for (uint256 i = 0; i < keys.length; i++) {
             assertEq(
-                keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, keys[i], 1600)),
+                keccak256(liquidityMatrices[0].getRemoteDataAt(apps[0], chainUID, keys[i], 1600)),
                 keccak256(""),
                 string.concat("Key ", vm.toString(i), " after reorg should be empty")
             );
         }
 
         assertEq(
-            keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, keys[0], 1500)),
+            keccak256(liquidityMatrices[0].getRemoteDataAt(apps[0], chainUID, keys[0], 1500)),
             keccak256(""),
             "Settled after reorg"
         );
         assertEq(
-            keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, keys[0], uint64(block.timestamp))),
+            keccak256(liquidityMatrices[0].getRemoteDataAt(apps[0], chainUID, keys[0], uint64(block.timestamp))),
             keccak256(""),
             "Finalized after reorg"
         );
 
         // Queries before reorg timestamp use version 1 data (historical access works)
         assertEq(
-            keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, keys[0], 1400)),
+            keccak256(liquidityMatrices[0].getRemoteDataAt(apps[0], chainUID, keys[0], 1400)),
             keccak256(abi.encode("value1", uint256(100))),
             "Data at 1400 (before reorg, uses v1 data)"
         );
@@ -1558,19 +1591,19 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         // All data getters should return new values
         for (uint256 i = 0; i < keys.length; i++) {
             assertEq(
-                keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, keys[i], 1800)),
+                keccak256(liquidityMatrices[0].getRemoteDataAt(apps[0], chainUID, keys[i], 1800)),
                 keccak256(values[i]),
                 string.concat("Key ", vm.toString(i), " after new settlement")
             );
         }
 
         assertEq(
-            keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, keys[0], 1700)),
+            keccak256(liquidityMatrices[0].getRemoteDataAt(apps[0], chainUID, keys[0], 1700)),
             keccak256(values[0]),
             "Settled after new settlement"
         );
         assertEq(
-            keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, keys[0], uint64(block.timestamp))),
+            keccak256(liquidityMatrices[0].getRemoteDataAt(apps[0], chainUID, keys[0], uint64(block.timestamp))),
             keccak256(values[0]),
             "Finalized after new settlement"
         );
@@ -1594,8 +1627,9 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
 
         // Get roots before reorg
         (bytes32 liquidityRootBefore, uint64 liquidityTimestampBefore) =
-            liquidityMatrices[0].getLastReceivedLiquidityRoot(chainUID);
-        (bytes32 dataRootBefore, uint64 dataTimestampBefore) = liquidityMatrices[0].getLastReceivedDataRoot(chainUID);
+            liquidityMatrices[0].getLastReceivedRemoteLiquidityRoot(chainUID);
+        (bytes32 dataRootBefore, uint64 dataTimestampBefore) =
+            liquidityMatrices[0].getLastReceivedRemoteDataRoot(chainUID);
 
         assertTrue(liquidityRootBefore != bytes32(0), "Liquidity root should exist before reorg");
         assertTrue(dataRootBefore != bytes32(0), "Data root should exist before reorg");
@@ -1620,9 +1654,9 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
 
         // Check settled and finalized roots before reorg
         (bytes32 settledLiqRoot, uint64 settledLiqTime) =
-            liquidityMatrices[0].getLastSettledLiquidityRoot(apps[0], chainUID);
+            liquidityMatrices[0].getLastSettledRemoteLiquidityRoot(apps[0], chainUID);
         (bytes32 finalizedLiqRoot, uint64 finalizedLiqTime) =
-            liquidityMatrices[0].getLastFinalizedLiquidityRoot(apps[0], chainUID);
+            liquidityMatrices[0].getLastFinalizedRemoteLiquidityRoot(apps[0], chainUID);
 
         assertEq(settledLiqRoot, liquidityRootBefore, "Settled liquidity root before reorg");
         assertEq(finalizedLiqRoot, liquidityRootBefore, "Finalized liquidity root before reorg");
@@ -1636,8 +1670,9 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         liquidityMatrices[0].addRemoteAppChronicle(apps[0], chainUID, 2);
 
         // After reorg, settled/finalized roots should be empty for current version
-        (settledLiqRoot, settledLiqTime) = liquidityMatrices[0].getLastSettledLiquidityRoot(apps[0], chainUID);
-        (finalizedLiqRoot, finalizedLiqTime) = liquidityMatrices[0].getLastFinalizedLiquidityRoot(apps[0], chainUID);
+        (settledLiqRoot, settledLiqTime) = liquidityMatrices[0].getLastSettledRemoteLiquidityRoot(apps[0], chainUID);
+        (finalizedLiqRoot, finalizedLiqTime) =
+            liquidityMatrices[0].getLastFinalizedRemoteLiquidityRoot(apps[0], chainUID);
 
         assertEq(settledLiqRoot, bytes32(0), "Settled liquidity root after reorg");
         assertEq(finalizedLiqRoot, bytes32(0), "Finalized liquidity root after reorg");
@@ -1646,12 +1681,12 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
 
         // Historical queries still return synced roots (sync persists across reorgs)
         assertEq(
-            liquidityMatrices[0].getLiquidityRootAt(chainUID, 1000),
+            liquidityMatrices[0].getRemoteLiquidityRootAt(chainUID, 1000),
             liquidityRootBefore,
             "Historical liquidity root at t=1000 (synced root persists)"
         );
         assertEq(
-            liquidityMatrices[0].getDataRootAt(chainUID, 1000),
+            liquidityMatrices[0].getRemoteDataRootAt(chainUID, 1000),
             dataRootBefore,
             "Historical data root at t=1000 (synced root persists)"
         );

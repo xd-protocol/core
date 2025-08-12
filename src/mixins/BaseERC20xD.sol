@@ -553,7 +553,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         uint256 length = _hooks.length;
         for (uint256 i; i < length; ++i) {
             int256 liquidity =
-                ILiquidityMatrix(liquidityMatrix).getLiquidityAt(address(this), chainUID, account, timestamp);
+                ILiquidityMatrix(liquidityMatrix).getRemoteLiquidityAt(address(this), chainUID, account, timestamp);
             try IERC20xDHook(_hooks[i]).onSettleLiquidity(chainUID, timestamp, account, liquidity) { }
             catch (bytes memory reason) {
                 emit OnSettleLiquidityHookFailure(_hooks[i], chainUID, timestamp, account, liquidity, reason);
@@ -576,7 +576,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         uint256 length = _hooks.length;
         for (uint256 i; i < length; ++i) {
             int256 totalLiquidity =
-                ILiquidityMatrix(liquidityMatrix).getTotalLiquidityAt(address(this), chainUID, timestamp);
+                ILiquidityMatrix(liquidityMatrix).getRemoteTotalLiquidityAt(address(this), chainUID, timestamp);
             try IERC20xDHook(_hooks[i]).onSettleTotalLiquidity(chainUID, timestamp, totalLiquidity) { }
             catch (bytes memory reason) {
                 emit OnSettleTotalLiquidityHookFailure(_hooks[i], chainUID, timestamp, totalLiquidity, reason);

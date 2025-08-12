@@ -195,7 +195,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             ILiquidityMatrix remote = liquidityMatrices[i];
             BaseERC20xD remoteApp = erc20s[i];
 
-            (, uint256 rootTimestamp) = local.getLastReceivedLiquidityRoot(bytes32(uint256(eids[i])));
+            (, uint256 rootTimestamp) = local.getLastReceivedRemoteLiquidityRoot(bytes32(uint256(eids[i])));
 
             int256[] memory liquidity = new int256[](users.length);
             for (uint256 j; j < users.length; ++j) {

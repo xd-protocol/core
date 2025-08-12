@@ -31,27 +31,31 @@ contract LiquidityMatrixMock {
         return liquidity[app][account];
     }
 
-    function getLiquidityAt(address app, bytes32, address account, uint64) external view returns (int256) {
+    function getRemoteLiquidityAt(address app, bytes32, address account, uint64) external view returns (int256) {
         return liquidity[app][account];
     }
 
-    function getLiquidityAt(address app, bytes32, uint256, address account, uint64) external view returns (int256) {
+    function getRemoteLiquidityAt(address app, bytes32, uint256, address account, uint64)
+        external
+        view
+        returns (int256)
+    {
         return liquidity[app][account];
     }
 
-    function getDataAt(address, bytes32, bytes32, uint64) external pure returns (bytes memory) {
+    function getRemoteDataAt(address, bytes32, bytes32, uint64) external pure returns (bytes memory) {
         return abi.encode("test value", 12_345);
     }
 
-    function getDataAt(address, bytes32, uint256, bytes32, uint64) external pure returns (bytes memory) {
+    function getRemoteDataAt(address, bytes32, uint256, bytes32, uint64) external pure returns (bytes memory) {
         return abi.encode("test value", 12_345);
     }
 
-    function getTotalLiquidityAt(address app, bytes32, uint64) external view returns (int256) {
+    function getRemoteTotalLiquidityAt(address app, bytes32, uint64) external view returns (int256) {
         return totalLiquidity[app];
     }
 
-    function getTotalLiquidityAt(address app, bytes32, uint256, uint64) external view returns (int256) {
+    function getRemoteTotalLiquidityAt(address app, bytes32, uint256, uint64) external view returns (int256) {
         return totalLiquidity[app];
     }
 

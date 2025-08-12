@@ -353,7 +353,7 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to query
      * @return root The liquidity root at the timestamp
      */
-    function getLiquidityRootAt(bytes32 chainUID, uint64 timestamp) external view returns (bytes32 root);
+    function getRemoteLiquidityRootAt(bytes32 chainUID, uint64 timestamp) external view returns (bytes32 root);
 
     /**
      * @notice Gets the liquidity root at a specific timestamp for a specific version
@@ -362,7 +362,7 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to query
      * @return root The liquidity root at the timestamp for the specified version
      */
-    function getLiquidityRootAt(bytes32 chainUID, uint256 version, uint64 timestamp)
+    function getRemoteLiquidityRootAt(bytes32 chainUID, uint256 version, uint64 timestamp)
         external
         view
         returns (bytes32 root);
@@ -373,7 +373,10 @@ interface ILiquidityMatrix {
      * @return root The liquidity root hash
      * @return timestamp The timestamp when the root was received
      */
-    function getLastReceivedLiquidityRoot(bytes32 chainUID) external view returns (bytes32 root, uint64 timestamp);
+    function getLastReceivedRemoteLiquidityRoot(bytes32 chainUID)
+        external
+        view
+        returns (bytes32 root, uint64 timestamp);
 
     /**
      * @notice Gets the last received liquidity root from a remote chain for a specific version
@@ -382,7 +385,7 @@ interface ILiquidityMatrix {
      * @return root The liquidity root hash
      * @return timestamp The timestamp when the root was received
      */
-    function getLastReceivedLiquidityRoot(bytes32 chainUID, uint256 version)
+    function getLastReceivedRemoteLiquidityRoot(bytes32 chainUID, uint256 version)
         external
         view
         returns (bytes32 root, uint64 timestamp);
@@ -394,12 +397,12 @@ interface ILiquidityMatrix {
      * @return root The liquidity root hash
      * @return timestamp The timestamp of the settled root
      */
-    function getLastSettledLiquidityRoot(address app, bytes32 chainUID)
+    function getLastSettledRemoteLiquidityRoot(address app, bytes32 chainUID)
         external
         view
         returns (bytes32 root, uint64 timestamp);
 
-    function getLastSettledLiquidityRoot(address app, bytes32 chainUID, uint256 version)
+    function getLastSettledRemoteLiquidityRoot(address app, bytes32 chainUID, uint256 version)
         external
         view
         returns (bytes32 root, uint64 timestamp);
@@ -412,12 +415,12 @@ interface ILiquidityMatrix {
      * @return root The liquidity root hash
      * @return timestamp The timestamp of the finalized root
      */
-    function getLastFinalizedLiquidityRoot(address app, bytes32 chainUID)
+    function getLastFinalizedRemoteLiquidityRoot(address app, bytes32 chainUID)
         external
         view
         returns (bytes32 root, uint64 timestamp);
 
-    function getLastFinalizedLiquidityRoot(address app, bytes32 chainUID, uint256 version)
+    function getLastFinalizedRemoteLiquidityRoot(address app, bytes32 chainUID, uint256 version)
         external
         view
         returns (bytes32 root, uint64 timestamp);
@@ -428,7 +431,7 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to query
      * @return root The data root at the timestamp
      */
-    function getDataRootAt(bytes32 chainUID, uint64 timestamp) external view returns (bytes32 root);
+    function getRemoteDataRootAt(bytes32 chainUID, uint64 timestamp) external view returns (bytes32 root);
 
     /**
      * @notice Gets the data root at a specific timestamp for a specific version
@@ -437,7 +440,10 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to query
      * @return root The data root at the timestamp for the specified version
      */
-    function getDataRootAt(bytes32 chainUID, uint256 version, uint64 timestamp) external view returns (bytes32 root);
+    function getRemoteDataRootAt(bytes32 chainUID, uint256 version, uint64 timestamp)
+        external
+        view
+        returns (bytes32 root);
 
     /**
      * @notice Gets the last received data root from a remote chain
@@ -445,7 +451,7 @@ interface ILiquidityMatrix {
      * @return root The data root hash
      * @return timestamp The timestamp when the root was received
      */
-    function getLastReceivedDataRoot(bytes32 chainUID) external view returns (bytes32 root, uint64 timestamp);
+    function getLastReceivedRemoteDataRoot(bytes32 chainUID) external view returns (bytes32 root, uint64 timestamp);
 
     /**
      * @notice Gets the last received data root from a remote chain for a specific version
@@ -454,7 +460,7 @@ interface ILiquidityMatrix {
      * @return root The data root hash
      * @return timestamp The timestamp when the root was received
      */
-    function getLastReceivedDataRoot(bytes32 chainUID, uint256 version)
+    function getLastReceivedRemoteDataRoot(bytes32 chainUID, uint256 version)
         external
         view
         returns (bytes32 root, uint64 timestamp);
@@ -466,12 +472,12 @@ interface ILiquidityMatrix {
      * @return root The data root hash
      * @return timestamp The timestamp of the settled root
      */
-    function getLastSettledDataRoot(address app, bytes32 chainUID)
+    function getLastSettledRemoteDataRoot(address app, bytes32 chainUID)
         external
         view
         returns (bytes32 root, uint64 timestamp);
 
-    function getLastSettledDataRoot(address app, bytes32 chainUID, uint256 version)
+    function getLastSettledRemoteDataRoot(address app, bytes32 chainUID, uint256 version)
         external
         view
         returns (bytes32 root, uint64 timestamp);
@@ -483,12 +489,12 @@ interface ILiquidityMatrix {
      * @return root The data root hash
      * @return timestamp The timestamp of the finalized root
      */
-    function getLastFinalizedDataRoot(address app, bytes32 chainUID)
+    function getLastFinalizedRemoteDataRoot(address app, bytes32 chainUID)
         external
         view
         returns (bytes32 root, uint64 timestamp);
 
-    function getLastFinalizedDataRoot(address app, bytes32 chainUID, uint256 version)
+    function getLastFinalizedRemoteDataRoot(address app, bytes32 chainUID, uint256 version)
         external
         view
         returns (bytes32 root, uint64 timestamp);
@@ -560,7 +566,7 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to query
      * @return liquidity The total liquidity at the latest valid timestamp
      */
-    function getTotalLiquidityAt(address app, bytes32 chainUID, uint64 timestamp)
+    function getRemoteTotalLiquidityAt(address app, bytes32 chainUID, uint64 timestamp)
         external
         view
         returns (int256 liquidity);
@@ -638,7 +644,7 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to query
      * @return liquidity The liquidity from the specified chain at the timestamp
      */
-    function getLiquidityAt(address app, bytes32 chainUID, address account, uint64 timestamp)
+    function getRemoteLiquidityAt(address app, bytes32 chainUID, address account, uint64 timestamp)
         external
         view
         returns (int256 liquidity);
@@ -651,7 +657,7 @@ interface ILiquidityMatrix {
      * @param timestamp The timestamp to query
      * @return value The remote data hash at the timestamp
      */
-    function getDataAt(address app, bytes32 chainUID, bytes32 key, uint64 timestamp)
+    function getRemoteDataAt(address app, bytes32 chainUID, bytes32 key, uint64 timestamp)
         external
         view
         returns (bytes memory value);

@@ -523,11 +523,11 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @param timestamp The timestamp to query
      * @return root The liquidity root at the timestamp
      */
-    function getLiquidityRootAt(bytes32 chainUID, uint64 timestamp) external view returns (bytes32 root) {
-        return getLiquidityRootAt(chainUID, getVersion(timestamp), timestamp);
+    function getRemoteLiquidityRootAt(bytes32 chainUID, uint64 timestamp) external view returns (bytes32 root) {
+        return getRemoteLiquidityRootAt(chainUID, getVersion(timestamp), timestamp);
     }
 
-    function getLiquidityRootAt(bytes32 chainUID, uint256 version, uint64 timestamp)
+    function getRemoteLiquidityRootAt(bytes32 chainUID, uint256 version, uint64 timestamp)
         public
         view
         returns (bytes32 root)
@@ -541,11 +541,15 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @return root The liquidity root hash
      * @return timestamp The timestamp when the root was received
      */
-    function getLastReceivedLiquidityRoot(bytes32 chainUID) external view returns (bytes32 root, uint64 timestamp) {
-        return getLastReceivedLiquidityRoot(chainUID, currentVersion());
+    function getLastReceivedRemoteLiquidityRoot(bytes32 chainUID)
+        external
+        view
+        returns (bytes32 root, uint64 timestamp)
+    {
+        return getLastReceivedRemoteLiquidityRoot(chainUID, currentVersion());
     }
 
-    function getLastReceivedLiquidityRoot(bytes32 chainUID, uint256 version)
+    function getLastReceivedRemoteLiquidityRoot(bytes32 chainUID, uint256 version)
         public
         view
         returns (bytes32 root, uint64 timestamp)
@@ -567,15 +571,15 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @return root The liquidity root hash
      * @return timestamp The timestamp of the settled root
      */
-    function getLastSettledLiquidityRoot(address app, bytes32 chainUID)
+    function getLastSettledRemoteLiquidityRoot(address app, bytes32 chainUID)
         public
         view
         returns (bytes32 root, uint64 timestamp)
     {
-        return getLastSettledLiquidityRoot(app, chainUID, currentVersion());
+        return getLastSettledRemoteLiquidityRoot(app, chainUID, currentVersion());
     }
 
-    function getLastSettledLiquidityRoot(address app, bytes32 chainUID, uint256 version)
+    function getLastSettledRemoteLiquidityRoot(address app, bytes32 chainUID, uint256 version)
         public
         view
         returns (bytes32 root, uint64 timestamp)
@@ -594,15 +598,15 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @return root The liquidity root hash
      * @return timestamp The timestamp of the finalized root
      */
-    function getLastFinalizedLiquidityRoot(address app, bytes32 chainUID)
+    function getLastFinalizedRemoteLiquidityRoot(address app, bytes32 chainUID)
         public
         view
         returns (bytes32 root, uint64 timestamp)
     {
-        return getLastFinalizedLiquidityRoot(app, chainUID, currentVersion());
+        return getLastFinalizedRemoteLiquidityRoot(app, chainUID, currentVersion());
     }
 
-    function getLastFinalizedLiquidityRoot(address app, bytes32 chainUID, uint256 version)
+    function getLastFinalizedRemoteLiquidityRoot(address app, bytes32 chainUID, uint256 version)
         public
         view
         returns (bytes32 root, uint64 timestamp)
@@ -619,11 +623,15 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @param timestamp The timestamp to query
      * @return root The data root at the timestamp
      */
-    function getDataRootAt(bytes32 chainUID, uint64 timestamp) external view returns (bytes32 root) {
-        return getDataRootAt(chainUID, getVersion(timestamp), timestamp);
+    function getRemoteDataRootAt(bytes32 chainUID, uint64 timestamp) external view returns (bytes32 root) {
+        return getRemoteDataRootAt(chainUID, getVersion(timestamp), timestamp);
     }
 
-    function getDataRootAt(bytes32 chainUID, uint256 version, uint64 timestamp) public view returns (bytes32 root) {
+    function getRemoteDataRootAt(bytes32 chainUID, uint256 version, uint64 timestamp)
+        public
+        view
+        returns (bytes32 root)
+    {
         return _remoteStates[chainUID][version].dataRoots.get(timestamp);
     }
 
@@ -633,11 +641,11 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @return root The data root hash
      * @return timestamp The timestamp when the root was received
      */
-    function getLastReceivedDataRoot(bytes32 chainUID) external view returns (bytes32 root, uint64 timestamp) {
-        return getLastReceivedDataRoot(chainUID, currentVersion());
+    function getLastReceivedRemoteDataRoot(bytes32 chainUID) external view returns (bytes32 root, uint64 timestamp) {
+        return getLastReceivedRemoteDataRoot(chainUID, currentVersion());
     }
 
-    function getLastReceivedDataRoot(bytes32 chainUID, uint256 version)
+    function getLastReceivedRemoteDataRoot(bytes32 chainUID, uint256 version)
         public
         view
         returns (bytes32 root, uint64 timestamp)
@@ -659,15 +667,15 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @return root The data root hash
      * @return timestamp The timestamp of the settled root
      */
-    function getLastSettledDataRoot(address app, bytes32 chainUID)
+    function getLastSettledRemoteDataRoot(address app, bytes32 chainUID)
         public
         view
         returns (bytes32 root, uint64 timestamp)
     {
-        return getLastSettledDataRoot(app, chainUID, currentVersion());
+        return getLastSettledRemoteDataRoot(app, chainUID, currentVersion());
     }
 
-    function getLastSettledDataRoot(address app, bytes32 chainUID, uint256 version)
+    function getLastSettledRemoteDataRoot(address app, bytes32 chainUID, uint256 version)
         public
         view
         returns (bytes32 root, uint64 timestamp)
@@ -685,15 +693,15 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @return root The data root hash
      * @return timestamp The timestamp of the finalized root
      */
-    function getLastFinalizedDataRoot(address app, bytes32 chainUID)
+    function getLastFinalizedRemoteDataRoot(address app, bytes32 chainUID)
         external
         view
         returns (bytes32 root, uint64 timestamp)
     {
-        return getLastFinalizedDataRoot(app, chainUID, currentVersion());
+        return getLastFinalizedRemoteDataRoot(app, chainUID, currentVersion());
     }
 
-    function getLastFinalizedDataRoot(address app, bytes32 chainUID, uint256 version)
+    function getLastFinalizedRemoteDataRoot(address app, bytes32 chainUID, uint256 version)
         public
         view
         returns (bytes32 root, uint64 timestamp)
@@ -773,7 +781,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         }
     }
 
-    function getTotalLiquidityAt(address app, bytes32 chainUID, uint64 timestamp)
+    function getRemoteTotalLiquidityAt(address app, bytes32 chainUID, uint64 timestamp)
         external
         view
         returns (int256 liquidity)
@@ -851,7 +859,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         }
     }
 
-    function getLiquidityAt(address app, bytes32 chainUID, address account, uint64 timestamp)
+    function getRemoteLiquidityAt(address app, bytes32 chainUID, address account, uint64 timestamp)
         external
         view
         returns (int256 liquidity)
@@ -859,7 +867,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return _getRemoteAppChronicleOrRevert(app, chainUID, getVersion(timestamp)).getLiquidityAt(account, timestamp);
     }
 
-    function getDataAt(address app, bytes32 chainUID, bytes32 key, uint64 timestamp)
+    function getRemoteDataAt(address app, bytes32 chainUID, bytes32 key, uint64 timestamp)
         public
         view
         returns (bytes memory value)

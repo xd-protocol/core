@@ -222,7 +222,7 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
 
         for (uint256 i; i < _remotes.length; ++i) {
             bytes32 chainUID = _eid(_remotes[i]);
-            (bytes32 _liquidityRoot, uint256 _liquidityTimestamp) = _local.getLastReceivedLiquidityRoot(chainUID);
+            (bytes32 _liquidityRoot, uint256 _liquidityTimestamp) = _local.getLastReceivedRemoteLiquidityRoot(chainUID);
             assertEq(_liquidityRoot, liquidityRoots[i], "Liquidity root mismatch");
 
             // Only check liquidity timestamp if liquidity root is non-zero
@@ -230,7 +230,7 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
                 assertEq(_liquidityTimestamp, timestamps[i], "Liquidity timestamp mismatch");
             }
 
-            (bytes32 _dataRoot, uint256 _dataTimestamp) = _local.getLastReceivedDataRoot(chainUID);
+            (bytes32 _dataRoot, uint256 _dataTimestamp) = _local.getLastReceivedRemoteDataRoot(chainUID);
             assertEq(_dataRoot, dataRoots[i], "Data root mismatch");
 
             // Only check data timestamp if data root is non-zero
