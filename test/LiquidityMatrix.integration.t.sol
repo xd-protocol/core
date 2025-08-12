@@ -521,6 +521,164 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         assertEq(liquidityMatrices[0].getDataRootAt(bytes32(uint256(eids[1])), uint64(t3)), topDataRoot3);
     }
 
+    function test_outOfOrderSettlement() public {
+        // Test the behavior when a reorg happens BEFORE a settlement timestamp,
+        // effectively reverting the settled state to a new version
+
+        bytes32 chainUID = bytes32(uint256(eids[1]));
+        address[] memory accounts = new address[](2);
+        accounts[0] = alice;
+        accounts[1] = bob;
+        int256[] memory liquidity = new int256[](2);
+        bytes32[] memory keys = new bytes32[](2);
+        bytes[] memory values = new bytes[](2);
+
+        // Phase 1: Setup and settlement in Version 1 at t=2000
+        vm.warp(2000);
+        liquidity[0] = 100e18;
+        liquidity[1] = 200e18;
+        keys[0] = keccak256("key1");
+        keys[1] = keccak256("key2");
+        values[0] = abi.encode("value1_v1");
+        values[1] = abi.encode("value2_v1");
+
+        // Update remote chain with data
+        changePrank(apps[1], apps[1]);
+        liquidityMatrices[1].updateLocalLiquidity(accounts[0], liquidity[0]);
+        liquidityMatrices[1].updateLocalLiquidity(accounts[1], liquidity[1]);
+        liquidityMatrices[1].updateLocalData(keys[0], values[0]);
+        liquidityMatrices[1].updateLocalData(keys[1], values[1]);
+
+        // Sync to get roots
+        ILiquidityMatrix[] memory remotes = new ILiquidityMatrix[](1);
+        remotes[0] = liquidityMatrices[1];
+        _sync(syncers[0], liquidityMatrices[0], remotes);
+
+        // Settle both liquidity and data at t=2000 in version 1
+        changePrank(settlers[0], settlers[0]);
+        _settleLiquidity(liquidityMatrices[0], liquidityMatrices[1], apps[0], chainUID, 2000, accounts, liquidity);
+        _settleData(liquidityMatrices[0], liquidityMatrices[1], apps[0], chainUID, 2000, keys, values);
+
+        // Verify settlement successful in version 1
+        address chronicleV1 = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
+        IRemoteAppChronicle remoteChronicleV1 = IRemoteAppChronicle(chronicleV1);
+
+        // Check that data is settled and finalized at t=2000 in version 1
+        assertTrue(remoteChronicleV1.isLiquiditySettled(2000), "V1: Liquidity should be settled at t=2000");
+        assertTrue(remoteChronicleV1.isDataSettled(2000), "V1: Data should be settled at t=2000");
+        assertTrue(remoteChronicleV1.isFinalized(2000), "V1: Should be finalized at t=2000");
+
+        // Verify we can query the data
+        assertEq(
+            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 2000), 100e18, "V1: Alice liquidity at t=2000"
+        );
+        assertEq(
+            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, bob, 2000), 200e18, "V1: Bob liquidity at t=2000"
+        );
+        assertEq(
+            keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, keys[0], 2000)),
+            keccak256(values[0]),
+            "V1: Data key1 at t=2000"
+        );
+
+        // Phase 2: Add reorg at t=1500 (BEFORE the settlement at t=2000)
+        // This creates version 2 starting at t=1500, making the t=2000 settlement "out of order"
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].addVersion(1500);
+
+        // Create RemoteAppChronicle for version 2
+        liquidityMatrices[0].addRemoteAppChronicle(apps[0], chainUID, 2);
+
+        // Also update remote chain to version 2
+        changePrank(settlers[1], settlers[1]);
+        liquidityMatrices[1].addVersion(1500);
+        liquidityMatrices[1].addLocalAppChronicle(apps[1], 2);
+
+        // Phase 3: Verify state reversion - the settlement at t=2000 is now "reverted"
+        // because version 2 is active at t=2000, and version 2 has no data
+
+        // Get the new chronicle for version 2
+        address chronicleV2 = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
+        IRemoteAppChronicle remoteChronicleV2 = IRemoteAppChronicle(chronicleV2);
+
+        // Chronicles should be different
+        assertTrue(chronicleV1 != chronicleV2, "V1 and V2 chronicles should be different");
+
+        // Version 2 chronicle should have no data at t=2000
+        assertFalse(remoteChronicleV2.isLiquiditySettled(2000), "V2: Liquidity should NOT be settled at t=2000");
+        assertFalse(remoteChronicleV2.isDataSettled(2000), "V2: Data should NOT be settled at t=2000");
+        assertFalse(remoteChronicleV2.isFinalized(2000), "V2: Should NOT be finalized at t=2000");
+
+        // Queries at t=2000 should now return 0 (version 2 has no data)
+        assertEq(
+            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 2000),
+            0,
+            "V2: Alice liquidity at t=2000 should be 0"
+        );
+        assertEq(
+            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, bob, 2000),
+            0,
+            "V2: Bob liquidity at t=2000 should be 0"
+        );
+        assertEq(
+            keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, keys[0], 2000)),
+            keccak256(""),
+            "V2: Data at t=2000 should be empty"
+        );
+
+        // Even queries before t=2000 but after t=1500 should return 0 in version 2
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1600), 0, "V2: No data at t=1600");
+        assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1900), 0, "V2: No data at t=1900");
+
+        // Version 1 chronicle still has its data (but not accessible via main getters)
+        assertTrue(remoteChronicleV1.isLiquiditySettled(2000), "V1 chronicle: Still has liquidity at t=2000");
+        assertTrue(remoteChronicleV1.isDataSettled(2000), "V1 chronicle: Still has data at t=2000");
+        assertEq(remoteChronicleV1.getLiquidityAt(alice, 2000), 100e18, "V1 chronicle: Alice liquidity preserved");
+
+        // Phase 4: New settlement in version 2 at t=2100
+        vm.warp(2100);
+        liquidity[0] = 150e18;
+        liquidity[1] = 250e18;
+        values[0] = abi.encode("value1_v2");
+        values[1] = abi.encode("value2_v2");
+
+        // Update remote chain with new data for version 2
+        changePrank(apps[1], apps[1]);
+        liquidityMatrices[1].updateLocalLiquidity(accounts[0], liquidity[0]);
+        liquidityMatrices[1].updateLocalLiquidity(accounts[1], liquidity[1]);
+        liquidityMatrices[1].updateLocalData(keys[0], values[0]);
+        liquidityMatrices[1].updateLocalData(keys[1], values[1]);
+
+        // Sync to get new roots
+        _sync(syncers[0], liquidityMatrices[0], remotes);
+
+        // Settle in version 2
+        changePrank(settlers[0], settlers[0]);
+        _settleLiquidity(liquidityMatrices[0], liquidityMatrices[1], apps[0], chainUID, 2100, accounts, liquidity);
+        _settleData(liquidityMatrices[0], liquidityMatrices[1], apps[0], chainUID, 2100, keys, values);
+
+        // Verify new settlement in version 2
+        assertTrue(remoteChronicleV2.isFinalized(2100), "V2: Should be finalized at t=2100");
+        assertEq(
+            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 2100), 150e18, "V2: Alice liquidity at t=2100"
+        );
+        assertEq(
+            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, bob, 2100), 250e18, "V2: Bob liquidity at t=2100"
+        );
+        assertEq(
+            keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, keys[0], 2100)),
+            keccak256(values[0]),
+            "V2: Data at t=2100"
+        );
+
+        // But t=2000 still returns 0 in version 2
+        assertEq(
+            liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 2000),
+            0,
+            "V2: t=2000 still empty after new settlement"
+        );
+    }
+
     /*//////////////////////////////////////////////////////////////
                         REORG PROTECTION TESTS
     //////////////////////////////////////////////////////////////*/
