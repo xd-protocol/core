@@ -16,41 +16,6 @@ library ArrayLib {
     }
 
     /**
-     * @notice Inserts a timestamp into a sorted array while maintaining sort order
-     * @param arr The storage array to insert into (must be sorted in ascending order)
-     * @param timestamp The timestamp to insert
-     * @dev Uses binary insertion sort for efficiency. Handles edge cases:
-     *      - Empty array: simply pushes the timestamp
-     *      - Timestamp >= last element: pushes to end
-     *      - Otherwise: shifts elements and inserts at correct position
-     */
-    function insertSorted(uint256[] storage arr, uint256 timestamp) internal {
-        uint256 len = arr.length;
-
-        if (len == 0) {
-            arr.push(timestamp);
-            return;
-        }
-
-        if (arr[len - 1] <= timestamp) {
-            arr.push(timestamp);
-            return;
-        }
-
-        arr.push(arr[len - 1]);
-
-        uint256 i = len;
-        while (i > 0 && arr[i - 1] > timestamp) {
-            arr[i] = arr[i - 1];
-            unchecked {
-                i--;
-            }
-        }
-
-        arr[i] = timestamp;
-    }
-
-    /**
      * @notice Finds the largest element less than or equal to a given timestamp
      * @param arr The sorted array to search in (must be sorted in ascending order)
      * @param timestamp The timestamp to find

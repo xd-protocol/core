@@ -17,6 +17,7 @@ contract MerkleTreeLibTest is Test {
     function test_initialize() public view {
         assertEq(tree.root, bytes32(0));
         assertEq(tree.size, 0);
+        assertEq(tree.getRoot(), MerkleTreeLib.EMPTY_NODE);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -103,7 +104,7 @@ contract MerkleTreeLibTest is Test {
         bytes32[] memory values = new bytes32[](0);
 
         bytes32 root = MerkleTreeLib.computeRoot(keys, values);
-        assertEq(root, bytes32(0));
+        assertEq(root, MerkleTreeLib.EMPTY_NODE);
     }
 
     function test_computeRoot_singleNode() public pure {
@@ -158,7 +159,7 @@ contract MerkleTreeLibTest is Test {
         bytes32 leaf2 = keccak256(abi.encodePacked(keys[2], values[2]));
 
         bytes32 parent0 = keccak256(abi.encodePacked(leaf0, leaf1));
-        bytes32 parent1 = keccak256(abi.encodePacked(leaf2, bytes32(0)));
+        bytes32 parent1 = keccak256(abi.encodePacked(leaf2, MerkleTreeLib.EMPTY_NODE));
 
         bytes32 expectedRoot = keccak256(abi.encodePacked(parent0, parent1));
         assertEq(root, expectedRoot);
@@ -188,7 +189,7 @@ contract MerkleTreeLibTest is Test {
             random = keccak256(abi.encodePacked(value, i));
         }
 
-        bytes32 updated = tree.root;
+        bytes32 updated = tree.getRoot();
         bytes32 computed = MerkleTreeLib.computeRoot(keys, values);
         assertEq(updated, computed);
     }
@@ -474,7 +475,7 @@ contract MerkleTreeLibTest is Test {
             }
 
             // Verify root matches computed root
-            assertEq(tree.root, MerkleTreeLib.computeRoot(partialKeys, partialValues));
+            assertEq(tree.getRoot(), MerkleTreeLib.computeRoot(partialKeys, partialValues));
         }
     }
 
@@ -496,7 +497,7 @@ contract MerkleTreeLibTest is Test {
         values[5] = newValue;
 
         // Verify root matches computed root with updated value
-        assertEq(tree.root, MerkleTreeLib.computeRoot(keys, values));
+        assertEq(tree.getRoot(), MerkleTreeLib.computeRoot(keys, values));
         assertEq(tree.size, size); // Size should not change
     }
 

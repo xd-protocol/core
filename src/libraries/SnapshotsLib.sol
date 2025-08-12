@@ -23,6 +23,8 @@ library SnapshotsLib {
         uint256 timestamp;
     }
 
+    error StaleTimestamp();
+
     /*//////////////////////////////////////////////////////////////
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -187,7 +189,9 @@ library SnapshotsLib {
             return;
         }
 
+        if (snapshots.timestamps.length > 0 && timestamp <= snapshots.timestamps.last()) revert StaleTimestamp();
+
         snapshots.snapshots[timestamp] = Snapshot(value, timestamp);
-        snapshots.timestamps.insertSorted(timestamp);
+        snapshots.timestamps.push(timestamp);
     }
 }

@@ -13,6 +13,7 @@ interface ILiquidityMatrix {
     error AppChronicleAlreadyAdded();
     error AppNotRegistered();
     error AppAlreadyRegistered();
+    error ChronicleDeploymentFailed();
     error InvalidAddress();
     error InvalidAmount();
     error InvalidCmd();
@@ -26,7 +27,7 @@ interface ILiquidityMatrix {
     error LocalAppChronicleNotSet();
     error RemoteAccountAlreadyMapped(bytes32 chainUID, address remote);
     error RemoteAppChronicleNotSet(bytes32 chainUID);
-    error ChronicleDeploymentFailed();
+    error StaleRoots(bytes32 chainUID);
 
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
@@ -40,24 +41,35 @@ interface ILiquidityMatrix {
     event UpdateSyncMappedAccountsOnly(address indexed app, bool syncMappedAccountsOnly);
     event UpdateUseHook(address indexed app, bool useHook);
     event UpdateSettler(address indexed app, address settler);
+    event UpdateRemoteApp(address indexed app, bytes32 indexed chainUID, address indexed remoteApp, uint256 appIndex);
     event UpdateTopLiquidityTree(
         uint256 indexed version, address indexed app, bytes32 appLiquidityRoot, bytes32 topLiquidityRoot
     );
     event UpdateTopDataTree(uint256 indexed version, address indexed app, bytes32 appDataRoot, bytes32 topDataRoot);
 
     event UpdateSettlerWhitelisted(address indexed account, bool whitelisted);
-    event UpdateRemoteApp(address indexed app, bytes32 indexed chainUID, address indexed remoteApp);
     event MapRemoteAccount(address indexed app, bytes32 indexed chainUID, address indexed remote, address local);
     event RequestMapRemoteAccounts(
         address indexed app, bytes32 indexed chainUID, address indexed remoteApp, address[] remotes, address[] locals
     );
+    event OnReceiveMapRemoteAccountRequestsFailure(
+        bytes32 indexed sourceChainUID, address indexed app, address[] remotes, address[] locals, bytes reason
+    );
 
-    event OnReceiveRoots(
+    event ReceiveRoots(
         bytes32 indexed chainUID,
         uint256 indexed version,
         bytes32 liquidityRoot,
         bytes32 dataRoot,
         uint64 indexed timestamp
+    );
+    event OnReceiveRootFailure(
+        bytes32 indexed chainUID,
+        uint256 indexed version,
+        bytes32 liquidityRoot,
+        bytes32 dataRoot,
+        uint64 indexed timestamp,
+        bytes reason
     );
 
     event UpdateGateway(address indexed gateway);
@@ -247,6 +259,11 @@ interface ILiquidityMatrix {
      * @return Whether the account is whitelisted
      */
     function isSettlerWhitelisted(address account) external view returns (bool);
+
+    function getRemoteApp(address app, bytes32 chainUID)
+        external
+        view
+        returns (address remoteApp, uint256 remoteAppIndex);
 
     /**
      * @notice Gets the local account mapped to a remote account
@@ -643,6 +660,8 @@ interface ILiquidityMatrix {
      */
     function updateSettler(address settler) external;
 
+    function updateRemoteApp(bytes32 chainUID, address app, uint256 appIndex) external;
+
     /**
      * @notice Creates a new LocalAppChronicle for an app at a specific version
      * @dev Only callable by the app's settler. Required after a reorg to enable local state tracking.
@@ -797,8 +816,11 @@ interface ILiquidityMatrix {
      *      Validates mappings and consolidates liquidity from remote to local accounts.
      * @param _fromChainUID Source chain unique identifier
      * @param _localApp Local app address that should process this request
-     * @param _message Encoded remote and local account arrays
      */
-    function onReceiveMapRemoteAccountRequests(bytes32 _fromChainUID, address _localApp, bytes memory _message)
-        external;
+    function onReceiveMapRemoteAccountRequests(
+        bytes32 _fromChainUID,
+        address _localApp,
+        address[] memory _remotes,
+        address[] memory _locals
+    ) external;
 }

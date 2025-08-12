@@ -86,6 +86,8 @@ interface IRemoteAppChronicle {
      */
     error InvalidMerkleProof();
 
+    error RemoteAppNotSet();
+
     /*//////////////////////////////////////////////////////////////
                             VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/

@@ -46,7 +46,6 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
      * @param accounts Array of account addresses
      * @param liquidity Array of liquidity values corresponding to accounts
      * @param liquidityRoot The root of this app's liquidity tree on the remote chain
-     * @param index The app's index in the remote chain's top liquidity tree
      * @param proof Merkle proof that the app's root is in the remote top tree
      */
     struct SettleLiquidityParams {
@@ -54,7 +53,6 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
         address[] accounts;
         int256[] liquidity;
         bytes32 liquidityRoot;
-        uint256 index;
         bytes32[] proof;
     }
 
@@ -64,7 +62,6 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
      * @param keys Array of data keys
      * @param values Array of data values corresponding to keys
      * @param dataRoot The root of this app's data tree on the remote chain
-     * @param index The app's index in the remote chain's top data tree
      * @param proof Merkle proof that the app's root is in the remote top tree
      */
     struct SettleDataParams {
@@ -72,7 +69,6 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
         bytes32[] keys;
         bytes[] values;
         bytes32 dataRoot;
-        uint256 index;
         bytes32[] proof;
     }
 
@@ -210,32 +206,33 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
     function settleLiquidity(SettleLiquidityParams memory params) external onlySettler {
         if (isLiquiditySettled[params.timestamp]) revert LiquidityAlreadySettled();
 
+        ILiquidityMatrix _liquidityMatrix = ILiquidityMatrix(liquidityMatrix);
         // Get the remote chain's top liquidity tree root
-        bytes32 topLiquidityRoot =
-            ILiquidityMatrix(liquidityMatrix).getLiquidityRootAt(chainUID, version, params.timestamp);
-
+        bytes32 topLiquidityRoot = _liquidityMatrix.getLiquidityRootAt(chainUID, version, params.timestamp);
         if (topLiquidityRoot == bytes32(0)) revert RootNotReceived();
+
+        // Get the remote app and remote app index
+        (address remoteApp, uint256 remoteAppIndex) = _liquidityMatrix.getRemoteApp(app, chainUID);
+        if (remoteApp == address(0)) revert RemoteAppNotSet();
 
         // Verify that the app's liquidity root is in the remote top tree
         bool valid = MerkleTreeLib.verifyProof(
-            bytes32(uint256(uint160(app))), // Key is the app address
+            bytes32(uint256(uint160(remoteApp))), // Key is the app address
             params.liquidityRoot, // App's liquidity root on remote chain
-            params.index, // App's index in remote top tree
+            remoteAppIndex, // App's index in remote top tree
             params.proof, // Merkle proof for remote top tree
             topLiquidityRoot // Root of remote top tree
         );
 
         if (!valid) revert InvalidMerkleProof();
 
-        (, bool syncMappedAccountsOnly, bool useHook,) = ILiquidityMatrix(liquidityMatrix).getAppSetting(app);
+        (, bool syncMappedAccountsOnly, bool useHook,) = _liquidityMatrix.getAppSetting(app);
 
         isLiquiditySettled[params.timestamp] = true;
 
-        if (params.timestamp > _settledLiquidityTimestamps.last()) {
-            _settledLiquidityTimestamps.push(params.timestamp);
-            if (params.timestamp > _finalizedTimestamps.last() && isDataSettled[params.timestamp]) {
-                _finalizedTimestamps.push(params.timestamp);
-            }
+        _settledLiquidityTimestamps.push(params.timestamp);
+        if (params.timestamp > _finalizedTimestamps.last() && isDataSettled[params.timestamp]) {
+            _finalizedTimestamps.push(params.timestamp);
         }
 
         int256 totalLiquidity;
@@ -244,7 +241,7 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
             (address account, int256 liquidity) = (params.accounts[i], params.liquidity[i]);
 
             // Check if account is mapped to a local account
-            address _account = ILiquidityMatrix(liquidityMatrix).getMappedAccount(app, chainUID, account);
+            address _account = _liquidityMatrix.getMappedAccount(app, chainUID, account);
             if (syncMappedAccountsOnly && _account == address(0)) continue;
             if (_account == address(0)) {
                 _account = account;
@@ -286,31 +283,33 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
     function settleData(SettleDataParams memory params) external onlySettler {
         if (isDataSettled[params.timestamp]) revert DataAlreadySettled();
 
+        ILiquidityMatrix _liquidityMatrix = ILiquidityMatrix(liquidityMatrix);
         // Get the remote chain's top data tree root
-        bytes32 topDataRoot = ILiquidityMatrix(liquidityMatrix).getDataRootAt(chainUID, version, params.timestamp);
-
+        bytes32 topDataRoot = _liquidityMatrix.getDataRootAt(chainUID, version, params.timestamp);
         if (topDataRoot == bytes32(0)) revert RootNotReceived();
+
+        // Get the remote app and remote app index
+        (address remoteApp, uint256 remoteAppIndex) = _liquidityMatrix.getRemoteApp(app, chainUID);
+        if (remoteApp == address(0)) revert RemoteAppNotSet();
 
         // Verify that the app's data root is in the remote top tree
         bool valid = MerkleTreeLib.verifyProof(
-            bytes32(uint256(uint160(app))), // Key is the app address
+            bytes32(uint256(uint160(remoteApp))), // Key is the app address
             params.dataRoot, // App's data root on remote chain
-            params.index, // App's index in remote top tree
+            remoteAppIndex, // App's index in remote top tree
             params.proof, // Merkle proof for remote top tree
             topDataRoot // Root of remote top tree
         );
 
         if (!valid) revert InvalidMerkleProof();
 
-        (,, bool useHook,) = ILiquidityMatrix(liquidityMatrix).getAppSetting(app);
+        (,, bool useHook,) = _liquidityMatrix.getAppSetting(app);
 
         isDataSettled[params.timestamp] = true;
 
-        if (params.timestamp > _settledDataTimestamps.last()) {
-            _settledDataTimestamps.push(params.timestamp);
-            if (params.timestamp > _finalizedTimestamps.last() && isLiquiditySettled[params.timestamp]) {
-                _finalizedTimestamps.push(params.timestamp);
-            }
+        _settledDataTimestamps.push(params.timestamp);
+        if (params.timestamp > _finalizedTimestamps.last() && isLiquiditySettled[params.timestamp]) {
+            _finalizedTimestamps.push(params.timestamp);
         }
 
         // Process each key-value pair

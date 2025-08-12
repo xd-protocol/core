@@ -97,12 +97,12 @@ contract LocalAppChronicle is ILocalAppChronicle {
 
     /// @inheritdoc ILocalAppChronicle
     function getLiquidityRoot() public view returns (bytes32) {
-        return _liquidityTree.root;
+        return _liquidityTree.getRoot();
     }
 
     /// @inheritdoc ILocalAppChronicle
     function getDataRoot() public view returns (bytes32) {
-        return _dataTree.root;
+        return _dataTree.getRoot();
     }
 
     /// @inheritdoc ILocalAppChronicle
@@ -149,7 +149,7 @@ contract LocalAppChronicle is ILocalAppChronicle {
         returns (uint256 topTreeIndex, uint256 appTreeIndex)
     {
         appTreeIndex = _liquidityTree.update(bytes32(uint256(uint160(account))), bytes32(uint256(liquidity)));
-        topTreeIndex = ILiquidityMatrix(liquidityMatrix).updateTopLiquidityTree(version, app, _liquidityTree.root);
+        topTreeIndex = ILiquidityMatrix(liquidityMatrix).updateTopLiquidityTree(version, app, _liquidityTree.getRoot());
 
         int256 oldTotalLiquidity = _totalLiquidity.getAsInt();
         int256 oldLiquidity = _liquidity[account].getAsInt();
@@ -169,7 +169,7 @@ contract LocalAppChronicle is ILocalAppChronicle {
     {
         bytes32 hash = keccak256(value);
         appTreeIndex = _dataTree.update(key, hash);
-        topTreeIndex = ILiquidityMatrix(liquidityMatrix).updateTopDataTree(version, app, _dataTree.root);
+        topTreeIndex = ILiquidityMatrix(liquidityMatrix).updateTopDataTree(version, app, _dataTree.getRoot());
 
         _dataHashes[key].set(hash);
         _data[key][hash] = value;

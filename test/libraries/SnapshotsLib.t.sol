@@ -54,98 +54,100 @@ contract SnapshotsLibTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_set_past_timestamp_single() public {
+        // Test that timestamps must be strictly increasing
         vm.warp(3000);
+        snapshots.set(bytes32(uint256(300)), block.timestamp);
 
-        // Set a value at current timestamp
-        snapshots.set(bytes32(uint256(300)), 3000);
+        // Can add a future value
+        vm.warp(4000);
+        snapshots.set(bytes32(uint256(400)), block.timestamp);
 
-        // Set a value in the past
-        snapshots.set(bytes32(uint256(100)), 1000);
+        // Can update an existing timestamp
+        snapshots.set(bytes32(uint256(350)), 3000);
+        assertEq(uint256(snapshots.get(3000)), 350); // Value was updated
 
-        // Verify both values
+        // Verify values
         assertEq(uint256(snapshots.get(999)), 0);
-        assertEq(uint256(snapshots.get(1000)), 100);
-        assertEq(uint256(snapshots.get(2000)), 100);
-        assertEq(uint256(snapshots.get(3000)), 300);
-        assertEq(uint256(snapshots.get(4000)), 300);
+        assertEq(uint256(snapshots.get(2000)), 0);
+        assertEq(uint256(snapshots.get(3000)), 350); // Updated value
+        assertEq(uint256(snapshots.get(4000)), 400);
     }
 
     function test_set_past_timestamp_multiple() public {
+        // Test setting multiple values in chronological order
         vm.warp(5000);
+        snapshots.set(bytes32(uint256(500)), block.timestamp);
 
-        // Set values out of order
-        snapshots.set(bytes32(uint256(500)), 5000);
-        snapshots.set(bytes32(uint256(100)), 1000);
-        snapshots.set(bytes32(uint256(300)), 3000);
-        snapshots.set(bytes32(uint256(200)), 2000);
-        snapshots.set(bytes32(uint256(400)), 4000);
+        // Can add future values
+        vm.warp(6000);
+        snapshots.set(bytes32(uint256(600)), block.timestamp);
+        vm.warp(7000);
+        snapshots.set(bytes32(uint256(700)), block.timestamp);
 
-        // Verify all values are correctly ordered
-        assertEq(uint256(snapshots.get(500)), 0);
-        assertEq(uint256(snapshots.get(1000)), 100);
-        assertEq(uint256(snapshots.get(1500)), 100);
-        assertEq(uint256(snapshots.get(2000)), 200);
-        assertEq(uint256(snapshots.get(2500)), 200);
-        assertEq(uint256(snapshots.get(3000)), 300);
-        assertEq(uint256(snapshots.get(3500)), 300);
-        assertEq(uint256(snapshots.get(4000)), 400);
-        assertEq(uint256(snapshots.get(4500)), 400);
-        assertEq(uint256(snapshots.get(5000)), 500);
-        assertEq(uint256(snapshots.get(6000)), 500);
+        // Can update existing timestamps
+        snapshots.set(bytes32(uint256(550)), 5000);
+        assertEq(uint256(snapshots.get(5000)), 550); // Value was updated
+
+        // Verify correct values
+        assertEq(uint256(snapshots.get(4000)), 0);
+        assertEq(uint256(snapshots.get(5000)), 550); // Updated value
+        assertEq(uint256(snapshots.get(6000)), 600);
+        assertEq(uint256(snapshots.get(7000)), 700);
+        assertEq(uint256(snapshots.get(8000)), 700);
     }
 
     function test_set_past_timestamp_insert_beginning() public {
+        // Test that values must be set in chronological order
+        vm.warp(2000);
+        snapshots.set(bytes32(uint256(200)), block.timestamp);
+        vm.warp(3000);
+        snapshots.set(bytes32(uint256(300)), block.timestamp);
+        vm.warp(4000);
+        snapshots.set(bytes32(uint256(400)), block.timestamp);
         vm.warp(5000);
+        snapshots.set(bytes32(uint256(500)), block.timestamp);
 
-        // Set some values
-        snapshots.set(bytes32(uint256(200)), 2000);
-        snapshots.set(bytes32(uint256(300)), 3000);
-        snapshots.set(bytes32(uint256(400)), 4000);
-
-        // Insert at the beginning
-        snapshots.set(bytes32(uint256(100)), 1000);
-
-        // Verify correct ordering
-        assertEq(uint256(snapshots.get(500)), 0);
-        assertEq(uint256(snapshots.get(1000)), 100);
-        assertEq(uint256(snapshots.get(2000)), 200);
-        assertEq(uint256(snapshots.get(3000)), 300);
-        assertEq(uint256(snapshots.get(4000)), 400);
-    }
-
-    function test_set_past_timestamp_insert_middle() public {
-        vm.warp(5000);
-
-        // Set values with a gap
-        snapshots.set(bytes32(uint256(100)), 1000);
-        snapshots.set(bytes32(uint256(300)), 3000);
-        snapshots.set(bytes32(uint256(500)), 5000);
-
-        // Insert in the middle
-        snapshots.set(bytes32(uint256(200)), 2000);
-        snapshots.set(bytes32(uint256(400)), 4000);
-
-        // Verify correct ordering
-        assertEq(uint256(snapshots.get(1000)), 100);
+        // Verify values were set correctly
+        assertEq(uint256(snapshots.get(1500)), 0);
         assertEq(uint256(snapshots.get(2000)), 200);
         assertEq(uint256(snapshots.get(3000)), 300);
         assertEq(uint256(snapshots.get(4000)), 400);
         assertEq(uint256(snapshots.get(5000)), 500);
+    }
+
+    function test_set_past_timestamp_insert_middle() public {
+        // Test setting values with gaps in timestamps
+        vm.warp(1000);
+        snapshots.set(bytes32(uint256(100)), block.timestamp);
+        vm.warp(3000);
+        snapshots.set(bytes32(uint256(300)), block.timestamp);
+        vm.warp(5000);
+        snapshots.set(bytes32(uint256(500)), block.timestamp);
+        vm.warp(6000);
+        snapshots.set(bytes32(uint256(600)), block.timestamp);
+
+        // Verify values and that get() returns correct values for in-between timestamps
+        assertEq(uint256(snapshots.get(1000)), 100);
+        assertEq(uint256(snapshots.get(2000)), 100); // Gets value from 1000
+        assertEq(uint256(snapshots.get(3000)), 300);
+        assertEq(uint256(snapshots.get(4000)), 300); // Gets value from 3000
+        assertEq(uint256(snapshots.get(5000)), 500);
+        assertEq(uint256(snapshots.get(6000)), 600);
     }
 
     function test_set_past_timestamp_complex_sequence() public {
         vm.warp(10_000);
 
-        // Complex insertion pattern
-        snapshots.set(bytes32(uint256(5000)), 5000);
-        snapshots.set(bytes32(uint256(9000)), 9000);
+        // Must insert in chronological order
         snapshots.set(bytes32(uint256(1000)), 1000);
-        snapshots.set(bytes32(uint256(7000)), 7000);
-        snapshots.set(bytes32(uint256(3000)), 3000);
-        snapshots.set(bytes32(uint256(6000)), 6000);
         snapshots.set(bytes32(uint256(2000)), 2000);
-        snapshots.set(bytes32(uint256(8000)), 8000);
+        snapshots.set(bytes32(uint256(3000)), 3000);
         snapshots.set(bytes32(uint256(4000)), 4000);
+        snapshots.set(bytes32(uint256(5000)), 5000);
+        snapshots.set(bytes32(uint256(6000)), 6000);
+        snapshots.set(bytes32(uint256(7000)), 7000);
+        snapshots.set(bytes32(uint256(8000)), 8000);
+        snapshots.set(bytes32(uint256(9000)), 9000);
 
         // Verify all values are correctly ordered
         for (uint256 i = 1; i <= 9; i++) {
@@ -234,10 +236,10 @@ contract SnapshotsLibTest is Test {
     function test_setAsInt_with_timestamp() public {
         vm.warp(5000);
 
-        // Set values with specific timestamps
+        // Set values in chronological order
         snapshots.setAsInt(-100, 1000);
+        snapshots.setAsInt(-150, 2000);
         snapshots.setAsInt(200, 3000);
-        snapshots.setAsInt(-150, 2000); // Insert in past
 
         assertEq(snapshots.getAsInt(500), 0);
         assertEq(snapshots.getAsInt(1000), -100);
@@ -321,51 +323,29 @@ contract SnapshotsLibTest is Test {
     }
 
     function testFuzz_set_past_timestamps(uint256[5] memory values, uint256[5] memory timestamps) public {
-        // Ensure timestamps are valid and different
-        for (uint256 i = 0; i < 5; i++) {
-            timestamps[i] = bound(timestamps[i], i + 1, 1_000_000 + i);
+        // Ensure timestamps are monotonically increasing
+        timestamps[0] = bound(timestamps[0], 1, 100_000);
+        for (uint256 i = 1; i < 5; i++) {
+            timestamps[i] = bound(timestamps[i], timestamps[i - 1] + 1, timestamps[i - 1] + 100_000);
         }
 
-        // Set the latest timestamp as current time
-        uint256 maxTimestamp = 0;
-        for (uint256 i = 0; i < 5; i++) {
-            if (timestamps[i] > maxTimestamp) {
-                maxTimestamp = timestamps[i];
-            }
-        }
-        vm.warp(maxTimestamp + 1);
-
-        // Set values in random order
+        // Set values in chronological order
         for (uint256 i = 0; i < 5; i++) {
             snapshots.set(bytes32(values[i]), timestamps[i]);
         }
 
-        // Verify each value can be retrieved
+        // Verify values can be retrieved at their timestamps
         for (uint256 i = 0; i < 5; i++) {
-            // Find the expected value by simulating what SnapshotsLib does:
-            // It returns the value at the highest timestamp <= query timestamp
-            // If multiple values are set at the same timestamp, the last one wins
+            assertEq(uint256(snapshots.get(timestamps[i])), values[i]);
+        }
 
-            // Build a map of final values at each unique timestamp
-            uint256 expectedValue = 0;
-            uint256 highestValidTimestamp = 0;
-
-            // Check all snapshots to find what value would be stored at each timestamp
-            for (uint256 j = 0; j < 5; j++) {
-                if (timestamps[j] <= timestamps[i]) {
-                    // This value could be a candidate
-                    if (timestamps[j] > highestValidTimestamp) {
-                        // New highest timestamp
-                        highestValidTimestamp = timestamps[j];
-                        expectedValue = values[j];
-                    } else if (timestamps[j] == highestValidTimestamp) {
-                        // Same timestamp - the later set value wins (higher index)
-                        expectedValue = values[j];
-                    }
-                }
+        // Verify that get() returns correct values for in-between timestamps
+        for (uint256 i = 1; i < 5; i++) {
+            if (timestamps[i] > timestamps[i - 1] + 1) {
+                // Check a timestamp between i-1 and i
+                uint256 midpoint = timestamps[i - 1] + ((timestamps[i] - timestamps[i - 1]) / 2);
+                assertEq(uint256(snapshots.get(midpoint)), values[i - 1]);
             }
-
-            assertEq(uint256(snapshots.get(timestamps[i])), expectedValue);
         }
     }
 
@@ -402,14 +382,14 @@ contract SnapshotsLibTest is Test {
     function test_alternating_past_future_inserts() public {
         vm.warp(10_000);
 
-        // Alternate between inserting in past and appending
+        // Must insert in chronological order - no alternating allowed
+        snapshots.set(bytes32(uint256(1000)), 1000);
+        snapshots.set(bytes32(uint256(2000)), 2000);
+        snapshots.set(bytes32(uint256(3000)), 3000);
         snapshots.set(bytes32(uint256(5000)), 5000);
-        snapshots.set(bytes32(uint256(7000)), 7000); // Append
-        snapshots.set(bytes32(uint256(3000)), 3000); // Past
-        snapshots.set(bytes32(uint256(9000)), 9000); // Append
-        snapshots.set(bytes32(uint256(1000)), 1000); // Past
-        snapshots.set(bytes32(uint256(8000)), 8000); // Past but after 7000
-        snapshots.set(bytes32(uint256(2000)), 2000); // Past
+        snapshots.set(bytes32(uint256(7000)), 7000);
+        snapshots.set(bytes32(uint256(8000)), 8000);
+        snapshots.set(bytes32(uint256(9000)), 9000);
 
         // Verify ordering is maintained
         uint256 lastValue = 0;

@@ -27,7 +27,6 @@ contract SettlerMock {
         address app,
         bytes32 chainUID,
         uint256 timestamp,
-        uint256 index,
         bytes32[] calldata proof,
         bytes calldata accountsData,
         int256[] calldata liquidity
@@ -58,9 +57,7 @@ contract SettlerMock {
 
         // Call settleLiquidity on the RemoteAppChronicle with Merkle proof
         RemoteAppChronicle(chronicle).settleLiquidity(
-            RemoteAppChronicle.SettleLiquidityParams(
-                uint64(timestamp), accounts, liquidity, liquidityRoot, index, proof
-            )
+            RemoteAppChronicle.SettleLiquidityParams(uint64(timestamp), accounts, liquidity, liquidityRoot, proof)
         );
     }
 
@@ -68,7 +65,6 @@ contract SettlerMock {
         address app,
         bytes32 chainUID,
         uint256 timestamp,
-        uint256 index,
         bytes32[] calldata proof,
         bytes calldata keysData,
         bytes[] calldata values
@@ -99,7 +95,7 @@ contract SettlerMock {
 
         // Call settleData on the RemoteAppChronicle with Merkle proof
         RemoteAppChronicle(chronicle).settleData(
-            RemoteAppChronicle.SettleDataParams(uint64(timestamp), keys, values, dataRoot, index, proof)
+            RemoteAppChronicle.SettleDataParams(uint64(timestamp), keys, values, dataRoot, proof)
         );
     }
 

@@ -10,7 +10,8 @@ pragma solidity ^0.8.28;
  */
 library MerkleTreeLib {
     struct Tree {
-        mapping(bytes32 => uint256) keyToIndex; // Maps keys to unique indices
+        mapping(bytes32 key => bool) present;
+        mapping(bytes32 key => uint256) keyToIndex; // Maps keys to unique indices
         mapping(uint256 => mapping(uint256 => bytes32)) nodes; // Compact array of nodes
         uint256 size; // Number of nodes added
         bytes32 root; // Current Merkle root
@@ -20,7 +21,7 @@ library MerkleTreeLib {
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
 
-    bytes32 internal constant EMPTY_NODE = bytes32(0);
+    bytes32 internal constant EMPTY_NODE = keccak256("MERKLE_EMPTY_LEAF_V1");
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -32,6 +33,11 @@ library MerkleTreeLib {
     /*//////////////////////////////////////////////////////////////
                             VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
+
+    function getRoot(Tree storage self) internal view returns (bytes32) {
+        return self.size == 0 ? EMPTY_NODE : self.root;
+    }
+
     /**
      * @notice Verifies a Merkle proof for a given key-value pair.
      * @param key The key to verify.
@@ -185,15 +191,15 @@ library MerkleTreeLib {
      * @return index The index of the node that key represents.
      */
     function update(Tree storage self, bytes32 key, bytes32 value) internal returns (uint256 index) {
-        uint256 _index = self.keyToIndex[key];
-        if (_index == 0) {
-            // Add 1 to _index to represent 0 for null
-            _index = self.size + 1;
-            self.keyToIndex[key] = _index;
-            self.size++;
+        bool present = self.present[key];
+        if (present) {
+            index = self.keyToIndex[key];
+        } else {
+            self.present[key] = true;
+            index = self.size;
+            self.keyToIndex[key] = index;
+            self.size = index + 1;
         }
-
-        index = _index - 1;
 
         bytes32 node = keccak256(abi.encodePacked(key, value));
         self.nodes[0][index] = node;

@@ -157,8 +157,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     struct RemoteState {
         uint256[] rootTimestamps;
-        mapping(uint64 timestamp => bytes32) liquidityRoots;
-        mapping(uint64 timestamp => bytes32) dataRoots;
+        SnapshotsLib.Snapshots liquidityRoots;
+        SnapshotsLib.Snapshots dataRoots;
     }
 
     struct AppState {
@@ -170,6 +170,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     }
 
     struct RemoteAppState {
+        address app;
+        uint256 appIndex;
         mapping(address remote => address local) mappedAccounts;
         mapping(address local => bool) localAccountMapped;
         mapping(uint256 version => address) chronicles;
@@ -296,7 +298,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     {
         version = currentVersion();
         State storage state = _states[version];
-        return (version, state.topLiquidityTree.root, state.topDataTree.root, uint64(block.timestamp));
+        return (version, state.topLiquidityTree.getRoot(), state.topDataTree.getRoot(), uint64(block.timestamp));
     }
 
     /// @inheritdoc ILiquidityMatrix
@@ -424,6 +426,15 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return _isSettlerWhitelisted[account];
     }
 
+    function getRemoteApp(address app, bytes32 chainUID)
+        external
+        view
+        returns (address remoteApp, uint256 remoteAppIndex)
+    {
+        RemoteAppState storage state = _remoteAppStates[app][chainUID];
+        return (state.app, state.appIndex);
+    }
+
     /**
      * @notice Gets the local account mapped to a remote account
      * @param app The application address
@@ -518,7 +529,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         view
         returns (bytes32 root)
     {
-        return _remoteStates[chainUID][version].liquidityRoots[uint64(timestamp)];
+        return _remoteStates[chainUID][version].liquidityRoots.get(timestamp);
     }
 
     /**
@@ -542,7 +553,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
         timestamp = uint64(state.rootTimestamps[length - 1]);
         if (timestamp != 0) {
-            root = state.liquidityRoots[timestamp];
+            root = state.liquidityRoots.get(timestamp);
         }
     }
 
@@ -568,7 +579,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     {
         timestamp = _getRemoteAppChronicleOrRevert(app, chainUID, version).getLastSettledLiquidityTimestamp();
         if (timestamp != 0) {
-            root = _remoteStates[chainUID][version].liquidityRoots[timestamp];
+            root = _remoteStates[chainUID][version].liquidityRoots.get(timestamp);
         }
     }
 
@@ -595,7 +606,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     {
         timestamp = _getRemoteAppChronicleOrRevert(app, chainUID, version).getLastFinalizedTimestamp();
         if (timestamp != 0) {
-            root = _remoteStates[chainUID][version].liquidityRoots[timestamp];
+            root = _remoteStates[chainUID][version].liquidityRoots.get(timestamp);
         }
     }
 
@@ -610,7 +621,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     }
 
     function getDataRootAt(bytes32 chainUID, uint256 version, uint64 timestamp) public view returns (bytes32 root) {
-        return _remoteStates[chainUID][version].dataRoots[uint64(timestamp)];
+        return _remoteStates[chainUID][version].dataRoots.get(timestamp);
     }
 
     /**
@@ -634,7 +645,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
         timestamp = uint64(state.rootTimestamps[length - 1]);
         if (timestamp != 0) {
-            root = state.dataRoots[timestamp];
+            root = state.dataRoots.get(timestamp);
         }
     }
 
@@ -660,7 +671,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     {
         timestamp = _getRemoteAppChronicleOrRevert(app, chainUID, version).getLastSettledDataTimestamp();
         if (timestamp != 0) {
-            root = _remoteStates[chainUID][version].dataRoots[timestamp];
+            root = _remoteStates[chainUID][version].dataRoots.get(timestamp);
         }
     }
 
@@ -686,7 +697,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     {
         timestamp = _getRemoteAppChronicleOrRevert(app, chainUID, version).getLastFinalizedTimestamp();
         if (timestamp != 0) {
-            root = _remoteStates[chainUID][version].dataRoots[timestamp];
+            root = _remoteStates[chainUID][version].dataRoots.get(timestamp);
         }
     }
 
@@ -943,11 +954,18 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /**
      * @notice Updates the authorized settler for the app
-     * @param settler New settler address
+     *  ett/ * @param settler New settler address
      */
     function updateSettler(address settler) external onlyApp {
         _appStates[msg.sender].settler = settler;
         emit UpdateSettler(msg.sender, settler);
+    }
+
+    function updateRemoteApp(bytes32 chainUID, address app, uint256 appIndex) external onlyApp {
+        RemoteAppState storage state = _remoteAppStates[msg.sender][chainUID];
+        state.app = app;
+        state.appIndex = appIndex;
+        emit UpdateRemoteApp(msg.sender, chainUID, app, appIndex);
     }
 
     /**
@@ -1012,7 +1030,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         State storage state = _states[version];
         treeIndex = state.topLiquidityTree.update(bytes32(uint256(uint160(app))), appLiquidityRoot);
 
-        emit UpdateTopLiquidityTree(version, app, appLiquidityRoot, state.topLiquidityTree.root);
+        emit UpdateTopLiquidityTree(version, app, appLiquidityRoot, state.topLiquidityTree.getRoot());
     }
 
     /**
@@ -1031,7 +1049,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         State storage state = _states[version];
         treeIndex = state.topDataTree.update(bytes32(uint256(uint160(app))), appDataRoot);
 
-        emit UpdateTopDataTree(version, app, appDataRoot, state.topDataTree.root);
+        emit UpdateTopDataTree(version, app, appDataRoot, state.topDataTree.getRoot());
     }
 
     /**
@@ -1127,18 +1145,17 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         bytes32 dataRoot,
         uint64 timestamp
     ) external {
-        // Allow calls from gateway or from this contract (via onRead)
-        if (msg.sender != address(gateway) && msg.sender != address(this)) revert Forbidden();
+        // Allow calls from this contract only (via onRead)
+        if (msg.sender != address(this)) revert Forbidden();
 
         RemoteState storage state = _remoteStates[chainUID][version];
-        if (state.rootTimestamps.length == 0 || state.rootTimestamps.last() != timestamp) {
-            state.rootTimestamps.push(timestamp);
-        }
+        if (timestamp <= state.rootTimestamps.last()) revert StaleRoots(chainUID);
 
-        state.liquidityRoots[timestamp] = liquidityRoot;
-        state.dataRoots[timestamp] = dataRoot;
+        state.rootTimestamps.push(timestamp);
+        state.liquidityRoots.set(liquidityRoot, timestamp);
+        state.dataRoots.set(dataRoot, timestamp);
 
-        emit OnReceiveRoots(chainUID, version, liquidityRoot, dataRoot, timestamp);
+        emit ReceiveRoots(chainUID, version, liquidityRoot, dataRoot, timestamp);
     }
 
     /**
@@ -1147,37 +1164,38 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      *      Validates mappings and consolidates liquidity from remote to local accounts.
      * @param _fromChainUID Source chain unique identifier
      * @param _localApp Local app address that should process this request
-     * @param _message Encoded remote and local account arrays
      */
-    function onReceiveMapRemoteAccountRequests(bytes32 _fromChainUID, address _localApp, bytes memory _message)
-        external
-    {
-        // Allow calls from gateway or from this contract (via onReceive)
-        if (msg.sender != address(gateway) && msg.sender != address(this)) revert Forbidden();
-        (address[] memory remotes, address[] memory locals) = abi.decode(_message, (address[], address[]));
+    function onReceiveMapRemoteAccountRequests(
+        bytes32 _fromChainUID,
+        address _localApp,
+        address[] memory _remotes,
+        address[] memory _locals
+    ) external {
+        // Allow calls from this contract only (via onReceive)
+        if (msg.sender != address(this)) revert Forbidden();
 
         // Verify the app is registered
         if (!_appStates[_localApp].registered) revert AppNotRegistered();
 
-        bool[] memory shouldMap = new bool[](remotes.length);
+        bool[] memory shouldMap = new bool[](_remotes.length);
         if (ILiquidityMatrixAccountMapper(_localApp).shouldMapAccounts.selector == bytes4(0)) {
-            for (uint256 i; i < remotes.length; ++i) {
+            for (uint256 i; i < _remotes.length; ++i) {
                 shouldMap[i] = true;
             }
         } else {
-            for (uint256 i; i < remotes.length; ++i) {
+            for (uint256 i; i < _remotes.length; ++i) {
                 shouldMap[i] =
-                    ILiquidityMatrixAccountMapper(_localApp).shouldMapAccounts(_fromChainUID, remotes[i], locals[i]);
+                    ILiquidityMatrixAccountMapper(_localApp).shouldMapAccounts(_fromChainUID, _remotes[i], _locals[i]);
             }
         }
 
         RemoteAppState storage state = _remoteAppStates[_localApp][_fromChainUID];
 
-        for (uint256 i; i < remotes.length; ++i) {
+        for (uint256 i; i < _remotes.length; ++i) {
             if (!shouldMap[i]) continue;
 
-            address remote = remotes[i];
-            address local = locals[i];
+            address remote = _remotes[i];
+            address local = _locals[i];
             if (remote == local) revert IdenticalAccounts();
 
             if (state.mappedAccounts[remote] != address(0)) revert RemoteAccountAlreadyMapped(_fromChainUID, remote);
@@ -1289,7 +1307,15 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
             // Process each chain's roots
             for (uint256 i; i < chainUIDs.length; ++i) {
-                this.onReceiveRoots(chainUIDs[i], versions[i], liquidityRoots[i], dataRoots[i], uint64(timestamps[i]));
+                bytes32 chainUID = chainUIDs[i];
+                uint256 version = versions[i];
+                bytes32 liquidityRoot = liquidityRoots[i];
+                bytes32 dataRoot = dataRoots[i];
+                uint64 timestamp = uint64(timestamps[i]);
+                try this.onReceiveRoots(chainUID, version, liquidityRoot, dataRoot, timestamp) { }
+                catch (bytes memory reason) {
+                    emit OnReceiveRootFailure(chainUID, version, liquidityRoot, dataRoot, timestamp, reason);
+                }
             }
         }
     }
@@ -1305,11 +1331,14 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         uint16 msgType = abi.decode(message, (uint16));
 
         if (msgType == MAP_REMOTE_ACCOUNTS) {
-            (,, address toApp, address[] memory remotes, address[] memory locals) =
+            (,, address app, address[] memory remotes, address[] memory locals) =
                 abi.decode(message, (uint16, address, address, address[], address[]));
 
             // Process account mapping request
-            this.onReceiveMapRemoteAccountRequests(sourceChainId, toApp, abi.encode(remotes, locals));
+            try this.onReceiveMapRemoteAccountRequests(sourceChainId, app, remotes, locals) { }
+            catch (bytes memory reason) {
+                emit OnReceiveMapRemoteAccountRequestsFailure(sourceChainId, app, remotes, locals, reason);
+            }
         }
     }
 

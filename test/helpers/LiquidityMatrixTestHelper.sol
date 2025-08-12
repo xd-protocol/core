@@ -9,7 +9,9 @@ import {
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { IGateway } from "src/interfaces/IGateway.sol";
 import { IGatewayApp } from "src/interfaces/IGatewayApp.sol";
+import { ILocalAppChronicle } from "src/interfaces/ILocalAppChronicle.sol";
 import { MerkleTreeLib } from "src/libraries/MerkleTreeLib.sol";
+import { RemoteAppChronicle } from "src/chronicles/RemoteAppChronicle.sol";
 import { AddressCast } from "@layerzerolabs/lz-evm-protocol-v2/contracts/libs/AddressCast.sol";
 import { ILayerZeroReceiver } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppReceiver.sol";
 import { IOAppCore } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppCore.sol";
@@ -38,6 +40,9 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
     uint32 constant EID_LOCAL = 1;
     uint32 constant EID_REMOTE = 2;
     uint16 constant CMD_SYNC = 1;
+
+    uint128 constant SYNC_GAS_LIMIT = 300_000;
+    uint128 constant MAP_REMOTE_ACCOUNTS_GAS_LIMIT = 100_000;
 
     address localSyncer = makeAddr("localSyncer");
     ILiquidityMatrix local;
@@ -186,7 +191,7 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
         dataRoots = new bytes32[](_remotes.length);
         timestamps = new uint256[](_remotes.length);
 
-        uint128 gasLimit = 200_000 * uint128(_remotes.length);
+        uint128 gasLimit = SYNC_GAS_LIMIT * uint128(_remotes.length);
 
         // Use LiquidityMatrix's sync directly (it's now a gateway app)
         uint256 fee = _local.quoteSync(gasLimit);
@@ -271,7 +276,7 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
                 IAppMock(remoteApps[i]).setShouldMapAccounts(fromChainUID, from[j], to[j], true);
             }
 
-            uint128 gasLimit = uint128(150_000 * to.length);
+            uint128 gasLimit = MAP_REMOTE_ACCOUNTS_GAS_LIMIT * uint128(to.length);
 
             // Quote the fee for mapping accounts
             uint256 fee = _local.quoteRequestMapRemoteAccounts(toChainUID, _localApp, remoteApps[i], from, to, gasLimit);
@@ -348,5 +353,109 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
         // Simulate the gateway calling reduce and then onRead
         bytes memory payload = IGatewayApp(localReader).reduce(requests, callData, responses);
         this.verifyPackets(localEid, addressToBytes32(address(gateway)), 0, address(0), payload);
+    }
+
+    // Helper function to settle liquidity with automatic proof generation
+    function _settleLiquidity(
+        ILiquidityMatrix localMatrix,
+        ILiquidityMatrix remoteMatrix,
+        address app,
+        bytes32 chainUID,
+        uint64 timestamp,
+        address[] memory accounts,
+        int256[] memory liquidity
+    ) internal {
+        _settleLiquidity(localMatrix, remoteMatrix, app, chainUID, timestamp, accounts, liquidity, "");
+    }
+
+    function _settleLiquidity(
+        ILiquidityMatrix localMatrix,
+        ILiquidityMatrix remoteMatrix,
+        address app,
+        bytes32 chainUID,
+        uint64 timestamp,
+        address[] memory accounts,
+        int256[] memory liquidity,
+        bytes memory expectedError
+    ) internal {
+        (address _remoteApp, uint256 remoteAppIndex) = localMatrix.getRemoteApp(app, chainUID);
+
+        bytes32 appLiquidityRoot =
+            ILocalAppChronicle(remoteMatrix.getCurrentLocalAppChronicle(_remoteApp)).getLiquidityRoot();
+
+        // Create a simple top tree with just this app for testing
+        bytes32[] memory appKeys = new bytes32[](1);
+        bytes32[] memory appRoots = new bytes32[](1);
+        appKeys[0] = bytes32(uint256(uint160(_remoteApp)));
+        appRoots[0] = appLiquidityRoot;
+        // Get the proof for this app in the top tree
+        bytes32[] memory proof = MerkleTreeLib.getProof(appKeys, appRoots, remoteAppIndex);
+
+        // Get the RemoteAppChronicle and settle liquidity
+        address chronicle = localMatrix.getCurrentRemoteAppChronicle(app, chainUID);
+        if (expectedError.length > 0) {
+            vm.expectRevert(expectedError);
+        }
+        RemoteAppChronicle(chronicle).settleLiquidity(
+            RemoteAppChronicle.SettleLiquidityParams({
+                timestamp: timestamp,
+                accounts: accounts,
+                liquidity: liquidity,
+                liquidityRoot: appLiquidityRoot,
+                proof: proof
+            })
+        );
+    }
+
+    // Helper function to settle data with automatic proof generation
+    function _settleData(
+        ILiquidityMatrix localMatrix,
+        ILiquidityMatrix remoteMatrix,
+        address app,
+        bytes32 chainUID,
+        uint64 timestamp,
+        bytes32[] memory keys,
+        bytes[] memory values
+    ) internal {
+        _settleData(localMatrix, remoteMatrix, app, chainUID, timestamp, keys, values, "");
+    }
+
+    function _settleData(
+        ILiquidityMatrix localMatrix,
+        ILiquidityMatrix remoteMatrix,
+        address app,
+        bytes32 chainUID,
+        uint64 timestamp,
+        bytes32[] memory keys,
+        bytes[] memory values,
+        bytes memory expectedError
+    ) internal {
+        (address _remoteApp, uint256 remoteAppIndex) = localMatrix.getRemoteApp(app, chainUID);
+
+        bytes32 appDataRoot = ILocalAppChronicle(remoteMatrix.getCurrentLocalAppChronicle(_remoteApp)).getDataRoot();
+
+        // Create a simple top tree with just this app for testing
+        bytes32[] memory appKeys = new bytes32[](1);
+        bytes32[] memory appRoots = new bytes32[](1);
+        appKeys[0] = bytes32(uint256(uint160(_remoteApp)));
+        appRoots[0] = appDataRoot;
+
+        // Get the proof for this app in the top tree
+        bytes32[] memory proof = MerkleTreeLib.getProof(appKeys, appRoots, remoteAppIndex);
+
+        // Get the RemoteAppChronicle and settle data
+        address chronicle = localMatrix.getCurrentRemoteAppChronicle(app, chainUID);
+        if (expectedError.length > 0) {
+            vm.expectRevert(expectedError);
+        }
+        RemoteAppChronicle(chronicle).settleData(
+            RemoteAppChronicle.SettleDataParams({
+                timestamp: timestamp,
+                keys: keys,
+                values: values,
+                dataRoot: appDataRoot,
+                proof: proof
+            })
+        );
     }
 }

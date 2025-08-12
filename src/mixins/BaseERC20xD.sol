@@ -308,6 +308,10 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         ILiquidityMatrix(liquidityMatrix).updateSettler(settler);
     }
 
+    function updateRemoteApp(bytes32 chainUID, address app, uint256 appIndex) external onlyOwner {
+        ILiquidityMatrix(liquidityMatrix).updateRemoteApp(chainUID, app, appIndex);
+    }
+
     /**
      * @notice Adds a new hook contract to receive balance change notifications
      * @dev Hooks are called in the order they were added
