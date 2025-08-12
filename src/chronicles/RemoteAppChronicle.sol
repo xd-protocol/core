@@ -37,42 +37,6 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
     using ArrayLib for uint256[];
 
     /*//////////////////////////////////////////////////////////////
-                                TYPES
-    //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @notice Parameters for settling liquidity from a remote chain
-     * @param timestamp The timestamp of the remote state being settled
-     * @param accounts Array of account addresses
-     * @param liquidity Array of liquidity values corresponding to accounts
-     * @param liquidityRoot The root of this app's liquidity tree on the remote chain
-     * @param proof Merkle proof that the app's root is in the remote top tree
-     */
-    struct SettleLiquidityParams {
-        uint64 timestamp;
-        address[] accounts;
-        int256[] liquidity;
-        bytes32 liquidityRoot;
-        bytes32[] proof;
-    }
-
-    /**
-     * @notice Parameters for settling data from a remote chain
-     * @param timestamp The timestamp of the remote state being settled
-     * @param keys Array of data keys
-     * @param values Array of data values corresponding to keys
-     * @param dataRoot The root of this app's data tree on the remote chain
-     * @param proof Merkle proof that the app's root is in the remote top tree
-     */
-    struct SettleDataParams {
-        uint64 timestamp;
-        bytes32[] keys;
-        bytes[] values;
-        bytes32 dataRoot;
-        bytes32[] proof;
-    }
-
-    /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
 
@@ -141,7 +105,7 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IRemoteAppChronicle
-    function isFinalized(uint64 timestamp) public view returns (bool) {
+    function isFinalized(uint64 timestamp) external view returns (bool) {
         return isLiquiditySettled[timestamp] && isDataSettled[timestamp];
     }
 
@@ -195,15 +159,8 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Settles liquidity data from a remote chain
-     * @dev Only callable by the app's authorized settler.
-     *      Processes account liquidity updates, handles account mapping,
-     *      and triggers optional hooks for the application.
-     *      Reverts if liquidity is already settled for the timestamp.
-     * @param params Settlement parameters containing timestamp, accounts, and liquidity values
-     */
-    function settleLiquidity(SettleLiquidityParams memory params) external onlySettler {
+    /// @inheritdoc IRemoteAppChronicle
+    function settleLiquidity(IRemoteAppChronicle.SettleLiquidityParams memory params) external onlySettler {
         if (isLiquiditySettled[params.timestamp]) revert LiquidityAlreadySettled();
 
         ILiquidityMatrix _liquidityMatrix = ILiquidityMatrix(liquidityMatrix);
@@ -273,14 +230,8 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
         emit SettleLiquidity(params.timestamp);
     }
 
-    /**
-     * @notice Settles data from a remote chain
-     * @dev Only callable by the app's authorized settler.
-     *      Processes key-value data updates and triggers optional hooks.
-     *      Reverts if data is already settled for the timestamp.
-     * @param params Settlement parameters containing timestamp, keys, and values
-     */
-    function settleData(SettleDataParams memory params) external onlySettler {
+    /// @inheritdoc IRemoteAppChronicle
+    function settleData(IRemoteAppChronicle.SettleDataParams memory params) external onlySettler {
         if (isDataSettled[params.timestamp]) revert DataAlreadySettled();
 
         ILiquidityMatrix _liquidityMatrix = ILiquidityMatrix(liquidityMatrix);

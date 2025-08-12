@@ -9,6 +9,10 @@ pragma solidity ^0.8.0;
  *      to handle future requirements like gas optimization or new features.
  */
 interface ILocalAppChronicleDeployer {
+    /*//////////////////////////////////////////////////////////////
+                                LOGIC
+    //////////////////////////////////////////////////////////////*/
+
     /**
      * @notice Deploys a new LocalAppChronicle contract
      * @dev Called by LiquidityMatrix when an app needs a new local chronicle.

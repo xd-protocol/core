@@ -1449,7 +1449,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes32[] memory proof = MerkleTreeLib.getProof(appKeys, appRoots, 0);
 
         RemoteAppChronicle(chronicle).settleLiquidity(
-            RemoteAppChronicle.SettleLiquidityParams({
+            IRemoteAppChronicle.SettleLiquidityParams({
                 timestamp: uint64(block.timestamp),
                 accounts: accounts,
                 liquidity: liquidity,
@@ -1805,7 +1805,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes32[] memory proof = MerkleTreeLib.getProof(appKeys, appRoots, 0);
 
         RemoteAppChronicle(chronicle).settleData(
-            RemoteAppChronicle.SettleDataParams({
+            IRemoteAppChronicle.SettleDataParams({
                 timestamp: uint64(block.timestamp),
                 keys: keys,
                 values: values,

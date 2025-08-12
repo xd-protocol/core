@@ -4,11 +4,32 @@ pragma solidity ^0.8.0;
 import { IBaseERC20xD } from "./IBaseERC20xD.sol";
 
 interface INativexD is IBaseERC20xD {
+    /*//////////////////////////////////////////////////////////////
+                                EVENTS
+    //////////////////////////////////////////////////////////////*/
+
+    event Wrap(address indexed to, uint256 amount);
+    event Unwrap(address indexed to, uint256 amount);
+
+    /*//////////////////////////////////////////////////////////////
+                            VIEW FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
     /**
      * @notice Returns the underlying native token address (typically address(0) for ETH)
      * @return The address of the underlying native token
      */
     function underlying() external view returns (address);
+
+    /**
+     * @notice Quotes the fee for unwrapping tokens
+     * @param gasLimit The gas limit for the cross-chain operation
+     * @return fee The fee required for the unwrap operation
+     */
+    function quoteUnwrap(uint128 gasLimit) external view returns (uint256);
+
+    /*//////////////////////////////////////////////////////////////
+                                LOGIC
+    //////////////////////////////////////////////////////////////*/
 
     /**
      * @notice Wraps native currency into xD tokens
@@ -25,6 +46,12 @@ interface INativexD is IBaseERC20xD {
      */
     function unwrap(address to, uint256 amount, bytes memory data) external payable returns (bytes32 guid);
 
+    /**
+     * @notice Fallback function to receive Ether
+     */
     fallback() external payable;
+    /**
+     * @notice Receive function to accept Ether transfers
+     */
     receive() external payable;
 }

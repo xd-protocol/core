@@ -15,7 +15,6 @@ import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { IBaseERC20xD } from "src/interfaces/IBaseERC20xD.sol";
 import { IWrappedERC20xD } from "src/interfaces/IWrappedERC20xD.sol";
 import { ERC20Mock } from "./mocks/ERC20Mock.sol";
-import { StakingVaultMock } from "./mocks/StakingVaultMock.sol";
 import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
 import { SafeTransferLib, ERC20 } from "solmate/utils/SafeTransferLib.sol";
 import {
@@ -97,7 +96,7 @@ contract WrappedERC20xDTest is BaseERC20xDTestHelper {
         uint256 underlyingBefore = underlyings[0].balanceOf(alice);
 
         vm.expectEmit();
-        emit WrappedERC20xD.Wrap(alice, amount);
+        emit IWrappedERC20xD.Wrap(alice, amount);
         wrapped.wrap(alice, amount);
 
         assertEq(wrapped.balanceOf(alice), amount); // Direct 1:1 minting
@@ -121,14 +120,14 @@ contract WrappedERC20xDTest is BaseERC20xDTestHelper {
     function test_wrap_revertZeroAddress() public {
         WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
         vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.InvalidAddress.selector);
+        vm.expectRevert(IBaseERC20xD.InvalidAddress.selector);
         wrapped.wrap(address(0), 50e18);
     }
 
     function test_wrap_revertZeroAmount() public {
         WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
         vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.InvalidAmount.selector);
+        vm.expectRevert(IBaseERC20xD.InvalidAmount.selector);
         wrapped.wrap(alice, 0);
     }
 
@@ -176,7 +175,7 @@ contract WrappedERC20xDTest is BaseERC20xDTestHelper {
         wrapped.wrap(alice, 50e18);
 
         vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.InvalidAddress.selector);
+        vm.expectRevert(IBaseERC20xD.InvalidAddress.selector);
         wrapped.unwrap(address(0), 50e18, "");
     }
 

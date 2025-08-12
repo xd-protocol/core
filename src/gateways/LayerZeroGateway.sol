@@ -35,6 +35,10 @@ import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
 contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     using OptionsBuilder for bytes;
 
+    /*//////////////////////////////////////////////////////////////
+                                TYPES
+    //////////////////////////////////////////////////////////////*/
+
     struct AppState {
         uint16 cmdLabel;
         mapping(uint32 eid => bytes32) targets;
@@ -62,30 +66,6 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
 
     uint16 internal _lastCmdLabel;
     mapping(bytes32 guid => ReadRequest) public readRequests;
-
-    /*//////////////////////////////////////////////////////////////
-                                 EVENTS
-    //////////////////////////////////////////////////////////////*/
-
-    event RegisterApp(address indexed app, uint16 indexed cmdLabel);
-    event UpdateTransferDelay(uint32 indexed eid, uint64 delay);
-    event UpdateReadTarget(address indexed app, uint32 indexed eid, bytes32 indexed target);
-    event MessageSent(uint32 indexed eid, bytes32 indexed guid, bytes message);
-
-    /*//////////////////////////////////////////////////////////////
-                                 ERRORS
-    //////////////////////////////////////////////////////////////*/
-
-    error Forbidden();
-    error InvalidApp();
-    error InvalidTarget();
-    error InvalidLengths();
-    error InvalidChainUID();
-    error InvalidLzReadOptions();
-    error InvalidGuid();
-    error InvalidCmdLabel();
-    error InvalidRequests();
-    error DuplicateTargetEid();
 
     /*//////////////////////////////////////////////////////////////
                              MODIFIERS
@@ -121,11 +101,7 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Returns the current chain configuration
-     * @return chainUIDs Array of configured chain UIDs
-     * @return confirmations Array of confirmation requirements for each chain
-     */
+    /// @inheritdoc IGateway
     function chainConfigs() public view returns (bytes32[] memory chainUIDs, uint16[] memory confirmations) {
         uint256 length = _targetEids.length;
         chainUIDs = new bytes32[](length);
@@ -136,28 +112,17 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
         }
     }
 
-    /**
-     * @notice Returns the number of configured chains
-     * @return The length of configured chains
-     */
-    function chainUIDsLength() public view returns (uint256) {
+    /// @inheritdoc IGateway
+    function chainUIDsLength() external view returns (uint256) {
         return _targetEids.length;
     }
 
-    /**
-     * @notice Returns the chain UID at a specific index
-     * @param index The index to query
-     * @return The chain UID at the given index
-     */
-    function chainUIDAt(uint256 index) public view returns (bytes32) {
+    /// @inheritdoc IGateway
+    function chainUIDAt(uint256 index) external view returns (bytes32) {
         return bytes32(uint256(_targetEids[index]));
     }
 
-    /**
-     * @notice Quotes the messaging fee for sending a read request with specific calldata.
-     * @param gasLimit The gas limit to allocate for actual transfer after read completion.
-     * @return fee The estimated messaging fee for the request.
-     */
+    /// @inheritdoc IGateway
     function quoteRead(address app, bytes memory callData, uint32 returnDataSize, uint128 gasLimit)
         public
         view
@@ -177,12 +142,7 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
         return _fee.nativeFee;
     }
 
-    /**
-     * @notice Processes and aggregates responses from LayerZero's read protocol
-     * @param _cmd The encoded command from LayerZero
-     * @param _responses Array of responses from each chain
-     * @return The aggregated result from the callback contract
-     */
+    /// @inheritdoc IGateway
     function lzReduce(bytes calldata _cmd, bytes[] calldata _responses) external view returns (bytes memory) {
         // Decode the command using ReadCodecV1
         (uint16 _cmdLabel, EVMCallRequestV1[] memory _requests,) = ReadCodecV1.decode(_cmd);
@@ -204,11 +164,7 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Registers an application with the gateway
-     * @dev Assigns a unique command label to the app for LayerZero operations
-     * @param app The application address to register
-     */
+    /// @inheritdoc IGateway
     function registerApp(address app) external onlyOwner {
         uint16 cmdLabel = _lastCmdLabel + 1;
         _lastCmdLabel = cmdLabel;
@@ -217,12 +173,7 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
         emit RegisterApp(app, cmdLabel);
     }
 
-    /**
-     * @notice Configures the chains and confirmation requirements for cross-chain operations
-     * @dev Validates chain UIDs are within uint32 range and checks for duplicates
-     * @param chainUIDs Array of chain unique identifiers to configure
-     * @param confirmations Array of confirmation requirements for each chain
-     */
+    /// @inheritdoc IGateway
     function configChains(bytes32[] memory chainUIDs, uint16[] memory confirmations) external onlyOwner {
         if (chainUIDs.length != confirmations.length) revert InvalidLengths();
 
@@ -248,13 +199,7 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
         _targetEids = eids;
     }
 
-    /**
-     * @notice Updates the cross-chain transfer delays for specified chain UIDs.
-     * @dev Only callable by the contract owner.
-     * @param chainUIDs An array of chain UIDs whose delays are to be updated.
-     * @param delays An array of delay values corresponding to each chain UID.
-     * @dev Both arrays must be of the same length.
-     */
+    /// @inheritdoc IGateway
     function updateTransferDelays(bytes32[] memory chainUIDs, uint64[] memory delays) external onlyOwner {
         if (chainUIDs.length != delays.length) revert InvalidLengths();
 
@@ -269,12 +214,7 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
         }
     }
 
-    /**
-     * @notice Updates the read target address for a specific chain
-     * @param chainUID The chain unique identifier
-     * @param target The target contract address on the remote chain
-     * @dev Only callable by registered apps. Validates chainUID is within uint32 range.
-     */
+    /// @inheritdoc IGateway
     function updateReadTarget(bytes32 chainUID, bytes32 target) external onlyApp {
         if (uint256(chainUID) >= type(uint32).max) revert InvalidChainUID();
 
@@ -284,14 +224,7 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
         emit UpdateReadTarget(msg.sender, eid, target);
     }
 
-    /**
-     * @notice Executes a cross-chain read operation
-     * @param callData The function call data to execute on remote chains
-     * @param extra Additional data for the operation
-     * @param returnDataSize Expected size of return data per chain
-     * @param data Encoded (uint128 gasLimit, address refundTo) parameters
-     * @return guid The unique identifier for this read operation
-     */
+    /// @inheritdoc IGateway
     function read(bytes memory callData, bytes memory extra, uint32 returnDataSize, bytes memory data)
         external
         payable
@@ -320,14 +253,7 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
         return receipt.guid;
     }
 
-    /**
-     * @notice Quotes the messaging fee for sending a message to a specific chain
-     * @param chainUID The destination chain unique identifier
-     * @param app The application sending the message
-     * @param message The message to send
-     * @param gasLimit Gas limit for the operation
-     * @return fee The estimated messaging fee
-     */
+    /// @inheritdoc IGateway
     function quoteSendMessage(bytes32 chainUID, address app, bytes memory message, uint128 gasLimit)
         public
         view
@@ -343,13 +269,7 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
         return _fee.nativeFee;
     }
 
-    /**
-     * @notice Sends a message to a specific chain
-     * @param chainUID The destination chain unique identifier
-     * @param message The message to send
-     * @param data Encoded (uint128 gasLimit, address refundTo) parameters
-     * @return guid The unique identifier for this message
-     */
+    /// @inheritdoc IGateway
     function sendMessage(bytes32 chainUID, bytes memory message, bytes memory data)
         external
         payable
@@ -410,7 +330,7 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
      * @return The encoded LayerZero command
      * @dev Creates EVMCallRequestV1 structs for each configured chain with proper delays and confirmations
      */
-    function _getCmd(address app, bytes memory callData) public view returns (bytes memory) {
+    function _getCmd(address app, bytes memory callData) internal view returns (bytes memory) {
         AppState storage state = appStates[app];
         if (state.cmdLabel == 0) revert InvalidApp();
 

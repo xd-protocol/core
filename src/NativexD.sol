@@ -20,13 +20,6 @@ contract NativexD is BaseERC20xD, INativexD {
     address public constant underlying = address(0);
 
     /*//////////////////////////////////////////////////////////////
-                                 EVENTS
-    //////////////////////////////////////////////////////////////*/
-
-    event Wrap(address indexed to, uint256 amount);
-    event Unwrap(address indexed to, uint256 amount);
-
-    /*//////////////////////////////////////////////////////////////
                                CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
@@ -54,16 +47,13 @@ contract NativexD is BaseERC20xD, INativexD {
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
+    /// @inheritdoc INativexD
     fallback() external payable virtual { }
 
+    /// @inheritdoc INativexD
     receive() external payable virtual { }
 
-    /**
-     * @notice Wraps native tokens by accepting native value and minting wrapped tokens.
-     * @dev Accepts native tokens via msg.value and mints equivalent wrapped tokens.
-     *      Hooks can be used to implement custom deposit logic (e.g., depositing to vaults).
-     * @param to The destination address to receive the wrapped tokens.
-     */
+    /// @inheritdoc INativexD
     function wrap(address to) external payable virtual nonReentrant {
         if (to == address(0)) revert InvalidAddress();
         if (msg.value == 0) revert InvalidAmount();
@@ -74,14 +64,7 @@ contract NativexD is BaseERC20xD, INativexD {
         emit Wrap(to, msg.value);
     }
 
-    /**
-     * @notice Initiates an unwrap operation to burn wrapped tokens.
-     * @dev Burns wrapped tokens after global availability check. The actual redemption of native
-     *      tokens should be handled by hooks in the afterTransfer callback.
-     * @param to The destination address to receive the unwrapped native tokens.
-     * @param amount The amount of wrapped tokens to unwrap.
-     * @param data Extra data containing cross-chain parameters (uint128 gasLimit, address refundTo) for cross-chain messaging.
-     */
+    /// @inheritdoc INativexD
     function unwrap(address to, uint256 amount, bytes memory data)
         external
         payable
@@ -97,11 +80,7 @@ contract NativexD is BaseERC20xD, INativexD {
         emit Unwrap(to, amount);
     }
 
-    /**
-     * @notice Quotes the fee for unwrapping tokens.
-     * @param gasLimit The gas limit for the cross-chain operation.
-     * @return fee The fee required for the unwrap operation.
-     */
+    /// @inheritdoc INativexD
     function quoteUnwrap(uint128 gasLimit) external view virtual returns (uint256) {
         // Unwrap requires cross-chain messaging for global availability check
         return quoteTransfer(msg.sender, gasLimit);

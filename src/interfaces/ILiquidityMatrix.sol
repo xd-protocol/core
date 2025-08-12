@@ -227,6 +227,24 @@ interface ILiquidityMatrix {
     function gateway() external view returns (IGateway);
 
     /**
+     * @notice Returns the syncer address
+     * @return The syncer address
+     */
+    function syncer() external view returns (address);
+
+    /**
+     * @notice Returns the local app chronicle deployer address
+     * @return The local app chronicle deployer address
+     */
+    function localAppChronicleDeployer() external view returns (address);
+
+    /**
+     * @notice Returns the remote app chronicle deployer address
+     * @return The remote app chronicle deployer address
+     */
+    function remoteAppChronicleDeployer() external view returns (address);
+
+    /**
      * @notice Returns the chain configurations from the gateway
      * @dev Delegates to gateway.chainConfigs()
      * @return chainUIDs Array of chain unique identifiers
@@ -260,6 +278,13 @@ interface ILiquidityMatrix {
      */
     function isSettlerWhitelisted(address account) external view returns (bool);
 
+    /**
+     * @notice Gets the remote app address and index for a specific chain
+     * @param app The application address
+     * @param chainUID The chain unique identifier
+     * @return remoteApp The remote app address on the specified chain
+     * @return remoteAppIndex The index of the app on the remote chain
+     */
     function getRemoteApp(address app, bytes32 chainUID)
         external
         view
@@ -330,6 +355,13 @@ interface ILiquidityMatrix {
      */
     function getLiquidityRootAt(bytes32 chainUID, uint64 timestamp) external view returns (bytes32 root);
 
+    /**
+     * @notice Gets the liquidity root at a specific timestamp for a specific version
+     * @param chainUID The chain unique identifier of the remote chain
+     * @param version The version number to query
+     * @param timestamp The timestamp to query
+     * @return root The liquidity root at the timestamp for the specified version
+     */
     function getLiquidityRootAt(bytes32 chainUID, uint256 version, uint64 timestamp)
         external
         view
@@ -343,6 +375,13 @@ interface ILiquidityMatrix {
      */
     function getLastReceivedLiquidityRoot(bytes32 chainUID) external view returns (bytes32 root, uint64 timestamp);
 
+    /**
+     * @notice Gets the last received liquidity root from a remote chain for a specific version
+     * @param chainUID The chain unique identifier of the remote chain
+     * @param version The version number to query
+     * @return root The liquidity root hash
+     * @return timestamp The timestamp when the root was received
+     */
     function getLastReceivedLiquidityRoot(bytes32 chainUID, uint256 version)
         external
         view
@@ -391,6 +430,13 @@ interface ILiquidityMatrix {
      */
     function getDataRootAt(bytes32 chainUID, uint64 timestamp) external view returns (bytes32 root);
 
+    /**
+     * @notice Gets the data root at a specific timestamp for a specific version
+     * @param chainUID The chain unique identifier of the remote chain
+     * @param version The version number to query
+     * @param timestamp The timestamp to query
+     * @return root The data root at the timestamp for the specified version
+     */
     function getDataRootAt(bytes32 chainUID, uint256 version, uint64 timestamp) external view returns (bytes32 root);
 
     /**
@@ -401,6 +447,13 @@ interface ILiquidityMatrix {
      */
     function getLastReceivedDataRoot(bytes32 chainUID) external view returns (bytes32 root, uint64 timestamp);
 
+    /**
+     * @notice Gets the last received data root from a remote chain for a specific version
+     * @param chainUID The chain unique identifier of the remote chain
+     * @param version The version number to query
+     * @return root The data root hash
+     * @return timestamp The timestamp when the root was received
+     */
     function getLastReceivedDataRoot(bytes32 chainUID, uint256 version)
         external
         view
@@ -660,6 +713,13 @@ interface ILiquidityMatrix {
      */
     function updateSettler(address settler) external;
 
+    /**
+     * @notice Updates the remote app address and index for a specific chain
+     * @dev Only callable by the app. Used to map the app to its counterpart on remote chains.
+     * @param chainUID The chain unique identifier
+     * @param app The remote app address on the specified chain
+     * @param appIndex The index of the app on the remote chain
+     */
     function updateRemoteApp(bytes32 chainUID, address app, uint256 appIndex) external;
 
     /**

@@ -21,13 +21,6 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
     address public immutable underlying;
 
     /*//////////////////////////////////////////////////////////////
-                                 EVENTS
-    //////////////////////////////////////////////////////////////*/
-
-    event Wrap(address indexed to, uint256 amount);
-    event Unwrap(address indexed to, uint256 amount);
-
-    /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
@@ -63,17 +56,13 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
+    /// @inheritdoc IWrappedERC20xD
     fallback() external payable virtual { }
 
+    /// @inheritdoc IWrappedERC20xD
     receive() external payable virtual { }
 
-    /**
-     * @notice Wraps underlying tokens by transferring tokens from the caller and minting wrapped tokens.
-     * @dev Transfers underlying tokens from caller and mints equivalent wrapped tokens.
-     *      Hooks can be used to implement custom deposit logic (e.g., depositing to vaults).
-     * @param to The destination address to receive the wrapped tokens.
-     * @param amount The amount of underlying tokens to wrap.
-     */
+    /// @inheritdoc IWrappedERC20xD
     function wrap(address to, uint256 amount) external payable virtual nonReentrant {
         if (to == address(0)) revert InvalidAddress();
         if (amount == 0) revert InvalidAmount();
@@ -87,14 +76,7 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
         emit Wrap(to, amount);
     }
 
-    /**
-     * @notice Initiates an unwrap operation to burn wrapped tokens.
-     * @dev Burns wrapped tokens after global availability check. The actual redemption of underlying
-     *      tokens should be handled by hooks in the afterTransfer callback.
-     * @param to The destination address to receive the unwrapped tokens.
-     * @param amount The amount of wrapped tokens to unwrap.
-     * @param data Extra data containing cross-chain parameters (uint128 gasLimit, address refundTo) for cross-chain messaging.
-     */
+    /// @inheritdoc IWrappedERC20xD
     function unwrap(address to, uint256 amount, bytes memory data)
         external
         payable
@@ -110,11 +92,7 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
         emit Unwrap(to, amount);
     }
 
-    /**
-     * @notice Quotes the fee for unwrapping tokens.
-     * @param gasLimit The gas limit for the cross-chain operation.
-     * @return fee The fee required for the unwrap operation.
-     */
+    /// @inheritdoc IWrappedERC20xD
     function quoteUnwrap(uint128 gasLimit) external view virtual returns (uint256) {
         // Unwrap requires cross-chain messaging for global availability check
         return quoteTransfer(msg.sender, gasLimit);

@@ -12,6 +12,7 @@ import { Test, Vm, console } from "forge-std/Test.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
 import { ERC20xD } from "src/ERC20xD.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
+import { IBaseERC20xD } from "src/interfaces/IBaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { IGatewayApp } from "src/interfaces/IGatewayApp.sol";
 import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
@@ -184,7 +185,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
         changePrank(alice, alice);
         uint256 fee = token.quoteBurn(alice, GAS_LIMIT);
 
-        vm.expectRevert(BaseERC20xD.InsufficientBalance.selector);
+        vm.expectRevert(IBaseERC20xD.InsufficientBalance.selector);
         token.burn{ value: fee }(101e18, abi.encode(GAS_LIMIT, alice));
     }
 
@@ -237,7 +238,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
         token.burn{ value: fee }(50e18, abi.encode(GAS_LIMIT, alice));
 
         // Second burn should fail
-        vm.expectRevert(BaseERC20xD.TransferPending.selector);
+        vm.expectRevert(IBaseERC20xD.TransferPending.selector);
         token.burn{ value: fee }(30e18, abi.encode(GAS_LIMIT, alice));
     }
 
@@ -270,7 +271,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
 
         // Verify pending transfer created
         assertEq(token.pendingNonce(alice), 1);
-        BaseERC20xD.PendingTransfer memory pending = token.pendingTransfer(alice);
+        IBaseERC20xD.PendingTransfer memory pending = token.pendingTransfer(alice);
         assertEq(pending.pending, true);
         assertEq(pending.from, alice);
         assertEq(pending.to, bob);
@@ -294,7 +295,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
         vm.deal(alice, fee);
 
         vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.InvalidAddress.selector);
+        vm.expectRevert(IBaseERC20xD.InvalidAddress.selector);
         token.transfer{ value: fee }(address(0), 50e18, abi.encode(GAS_LIMIT, alice));
     }
 
@@ -307,7 +308,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
         vm.deal(alice, fee);
 
         vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.InvalidAmount.selector);
+        vm.expectRevert(IBaseERC20xD.InvalidAmount.selector);
         token.transfer{ value: fee }(bob, 0, abi.encode(GAS_LIMIT, alice));
     }
 
@@ -321,7 +322,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
 
         uint256 maxAmount = uint256(type(int256).max) + 1;
         vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.Overflow.selector);
+        vm.expectRevert(IBaseERC20xD.Overflow.selector);
         token.transfer{ value: fee }(bob, maxAmount, abi.encode(GAS_LIMIT, alice));
     }
 
@@ -333,7 +334,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
         vm.deal(alice, fee);
 
         vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.InsufficientBalance.selector);
+        vm.expectRevert(IBaseERC20xD.InsufficientBalance.selector);
         token.transfer{ value: fee }(bob, 101e18, abi.encode(GAS_LIMIT, alice));
     }
 
@@ -345,7 +346,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
         uint256 nativeValue = 1e18;
 
         vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.InsufficientValue.selector);
+        vm.expectRevert(IBaseERC20xD.InsufficientValue.selector);
         token.transfer{ value: 0 }(bob, 50e18, "", nativeValue, "");
     }
 
@@ -363,7 +364,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
 
         // Second transfer should fail
         vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.TransferPending.selector);
+        vm.expectRevert(IBaseERC20xD.TransferPending.selector);
         token.transfer{ value: fee }(bob, 30e18, abi.encode(GAS_LIMIT, alice));
     }
 
@@ -426,7 +427,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
         BaseERC20xD token = erc20s[0];
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(BaseERC20xD.TransferNotPending.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(IBaseERC20xD.TransferNotPending.selector, 0));
         token.cancelPendingTransfer();
     }
 
@@ -441,7 +442,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
         token.approve(bob, 50e18);
 
         vm.prank(bob);
-        vm.expectRevert(BaseERC20xD.NotComposing.selector);
+        vm.expectRevert(IBaseERC20xD.NotComposing.selector);
         token.transferFrom(alice, charlie, 50e18);
     }
 
@@ -482,7 +483,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
         bytes[] memory responses = new bytes[](0);
         bytes memory callData = abi.encodeWithSelector(token.availableLocalBalanceOf.selector, alice);
 
-        vm.expectRevert(BaseERC20xD.InvalidRequests.selector);
+        vm.expectRevert(IBaseERC20xD.InvalidRequests.selector);
         token.reduce(requests, callData, responses);
     }
 
@@ -492,7 +493,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
         bytes memory message = abi.encode(uint16(1), uint256(1), int256(100e18));
 
         vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.Forbidden.selector);
+        vm.expectRevert(IBaseERC20xD.Forbidden.selector);
         token.onRead(message, abi.encode(uint256(1)));
     }
 

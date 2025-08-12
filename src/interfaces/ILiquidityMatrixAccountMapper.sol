@@ -7,6 +7,10 @@ pragma solidity ^0.8.0;
  * @dev Implement this interface to control which remote accounts can be mapped to local accounts
  */
 interface ILiquidityMatrixAccountMapper {
+    /*//////////////////////////////////////////////////////////////
+                            VIEW FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
     /**
      * @notice Validates whether a remote account should be mapped to a local account
      * @dev Called by LiquidityMatrix when processing mapping requests from remote chains

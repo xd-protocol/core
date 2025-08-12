@@ -57,7 +57,7 @@ contract SettlerMock {
 
         // Call settleLiquidity on the RemoteAppChronicle with Merkle proof
         RemoteAppChronicle(chronicle).settleLiquidity(
-            RemoteAppChronicle.SettleLiquidityParams(uint64(timestamp), accounts, liquidity, liquidityRoot, proof)
+            IRemoteAppChronicle.SettleLiquidityParams(uint64(timestamp), accounts, liquidity, liquidityRoot, proof)
         );
     }
 
@@ -95,7 +95,7 @@ contract SettlerMock {
 
         // Call settleData on the RemoteAppChronicle with Merkle proof
         RemoteAppChronicle(chronicle).settleData(
-            RemoteAppChronicle.SettleDataParams(uint64(timestamp), keys, values, dataRoot, proof)
+            IRemoteAppChronicle.SettleDataParams(uint64(timestamp), keys, values, dataRoot, proof)
         );
     }
 

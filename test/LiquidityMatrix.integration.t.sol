@@ -325,7 +325,7 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         address remoteChronicleAddr =
             liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], bytes32(uint256(eids[1])));
         RemoteAppChronicle(remoteChronicleAddr).settleLiquidity(
-            RemoteAppChronicle.SettleLiquidityParams({
+            IRemoteAppChronicle.SettleLiquidityParams({
                 timestamp: uint64(t1),
                 accounts: accounts,
                 liquidity: liquidity,
@@ -366,7 +366,7 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         proof = MerkleTreeLib.getProof(appKeys, appRoots, remoteAppIndex);
 
         RemoteAppChronicle(remoteChronicleAddr).settleData(
-            RemoteAppChronicle.SettleDataParams({
+            IRemoteAppChronicle.SettleDataParams({
                 timestamp: uint64(t3),
                 keys: keys,
                 values: values,
@@ -402,7 +402,7 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         proof = MerkleTreeLib.getProof(appKeys, appRoots, remoteAppIndex);
 
         RemoteAppChronicle(remoteChronicleAddr).settleLiquidity(
-            RemoteAppChronicle.SettleLiquidityParams({
+            IRemoteAppChronicle.SettleLiquidityParams({
                 timestamp: uint64(t2),
                 accounts: accounts,
                 liquidity: liquidity,
@@ -433,7 +433,7 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         proof = MerkleTreeLib.getProof(appKeys, appRoots, remoteAppIndex);
 
         RemoteAppChronicle(remoteChronicleAddr).settleData(
-            RemoteAppChronicle.SettleDataParams({
+            IRemoteAppChronicle.SettleDataParams({
                 timestamp: uint64(t2),
                 keys: keys,
                 values: values,
@@ -460,7 +460,7 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         proof = MerkleTreeLib.getProof(appKeys, appRoots, remoteAppIndex);
 
         RemoteAppChronicle(remoteChronicleAddr).settleLiquidity(
-            RemoteAppChronicle.SettleLiquidityParams({
+            IRemoteAppChronicle.SettleLiquidityParams({
                 timestamp: uint64(t3),
                 accounts: accounts,
                 liquidity: liquidity,
@@ -487,7 +487,7 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         proof = MerkleTreeLib.getProof(appKeys, appRoots, remoteAppIndex);
 
         RemoteAppChronicle(remoteChronicleAddr).settleData(
-            RemoteAppChronicle.SettleDataParams({
+            IRemoteAppChronicle.SettleDataParams({
                 timestamp: uint64(t1),
                 keys: keys,
                 values: values,

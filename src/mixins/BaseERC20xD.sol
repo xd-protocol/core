@@ -2,7 +2,6 @@
 pragma solidity ^0.8.28;
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
-import { BytesLib } from "solidity-bytes-utils/contracts/BytesLib.sol";
 import { IERC20 } from "forge-std/interfaces/IERC20.sol";
 import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
 import { BaseERC20 } from "./BaseERC20.sol";
@@ -40,7 +39,6 @@ import { AddressLib } from "../libraries/AddressLib.sol";
  */
 abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20xD, ILiquidityMatrixHook {
     using AddressLib for address;
-    using BytesLib for bytes;
 
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
@@ -57,68 +55,6 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     // Hooks storage
     address[] public hooks;
     mapping(address => bool) public isHook;
-
-    /*//////////////////////////////////////////////////////////////
-                                 EVENTS
-    //////////////////////////////////////////////////////////////*/
-
-    event UpdateLiquidityMatrix(address indexed liquidityMatrix);
-    event UpdateGateway(address indexed gateway);
-    event InitiateTransfer(
-        address indexed from, address indexed to, uint256 amount, uint256 value, uint256 indexed nonce
-    );
-    event CancelPendingTransfer(uint256 indexed nonce);
-    event HookAdded(address indexed hook);
-    event HookRemoved(address indexed hook);
-    event OnInitiateTransferHookFailure(
-        address indexed hook, address indexed from, address indexed to, uint256 amount, uint256 value, bytes reason
-    );
-    event OnReadGlobalAvailabilityHookFailure(
-        address indexed hook, address indexed account, int256 globalAvailability, bytes reason
-    );
-    event BeforeTransferHookFailure(
-        address indexed hook, address indexed from, address indexed to, uint256 amount, bytes reason
-    );
-    event AfterTransferHookFailure(
-        address indexed hook, address indexed from, address indexed to, uint256 amount, bytes reason
-    );
-    event OnMapAccountsHookFailure(
-        address indexed hook, bytes32 indexed chainUID, address remoteAccount, address localAccount, bytes reason
-    );
-    event OnSettleLiquidityHookFailure(
-        address indexed hook,
-        bytes32 indexed chainUID,
-        uint64 timestamp,
-        address indexed account,
-        int256 liquidity,
-        bytes reason
-    );
-    event OnSettleTotalLiquidityHookFailure(
-        address indexed hook, bytes32 indexed chainUID, uint64 timestamp, int256 totalLiquidity, bytes reason
-    );
-    event OnSettleDataHookFailure(
-        address indexed hook, bytes32 indexed chainUID, uint64 timestamp, bytes32 indexed key, bytes value, bytes reason
-    );
-
-    /*//////////////////////////////////////////////////////////////
-                                 ERRORS
-    //////////////////////////////////////////////////////////////*/
-
-    error InvalidRequests();
-    error Unsupported();
-    error Forbidden();
-    error TransferNotPending(uint256 nonce);
-    error InvalidAmount();
-    error InvalidAddress();
-    error InsufficientBalance();
-    error InsufficientValue();
-    error TransferPending();
-    error Overflow();
-    error InsufficientAvailability(uint256 nonce, uint256 amount, int256 availabillity);
-    error CallFailure(address to, bytes reason);
-    error NotComposing();
-    error HookAlreadyAdded();
-    error HookNotFound();
 
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
@@ -155,20 +91,12 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Returns the pending transfer nonce for an account
-     * @param account The account to check
-     * @return The pending transfer nonce (0 if no pending transfer)
-     */
+    /// @inheritdoc IBaseERC20xD
     function pendingNonce(address account) external view returns (uint256) {
         return _pendingNonce[account];
     }
 
-    /**
-     * @notice Returns the pending transfer details for an account
-     * @param account The account to check
-     * @return The pending transfer struct
-     */
+    /// @inheritdoc IBaseERC20xD
     function pendingTransfer(address account) external view returns (PendingTransfer memory) {
         uint256 nonce = _pendingNonce[account];
         return _pendingTransfers[nonce];
@@ -200,47 +128,31 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         return value < 0 ? 0 : uint256(value);
     }
 
-    /**
-     * @notice Returns the total supply on the current chain.
-     * @return The local total supply of the token as an `int256`.
-     */
+    /// @inheritdoc IBaseERC20xD
     function localTotalSupply() public view returns (int256) {
         return ILiquidityMatrix(liquidityMatrix).getLocalTotalLiquidity(address(this));
     }
 
-    /**
-     * @notice Returns the local balance of a specific account on the current chain.
-     * @param account The account to query.
-     * @return The local balance of the account on this chain as an `int256`.
-     */
+    /// @inheritdoc IBaseERC20xD
     function localBalanceOf(address account) public view returns (int256) {
         return ILiquidityMatrix(liquidityMatrix).getLocalLiquidity(address(this), account);
     }
 
-    /**
-     * @notice Quotes the messaging fee for sending a read request with specific gas and calldata size.
-     * @param from The address initiating the cross-chain transfer.
-     * @param gasLimit The gas limit to allocate for actual transfer after Gateway read.
-     * @return fee The estimated messaging fee for the request.
-     */
+    /// @inheritdoc IBaseERC20xD
     function quoteTransfer(address from, uint128 gasLimit) public view returns (uint256 fee) {
         return IGateway(gateway).quoteRead(
             address(this), abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from), 256, gasLimit
         );
     }
 
-    /**
-     * @notice Retrieves available balance of account on current chain.
-     * @dev This will be called by Gateway read from remote chains.
-     * @param account The owner of available balance to read.
-     * @return balance The balance that can be spent on current chain.
-     */
+    /// @inheritdoc IBaseERC20xD
     function availableLocalBalanceOf(address account) public view returns (int256 balance) {
         uint256 nonce = _pendingNonce[account];
         PendingTransfer storage pending = _pendingTransfers[nonce];
         return localBalanceOf(account) - int256(pending.pending ? pending.amount : 0);
     }
 
+    /// @inheritdoc IGatewayApp
     function reduce(IGatewayApp.Request[] calldata requests, bytes calldata, bytes[] calldata responses)
         external
         pure
@@ -260,63 +172,46 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Updates the liquidity matrix contract address
-     * @param _liquidityMatrix The new liquidity matrix address
-     */
+    /// @inheritdoc IBaseERC20xD
     function updateLiquidityMatrix(address _liquidityMatrix) external onlyOwner {
         liquidityMatrix = _liquidityMatrix;
 
         emit UpdateLiquidityMatrix(_liquidityMatrix);
     }
 
-    /**
-     * @notice Updates the gateway contract address
-     * @param _gateway The new gateway address
-     */
+    /// @inheritdoc IBaseERC20xD
     function updateGateway(address _gateway) external onlyOwner {
         gateway = _gateway;
 
         emit UpdateGateway(_gateway);
     }
 
+    /// @inheritdoc IBaseERC20xD
     function updateReadTarget(bytes32 chainUID, bytes32 target) external onlyOwner {
         IGateway(gateway).updateReadTarget(chainUID, target);
     }
 
-    /**
-     * @notice Updates whether the app syncs only mapped accounts
-     * @param syncMappedAccountsOnly If true, only mapped accounts will be synced
-     */
+    /// @inheritdoc IBaseERC20xD
     function updateSyncMappedAccountsOnly(bool syncMappedAccountsOnly) external onlyOwner {
         ILiquidityMatrix(liquidityMatrix).updateSyncMappedAccountsOnly(syncMappedAccountsOnly);
     }
 
-    /**
-     * @notice Updates whether this app uses callbacks from LiquidityMatrix
-     * @param useHook Whether to enable callbacks
-     */
+    /// @inheritdoc IBaseERC20xD
     function updateUseHook(bool useHook) external onlyOwner {
         ILiquidityMatrix(liquidityMatrix).updateUseHook(useHook);
     }
 
-    /**
-     * @notice Updates the authorized settler address for this app
-     * @param settler The new settler address
-     */
+    /// @inheritdoc IBaseERC20xD
     function updateSettler(address settler) external onlyOwner {
         ILiquidityMatrix(liquidityMatrix).updateSettler(settler);
     }
 
+    /// @inheritdoc IBaseERC20xD
     function updateRemoteApp(bytes32 chainUID, address app, uint256 appIndex) external onlyOwner {
         ILiquidityMatrix(liquidityMatrix).updateRemoteApp(chainUID, app, appIndex);
     }
 
-    /**
-     * @notice Adds a new hook contract to receive balance change notifications
-     * @dev Hooks are called in the order they were added
-     * @param hook The address of the hook contract implementing IERC20xDHook
-     */
+    /// @inheritdoc IBaseERC20xD
     function addHook(address hook) external onlyOwner {
         if (hook == address(0)) revert InvalidAddress();
         if (isHook[hook]) revert HookAlreadyAdded();
@@ -327,10 +222,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         emit HookAdded(hook);
     }
 
-    /**
-     * @notice Removes a hook contract from receiving balance change notifications
-     * @param hook The address of the hook contract to remove
-     */
+    /// @inheritdoc IBaseERC20xD
     function removeHook(address hook) external onlyOwner {
         if (!isHook[hook]) revert HookNotFound();
 
@@ -349,10 +241,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         emit HookRemoved(hook);
     }
 
-    /**
-     * @notice Returns all registered hooks
-     * @return Array of hook contract addresses
-     */
+    /// @inheritdoc IBaseERC20xD
     function getHooks() external view returns (address[] memory) {
         return hooks;
     }
@@ -365,29 +254,12 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         revert Unsupported();
     }
 
-    /**
-     * @notice Initiates a transfer operation.
-     * @dev It performs a global availability check using cross-chain read to ensure `amount <= availability`.
-     *      The user must provide sufficient fees via `msg.value`.
-     * @param to The recipient address on the target chain.
-     * @param amount The amount of tokens to transfer.
-     * @param data Encoded (uint128 gasLimit, address refundTo) parameters.
-     * @dev Emits a `InitiateTransfer` event upon successful initiation.
-     */
+    /// @inheritdoc IBaseERC20xD
     function transfer(address to, uint256 amount, bytes memory data) public payable returns (bytes32 guid) {
         return transfer(to, amount, "", 0, data);
     }
 
-    /**
-     * @notice Initiates a transfer operation.
-     * @dev It performs a global availability check using cross-chain read to ensure `amount <= availability`.
-     *      The user must provide sufficient fees via `msg.value`.
-     * @param to The recipient address on the target chain.
-     * @param amount The amount of tokens to transfer.
-     * @param callData Optional calldata for executing a function on the recipient contract.
-     * @param data Encoded (uint128 gasLimit, address refundTo) parameters.
-     * @dev Emits a `InitiateTransfer` event upon successful initiation.
-     */
+    /// @inheritdoc IBaseERC20xD
     function transfer(address to, uint256 amount, bytes memory callData, bytes memory data)
         public
         payable
@@ -396,17 +268,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         return transfer(to, amount, callData, 0, data);
     }
 
-    /**
-     * @notice Initiates a transfer operation.
-     * @dev It performs a global availability check using cross-chain read to ensure `amount <= availability`.
-     *      The user must provide sufficient fees via `msg.value`.
-     * @param to The recipient address on the target chain.
-     * @param amount The amount of tokens to transfer.
-     * @param callData Optional calldata for executing a function on the recipient contract.
-     * @param value Native cryptocurrency to be sent when calling the recipient with `callData`.
-     * @param data Encoded (uint128 gasLimit, address refundTo) parameters.
-     * @dev Emits a `InitiateTransfer` event upon successful initiation.
-     */
+    /// @inheritdoc IBaseERC20xD
     function transfer(address to, uint256 amount, bytes memory callData, uint256 value, bytes memory data)
         public
         payable
@@ -462,11 +324,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         emit InitiateTransfer(from, to, amount, value, nonce);
     }
 
-    /**
-     * @notice Cancels a pending cross-chain transfer.
-     * @dev Only callable by the user who initiated the transfer.
-     * @dev Emits a `CancelPendingTransfer` event upon successful cancellation.
-     */
+    /// @inheritdoc IBaseERC20xD
     function cancelPendingTransfer() external {
         uint256 nonce = _pendingNonce[msg.sender];
         PendingTransfer storage pending = _pendingTransfers[nonce];
@@ -505,11 +363,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         return true;
     }
 
-    /**
-     * @notice Callback function for cross-chain read responses
-     * @dev Only callable by the gateway contract
-     * @param _message The encoded message containing the read response
-     */
+    /// @inheritdoc IGatewayApp
     function onRead(bytes calldata _message, bytes calldata _extra) external {
         if (msg.sender != gateway) revert Forbidden();
 
@@ -753,10 +607,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         }
     }
 
-    /**
-     * @notice Handles incoming messages from the gateway
-     * @dev Implementation of IGatewayApp.onReceive
-     */
+    /// @inheritdoc IGatewayApp
     function onReceive(bytes32, bytes calldata) external virtual override {
         // Only allow calls from the gateway contract
         if (msg.sender != gateway) revert Forbidden();

@@ -6,6 +6,9 @@ pragma solidity ^0.8.28;
  * @notice Interface for contracts that want to be notified of balance changes in ERC20xD tokens
  */
 interface IERC20xDHook {
+    /*//////////////////////////////////////////////////////////////
+                                LOGIC
+    //////////////////////////////////////////////////////////////*/
     /**
      * @notice Called when a transfer is initiated
      * @dev This function should not revert as it could block transfers
@@ -53,11 +56,41 @@ interface IERC20xDHook {
      */
     function afterTransfer(address from, address to, uint256 amount, bytes memory data) external;
 
+    /**
+     * @notice Called when remote accounts are mapped to local accounts
+     * @dev This function should not revert as it could block account mapping
+     * @param chainUID The remote chain identifier
+     * @param remoteAccount The account address on the remote chain
+     * @param localAccount The mapped local account address
+     */
     function onMapAccounts(bytes32 chainUID, address remoteAccount, address localAccount) external;
 
+    /**
+     * @notice Called when liquidity for a specific account is settled from a remote chain
+     * @dev This function should not revert as it could block settlement
+     * @param chainUID The remote chain identifier
+     * @param timestamp The timestamp of the settlement
+     * @param account The account whose liquidity was settled
+     * @param liquidity The settled liquidity amount
+     */
     function onSettleLiquidity(bytes32 chainUID, uint256 timestamp, address account, int256 liquidity) external;
 
+    /**
+     * @notice Called when total liquidity is settled from a remote chain
+     * @dev This function should not revert as it could block settlement
+     * @param chainUID The remote chain identifier
+     * @param timestamp The timestamp of the settlement
+     * @param totalLiquidity The total liquidity amount settled
+     */
     function onSettleTotalLiquidity(bytes32 chainUID, uint256 timestamp, int256 totalLiquidity) external;
 
+    /**
+     * @notice Called when data is settled from a remote chain
+     * @dev This function should not revert as it could block settlement
+     * @param chainUID The remote chain identifier
+     * @param timestamp The timestamp of the settlement
+     * @param key The data key that was settled
+     * @param value The settled data value
+     */
     function onSettleData(bytes32 chainUID, uint256 timestamp, bytes32 key, bytes memory value) external;
 }

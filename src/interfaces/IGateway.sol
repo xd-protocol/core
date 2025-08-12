@@ -2,6 +2,33 @@
 pragma solidity ^0.8.0;
 
 interface IGateway {
+    /*//////////////////////////////////////////////////////////////
+                                EVENTS
+    //////////////////////////////////////////////////////////////*/
+
+    event RegisterApp(address indexed app, uint16 indexed cmdLabel);
+    event UpdateTransferDelay(uint32 indexed eid, uint64 delay);
+    event UpdateReadTarget(address indexed app, uint32 indexed eid, bytes32 indexed target);
+    event MessageSent(uint32 indexed eid, bytes32 indexed guid, bytes message);
+
+    /*//////////////////////////////////////////////////////////////
+                                ERRORS
+    //////////////////////////////////////////////////////////////*/
+
+    error Forbidden();
+    error InvalidApp();
+    error InvalidTarget();
+    error InvalidLengths();
+    error InvalidChainUID();
+    error InvalidLzReadOptions();
+    error InvalidGuid();
+    error InvalidCmdLabel();
+    error InvalidRequests();
+    error DuplicateTargetEid();
+
+    /*//////////////////////////////////////////////////////////////
+                            VIEW FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
     /**
      * @notice Gets the current chain configuration
      * @return chainUIDs Array of configured chain UIDs

@@ -8,6 +8,10 @@ pragma solidity ^0.8.0;
  *      All callbacks are executed with try/catch to prevent settlement failures
  */
 interface ILiquidityMatrixHook {
+    /*//////////////////////////////////////////////////////////////
+                                LOGIC
+    //////////////////////////////////////////////////////////////*/
+
     /**
      * @notice Called when remote accounts are successfully mapped to local accounts
      * @dev Allows apps to perform additional logic when account mappings are established

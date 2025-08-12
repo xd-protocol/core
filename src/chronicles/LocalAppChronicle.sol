@@ -96,12 +96,12 @@ contract LocalAppChronicle is ILocalAppChronicle {
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc ILocalAppChronicle
-    function getLiquidityRoot() public view returns (bytes32) {
+    function getLiquidityRoot() external view returns (bytes32) {
         return _liquidityTree.getRoot();
     }
 
     /// @inheritdoc ILocalAppChronicle
-    function getDataRoot() public view returns (bytes32) {
+    function getDataRoot() external view returns (bytes32) {
         return _dataTree.getRoot();
     }
 

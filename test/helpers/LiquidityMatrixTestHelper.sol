@@ -10,6 +10,7 @@ import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { IGateway } from "src/interfaces/IGateway.sol";
 import { IGatewayApp } from "src/interfaces/IGatewayApp.sol";
 import { ILocalAppChronicle } from "src/interfaces/ILocalAppChronicle.sol";
+import { IRemoteAppChronicle } from "src/interfaces/IRemoteAppChronicle.sol";
 import { MerkleTreeLib } from "src/libraries/MerkleTreeLib.sol";
 import { RemoteAppChronicle } from "src/chronicles/RemoteAppChronicle.sol";
 import { AddressCast } from "@layerzerolabs/lz-evm-protocol-v2/contracts/libs/AddressCast.sol";
@@ -396,7 +397,7 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
             vm.expectRevert(expectedError);
         }
         RemoteAppChronicle(chronicle).settleLiquidity(
-            RemoteAppChronicle.SettleLiquidityParams({
+            IRemoteAppChronicle.SettleLiquidityParams({
                 timestamp: timestamp,
                 accounts: accounts,
                 liquidity: liquidity,
@@ -448,7 +449,7 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
             vm.expectRevert(expectedError);
         }
         RemoteAppChronicle(chronicle).settleData(
-            RemoteAppChronicle.SettleDataParams({
+            IRemoteAppChronicle.SettleDataParams({
                 timestamp: timestamp,
                 keys: keys,
                 values: values,

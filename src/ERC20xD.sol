@@ -39,13 +39,8 @@ contract ERC20xD is BaseERC20xD, IERC20xD {
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Quotes the fee for burning tokens (cross-chain transfer to zero address)
-     * @param from The address burning the tokens
-     * @param gasLimit The gas limit for the cross-chain operation
-     * @return fee The estimated fee for the burn operation
-     */
-    function quoteBurn(address from, uint128 gasLimit) public view returns (uint256 fee) {
+    /// @inheritdoc IERC20xD
+    function quoteBurn(address from, uint128 gasLimit) external view returns (uint256 fee) {
         return quoteTransfer(from, gasLimit);
     }
 
@@ -53,27 +48,18 @@ contract ERC20xD is BaseERC20xD, IERC20xD {
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
+    /// @inheritdoc IERC20xD
     fallback() external payable virtual { }
 
+    /// @inheritdoc IERC20xD
     receive() external payable virtual { }
 
-    /**
-     * @notice Mints tokens by transferring from the zero address.
-     * @param to The recipient address of the minted tokens.
-     * @param amount The amount of tokens to mint.
-     * @dev Only callable by the contract owner. Triggers hook callbacks if any are registered.
-     */
+    /// @inheritdoc IERC20xD
     function mint(address to, uint256 amount) external onlyOwner {
         _transferFrom(address(0), to, amount);
     }
 
-    /**
-     * @notice Burns tokens by transferring them to the zero address with cross-chain availability check.
-     * @param amount The amount of tokens to burn.
-     * @param data Encoded (uint128 gasLimit, address refundTo) parameters for cross-chain operations.
-     * @return guid The unique identifier for this cross-chain operation.
-     * @dev Performs global liquidity check across all chains before burning. Triggers hook callbacks if any are registered.
-     */
+    /// @inheritdoc IERC20xD
     function burn(uint256 amount, bytes calldata data) external payable returns (bytes32 guid) {
         return _transfer(msg.sender, address(0), amount, "", 0, data);
     }

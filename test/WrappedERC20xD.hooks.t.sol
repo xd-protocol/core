@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import { Test } from "forge-std/Test.sol";
 import { WrappedERC20xD } from "src/WrappedERC20xD.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
+import { IBaseERC20xD } from "src/interfaces/IBaseERC20xD.sol";
 import { IERC20xDHook } from "src/interfaces/IERC20xDHook.sol";
 import { ERC20Mock } from "./mocks/ERC20Mock.sol";
 import { LiquidityMatrixMock } from "./mocks/LiquidityMatrixMock.sol";

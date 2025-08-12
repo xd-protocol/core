@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import { Test } from "forge-std/Test.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
+import { IBaseERC20xD } from "src/interfaces/IBaseERC20xD.sol";
 import { IERC20xDHook } from "src/interfaces/IERC20xDHook.sol";
 import { IGateway } from "src/interfaces/IGateway.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
@@ -181,7 +182,7 @@ contract BaseERC20xDHooksTest is Test {
 
     function test_addHook_revertZeroAddress() public {
         vm.prank(owner);
-        vm.expectRevert(BaseERC20xD.InvalidAddress.selector);
+        vm.expectRevert(IBaseERC20xD.InvalidAddress.selector);
         token.addHook(address(0));
     }
 
@@ -189,7 +190,7 @@ contract BaseERC20xDHooksTest is Test {
         vm.startPrank(owner);
         token.addHook(address(hook1));
 
-        vm.expectRevert(BaseERC20xD.HookAlreadyAdded.selector);
+        vm.expectRevert(IBaseERC20xD.HookAlreadyAdded.selector);
         token.addHook(address(hook1));
         vm.stopPrank();
     }
@@ -231,7 +232,7 @@ contract BaseERC20xDHooksTest is Test {
 
     function test_removeHook_revertNotFound() public {
         vm.prank(owner);
-        vm.expectRevert(BaseERC20xD.HookNotFound.selector);
+        vm.expectRevert(IBaseERC20xD.HookNotFound.selector);
         token.removeHook(address(hook1));
     }
 
@@ -784,7 +785,7 @@ contract BaseERC20xDHooksTest is Test {
     function test_onMapAccounts_revertNonLiquidityMatrix() public {
         // Try to call from non-LiquidityMatrix address
         vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.Forbidden.selector);
+        vm.expectRevert(IBaseERC20xD.Forbidden.selector);
         token.onMapAccounts(bytes32(uint256(1)), makeAddr("remote"), alice);
     }
 
@@ -859,7 +860,7 @@ contract BaseERC20xDHooksTest is Test {
     function test_onSettleLiquidity_revertNonLiquidityMatrix() public {
         // Try to call from non-LiquidityMatrix address
         vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.Forbidden.selector);
+        vm.expectRevert(IBaseERC20xD.Forbidden.selector);
         token.onSettleLiquidity(bytes32(uint256(1)), 1, uint64(block.timestamp), alice);
     }
 
@@ -931,7 +932,7 @@ contract BaseERC20xDHooksTest is Test {
     function test_onSettleTotalLiquidity_revertNonLiquidityMatrix() public {
         // Try to call from non-LiquidityMatrix address
         vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.Forbidden.selector);
+        vm.expectRevert(IBaseERC20xD.Forbidden.selector);
         token.onSettleTotalLiquidity(bytes32(uint256(1)), 1, uint64(block.timestamp));
     }
 
@@ -1008,7 +1009,7 @@ contract BaseERC20xDHooksTest is Test {
     function test_onSettleData_revertNonLiquidityMatrix() public {
         // Try to call from non-LiquidityMatrix address
         vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.Forbidden.selector);
+        vm.expectRevert(IBaseERC20xD.Forbidden.selector);
         token.onSettleData(bytes32(uint256(1)), 1, uint64(block.timestamp), bytes32(0));
     }
 

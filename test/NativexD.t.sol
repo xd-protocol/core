@@ -15,7 +15,7 @@ import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { IBaseERC20xD } from "src/interfaces/IBaseERC20xD.sol";
 import { IWrappedERC20xD } from "src/interfaces/IWrappedERC20xD.sol";
-import { StakingVaultMock } from "./mocks/StakingVaultMock.sol";
+import { INativexD } from "src/interfaces/INativexD.sol";
 import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
 import {
     MessagingReceipt, Origin
@@ -23,8 +23,6 @@ import {
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 
 contract NativexDTest is BaseERC20xDTestHelper {
-    StakingVaultMock[CHAINS] vaults;
-
     uint32 constant LOCAL_EID = 101;
     uint128 constant TEST_GAS_LIMIT = 200_000;
 
@@ -32,7 +30,6 @@ contract NativexDTest is BaseERC20xDTestHelper {
     event Unwrap(address indexed to, uint256 amount);
 
     function _newBaseERC20xD(uint256 i) internal override returns (BaseERC20xD) {
-        vaults[i] = new StakingVaultMock();
         return BaseERC20xD(
             address(
                 new NativexD(
@@ -86,7 +83,7 @@ contract NativexDTest is BaseERC20xDTestHelper {
         uint256 balanceBefore = alice.balance;
 
         vm.expectEmit();
-        emit NativexD.Wrap(alice, amount);
+        emit INativexD.Wrap(alice, amount);
         wrapped.wrap{ value: amount }(alice);
 
         assertEq(wrapped.balanceOf(alice), amount); // Direct 1:1 minting now
@@ -107,14 +104,14 @@ contract NativexDTest is BaseERC20xDTestHelper {
     function test_wrap_revertZeroAddress() public {
         NativexD wrapped = NativexD(payable(address(erc20s[0])));
         vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.InvalidAddress.selector);
+        vm.expectRevert(IBaseERC20xD.InvalidAddress.selector);
         wrapped.wrap{ value: 50 ether }(address(0));
     }
 
     function test_wrap_revertZeroAmount() public {
         NativexD wrapped = NativexD(payable(address(erc20s[0])));
         vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.InvalidAmount.selector);
+        vm.expectRevert(IBaseERC20xD.InvalidAmount.selector);
         wrapped.wrap{ value: 0 }(alice);
     }
 
@@ -123,7 +120,7 @@ contract NativexDTest is BaseERC20xDTestHelper {
         vm.prank(alice);
 
         // NativexD checks msg.value == 0, not msg.value < amount
-        vm.expectRevert(BaseERC20xD.InvalidAmount.selector);
+        vm.expectRevert(IBaseERC20xD.InvalidAmount.selector);
         wrapped.wrap{ value: 0 }(alice);
     }
 
@@ -170,7 +167,7 @@ contract NativexDTest is BaseERC20xDTestHelper {
         wrapped.wrap{ value: 50 ether }(alice);
 
         vm.prank(alice);
-        vm.expectRevert(BaseERC20xD.InvalidAddress.selector);
+        vm.expectRevert(IBaseERC20xD.InvalidAddress.selector);
         wrapped.unwrap(address(0), 50 ether, "");
     }
 

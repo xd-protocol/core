@@ -324,7 +324,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
      * @param app The application address
      * @return The LocalAppChronicle contract
      */
-    function _getCurrentLocalAppChronicleOrRevert(address app) public view returns (ILocalAppChronicle) {
+    function _getCurrentLocalAppChronicleOrRevert(address app) internal view returns (ILocalAppChronicle) {
         address chronicle = getCurrentLocalAppChronicle(app);
         if (chronicle == address(0)) revert LocalAppChronicleNotSet();
         return ILocalAppChronicle(chronicle);
@@ -341,12 +341,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     }
 
     /// @inheritdoc ILiquidityMatrix
-    function getLocalLiquidityRoot(address app) public view returns (bytes32) {
+    function getLocalLiquidityRoot(address app) external view returns (bytes32) {
         return _getCurrentLocalAppChronicleOrRevert(app).getLiquidityRoot();
     }
 
     /// @inheritdoc ILiquidityMatrix
-    function getLocalDataRoot(address app) public view returns (bytes32) {
+    function getLocalDataRoot(address app) external view returns (bytes32) {
         return _getCurrentLocalAppChronicleOrRevert(app).getDataRoot();
     }
 
@@ -428,6 +428,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return _isSettlerWhitelisted[account];
     }
 
+    /// @inheritdoc ILiquidityMatrix
     function getRemoteApp(address app, bytes32 chainUID)
         external
         view
@@ -448,7 +449,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return _remoteAppStates[app][chainUID].mappedAccounts[remote];
     }
 
-    function getLocalAccount(address app, bytes32 chainUID, address remote) public view returns (address) {
+    function getLocalAccount(address app, bytes32 chainUID, address remote) external view returns (address) {
         address mapped = getMappedAccount(app, chainUID, remote);
         if (mapped != address(0)) {
             return mapped;
@@ -963,6 +964,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         emit UpdateSettler(msg.sender, settler);
     }
 
+    /// @inheritdoc ILiquidityMatrix
     function updateRemoteApp(bytes32 chainUID, address app, uint256 appIndex) external onlyApp {
         RemoteAppState storage state = _remoteAppStates[msg.sender][chainUID];
         state.app = app;
