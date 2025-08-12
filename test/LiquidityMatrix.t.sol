@@ -8,6 +8,7 @@ import {
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
 import { LocalAppChronicleDeployer } from "src/chronicles/LocalAppChronicleDeployer.sol";
 import { RemoteAppChronicleDeployer } from "src/chronicles/RemoteAppChronicleDeployer.sol";
+import { RemoteAppChronicle } from "src/chronicles/RemoteAppChronicle.sol";
 import { LayerZeroGateway } from "src/gateways/LayerZeroGateway.sol";
 import { IRemoteAppChronicle } from "src/interfaces/IRemoteAppChronicle.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
@@ -889,10 +890,9 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         liquidity[0] = 400e18;
         liquidity[1] = 100e18;
 
-        // Get the RemoteAppChronicle and settle liquidity there
-        address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], bytes32(uint256(eids[1])));
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(uint64(rootTimestamp), accounts, liquidity)
+        // Settle liquidity with automatic proof generation
+        _settleLiquidity(
+            liquidityMatrices[0], apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp), accounts, liquidity
         );
 
         // Test REMOTE total liquidity after settling (for the specific remote chain)
@@ -1278,10 +1278,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes32 remoteEid = _eid(liquidityMatrices[1]);
         (, uint256 rootTimestamp) = liquidityMatrices[0].getLastReceivedLiquidityRoot(remoteEid);
 
-        address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], remoteEid);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(uint64(rootTimestamp), testAccounts, testLiquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], remoteEid, uint64(rootTimestamp), testAccounts, testLiquidity);
 
         // Verify settlement - check liquidity through LiquidityMatrix wrapper functions
         for (uint256 i = 0; i < testAccounts.length; i++) {
@@ -1293,6 +1290,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         }
         assertEq(liquidityMatrices[0].getTotalLiquidityAt(apps[0], remoteEid, uint64(rootTimestamp)), totalLiquidity);
         // Check if liquidity is settled through the chronicle
+        address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], remoteEid);
         assertTrue(IRemoteAppChronicle(chronicle).isLiquiditySettled(uint64(rootTimestamp)));
     }
 
@@ -1335,10 +1333,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes32 remoteEid = _eid(liquidityMatrices[1]);
         (, uint256 rootTimestamp) = liquidityMatrices[0].getLastReceivedLiquidityRoot(remoteEid);
 
-        address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], remoteEid);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(uint64(rootTimestamp), testAccounts, testLiquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], remoteEid, uint64(rootTimestamp), testAccounts, testLiquidity);
 
         // Verify hooks were called with final liquidity values
         assertEq(IAppMock(apps[0]).remoteTotalLiquidity(remoteEid), totalLiquidity);
@@ -1383,16 +1378,11 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes32 remoteEid = _eid(liquidityMatrices[1]);
         (, uint256 rootTimestamp) = liquidityMatrices[0].getLastReceivedLiquidityRoot(remoteEid);
 
-        address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], remoteEid);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(uint64(rootTimestamp), accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], remoteEid, uint64(rootTimestamp), accounts, liquidity);
 
         // Second settlement should revert
         vm.expectRevert(IRemoteAppChronicle.LiquidityAlreadySettled.selector);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(uint64(rootTimestamp), accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], remoteEid, uint64(rootTimestamp), accounts, liquidity);
     }
 
     function test_settleLiquidity_notWhitelisted() public {
@@ -1406,8 +1396,32 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], bytes32(uint256(eids[1])));
         vm.expectRevert(IRemoteAppChronicle.Forbidden.selector);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(uint64(block.timestamp), accounts, liquidity)
+
+        // Create valid params for testing access control
+        bytes32[] memory accountKeys = new bytes32[](accounts.length);
+        bytes32[] memory liquidityValues = new bytes32[](accounts.length);
+        for (uint256 i = 0; i < accounts.length; i++) {
+            accountKeys[i] = bytes32(uint256(uint160(accounts[i])));
+            liquidityValues[i] = bytes32(uint256(liquidity[i]));
+        }
+        bytes32 appLiquidityRoot = MerkleTreeLib.computeRoot(accountKeys, liquidityValues);
+
+        bytes32[] memory appKeys = new bytes32[](1);
+        bytes32[] memory appRoots = new bytes32[](1);
+        appKeys[0] = bytes32(uint256(uint160(apps[0])));
+        appRoots[0] = appLiquidityRoot;
+
+        bytes32[] memory proof = MerkleTreeLib.getProof(appKeys, appRoots, 0);
+
+        RemoteAppChronicle(chronicle).settleLiquidity(
+            RemoteAppChronicle.SettleLiquidityParams({
+                timestamp: uint64(block.timestamp),
+                accounts: accounts,
+                liquidity: liquidity,
+                liquidityRoot: appLiquidityRoot,
+                index: 0,
+                proof: proof
+            })
         );
     }
 
@@ -1443,9 +1457,8 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         liquidity[3] = 200e18;
 
         // Get the RemoteAppChronicle and settle liquidity there
-        address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], bytes32(uint256(eids[1])));
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(uint64(rootTimestamp), accounts, liquidity)
+        _settleLiquidity(
+            liquidityMatrices[0], apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp), accounts, liquidity
         );
 
         // Verify settled values through LiquidityMatrix wrapper functions
@@ -1501,9 +1514,8 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
                 liquidity[j] = int256((i + 1) * (j + 1) * 1e18);
             }
 
-            address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], bytes32(uint256(eids[i])));
-            IRemoteAppChronicle(chronicle).settleLiquidity(
-                IRemoteAppChronicle.SettleLiquidityParams(uint64(rootTimestamp), accounts, liquidity)
+            _settleLiquidity(
+                liquidityMatrices[0], apps[0], bytes32(uint256(eids[i])), uint64(rootTimestamp), accounts, liquidity
             );
         }
 
@@ -1556,10 +1568,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Settle all accounts at once through RemoteAppChronicle
         changePrank(settler, settler);
-        address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], remoteEid);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(uint64(rootTimestamp), accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], remoteEid, uint64(rootTimestamp), accounts, liquidity);
 
         // Verify all settlements using LiquidityMatrix wrapper
         for (uint256 i = 0; i < numAccounts; i++) {
@@ -1595,16 +1604,11 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         liquidity[0] = 100e18;
         liquidity[1] = 200e18;
 
-        address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], remoteEid);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(uint64(rootTimestamp), accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], remoteEid, uint64(rootTimestamp), accounts, liquidity);
 
         // Try to settle again (should revert due to LiquidityAlreadySettled)
         vm.expectRevert(IRemoteAppChronicle.LiquidityAlreadySettled.selector);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(uint64(rootTimestamp), accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], remoteEid, uint64(rootTimestamp), accounts, liquidity);
 
         // Verify the first settlement succeeded using LiquidityMatrix wrapper
         assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], remoteEid, users[0], uint64(rootTimestamp)), 100e18);
@@ -1624,9 +1628,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         newLiquidity[0] = 150e18;
 
         // This should work as it's a different timestamp
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(uint64(newTimestamp), newAccounts, newLiquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], remoteEid, uint64(newTimestamp), newAccounts, newLiquidity);
 
         assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], remoteEid, users[0], uint64(newTimestamp)), 150e18);
     }
@@ -1656,12 +1658,10 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes32 remoteEid = _eid(liquidityMatrices[1]);
         (, uint256 rootTimestamp) = liquidityMatrices[0].getLastReceivedDataRoot(remoteEid);
 
-        address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], remoteEid);
-        IRemoteAppChronicle(chronicle).settleData(
-            IRemoteAppChronicle.SettleDataParams(uint64(rootTimestamp), keys, values)
-        );
+        _settleData(liquidityMatrices[0], apps[0], remoteEid, uint64(rootTimestamp), keys, values);
 
         // Verify settlement using RemoteAppChronicle
+        address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], remoteEid);
         IRemoteAppChronicle remoteChronicle = IRemoteAppChronicle(chronicle);
         for (uint256 i; i < keys.length; ++i) {
             bytes memory storedValue = remoteChronicle.getDataAt(keys[i], uint64(rootTimestamp));
@@ -1695,16 +1695,11 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes[] memory values = new bytes[](1);
         values[0] = abi.encode("value");
 
-        address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], bytes32(uint256(eids[1])));
-        IRemoteAppChronicle(chronicle).settleData(
-            IRemoteAppChronicle.SettleDataParams(uint64(rootTimestamp), keys, values)
-        );
+        _settleData(liquidityMatrices[0], apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp), keys, values);
 
         // Try to settle again
         vm.expectRevert(IRemoteAppChronicle.DataAlreadySettled.selector);
-        IRemoteAppChronicle(chronicle).settleData(
-            IRemoteAppChronicle.SettleDataParams(uint64(rootTimestamp), keys, values)
-        );
+        _settleData(liquidityMatrices[0], apps[0], bytes32(uint256(eids[1])), uint64(rootTimestamp), keys, values);
     }
 
     function test_settleData_notWhitelisted() public {
@@ -1718,8 +1713,30 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], bytes32(uint256(eids[1])));
         vm.expectRevert(IRemoteAppChronicle.Forbidden.selector);
-        IRemoteAppChronicle(chronicle).settleData(
-            IRemoteAppChronicle.SettleDataParams(uint64(block.timestamp), keys, values)
+
+        // Create valid params for testing access control
+        bytes32[] memory valueHashes = new bytes32[](values.length);
+        for (uint256 i = 0; i < values.length; i++) {
+            valueHashes[i] = keccak256(values[i]);
+        }
+        bytes32 appDataRoot = MerkleTreeLib.computeRoot(keys, valueHashes);
+
+        bytes32[] memory appKeys = new bytes32[](1);
+        bytes32[] memory appRoots = new bytes32[](1);
+        appKeys[0] = bytes32(uint256(uint160(apps[0])));
+        appRoots[0] = appDataRoot;
+
+        bytes32[] memory proof = MerkleTreeLib.getProof(appKeys, appRoots, 0);
+
+        RemoteAppChronicle(chronicle).settleData(
+            RemoteAppChronicle.SettleDataParams({
+                timestamp: uint64(block.timestamp),
+                keys: keys,
+                values: values,
+                dataRoot: appDataRoot,
+                index: 0,
+                proof: proof
+            })
         );
     }
 
@@ -1777,12 +1794,10 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         values[1] = pricesData;
         values[2] = metadataData;
 
-        address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], remoteEid);
-        IRemoteAppChronicle(chronicle).settleData(
-            IRemoteAppChronicle.SettleDataParams(uint64(rootTimestamp), keys, values)
-        );
+        _settleData(liquidityMatrices[0], apps[0], remoteEid, uint64(rootTimestamp), keys, values);
 
         // Verify all data through RemoteAppChronicle
+        address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], remoteEid);
         IRemoteAppChronicle remoteChronicle = IRemoteAppChronicle(chronicle);
         assertEq(keccak256(remoteChronicle.getDataAt(configKey, uint64(rootTimestamp))), keccak256(configData));
         assertEq(keccak256(remoteChronicle.getDataAt(pricesKey, uint64(rootTimestamp))), keccak256(pricesData));
@@ -2034,9 +2049,8 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         chain1Liquidity[0] = 2000e18;
         chain1Liquidity[1] = 1500e18;
 
-        address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chain1Eid);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(uint64(chain1Timestamp), chain1Accounts, chain1Liquidity)
+        _settleLiquidity(
+            liquidityMatrices[0], apps[0], chain1Eid, uint64(chain1Timestamp), chain1Accounts, chain1Liquidity
         );
 
         // Verify cross-chain view - need to check both local and remote
@@ -2113,10 +2127,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         int256[] memory liquidity = new int256[](1);
         liquidity[0] = 200e18;
 
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], bytes32(uint256(eids[1])));
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(uint64(t2), accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], bytes32(uint256(eids[1])), uint64(t2), accounts, liquidity);
 
         // Check states after first settlement using RemoteAppChronicle
         assertFalse(remoteChronicle.isLiquiditySettled(uint64(t1)));
@@ -2145,7 +2156,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes[] memory values = new bytes[](1);
         values[0] = abi.encode("value3");
 
-        IRemoteAppChronicle(chronicle).settleData(IRemoteAppChronicle.SettleDataParams(uint64(t3), keys, values));
+        _settleData(liquidityMatrices[0], apps[0], bytes32(uint256(eids[1])), uint64(t3), keys, values);
 
         // Check states after second settlement
         assertFalse(remoteChronicle.isLiquiditySettled(uint64(t1)));
@@ -2168,9 +2179,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Step 3: Settle liquidity for root1
         liquidity[0] = 100e18;
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(uint64(t1), accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], bytes32(uint256(eids[1])), uint64(t1), accounts, liquidity);
 
         // Check states
         assertTrue(remoteChronicle.isLiquiditySettled(uint64(t1)));
@@ -2190,8 +2199,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         // Step 4: Settle data for root2
         keys[0] = keccak256("key2");
         values[0] = abi.encode("value2");
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], bytes32(uint256(eids[1])));
-        IRemoteAppChronicle(chronicle).settleData(IRemoteAppChronicle.SettleDataParams(uint64(t2), keys, values));
+        _settleData(liquidityMatrices[0], apps[0], bytes32(uint256(eids[1])), uint64(t2), keys, values);
 
         // Now root2 should be finalized (both liquidity and data settled for t2)
         assertFalse(remoteChronicle.isFinalized(uint64(t1))); // Missing data
@@ -2211,10 +2219,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         // Step 5: Settle liquidity for root3
         liquidity[0] = 300e18;
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], bytes32(uint256(eids[1])));
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(uint64(t3), accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], bytes32(uint256(eids[1])), uint64(t3), accounts, liquidity);
 
         // Now root3 should be finalized and be the latest
         assertTrue(remoteChronicle.isFinalized(uint64(t3)));
@@ -2230,8 +2235,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         // Step 6: Settle data for root1 (complete all settlements)
         keys[0] = keccak256("key1");
         values[0] = abi.encode("value1");
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], bytes32(uint256(eids[1])));
-        IRemoteAppChronicle(chronicle).settleData(IRemoteAppChronicle.SettleDataParams(uint64(t1), keys, values));
+        _settleData(liquidityMatrices[0], apps[0], bytes32(uint256(eids[1])), uint64(t1), keys, values);
 
         // All should be finalized now
         assertTrue(remoteChronicle.isFinalized(uint64(t1)));
@@ -2384,13 +2388,11 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         liquidity[0] = 50e18;
 
         uint64 timestamp1 = uint64(block.timestamp);
-        address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(timestamp1, accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], chainUID, timestamp1, accounts, liquidity);
 
         // Verify settlement for version 1
-        assertEq(IRemoteAppChronicle(chronicle).getLiquidityAt(alice, timestamp1), 50e18);
+        address chronicle1 = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
+        assertEq(IRemoteAppChronicle(chronicle1).getLiquidityAt(alice, timestamp1), 50e18);
 
         // Add a reorg
         skip(100);
@@ -2406,10 +2408,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         uint64 timestamp2 = uint64(block.timestamp);
         liquidity[0] = 75e18;
         changePrank(settlers[0], settlers[0]);
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(timestamp2, accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], chainUID, timestamp2, accounts, liquidity);
 
         // Verify version 2 data (version 1 data not accessible from v2)
         assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, timestamp1), 0); // Before v2
@@ -2430,8 +2429,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         values[0] = value1;
 
         changePrank(settlers[0], settlers[0]);
-        address chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleData(IRemoteAppChronicle.SettleDataParams(timestamp1, keys, values));
+        _settleData(liquidityMatrices[0], apps[0], chainUID, timestamp1, keys, values);
 
         // Add a reorg
         skip(100);
@@ -2447,8 +2445,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         uint64 timestamp2 = uint64(block.timestamp);
         values[0] = value2;
         changePrank(settlers[0], settlers[0]);
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleData(IRemoteAppChronicle.SettleDataParams(timestamp2, keys, values));
+        _settleData(liquidityMatrices[0], apps[0], chainUID, timestamp2, keys, values);
 
         // Verify version 2 data (version 1 data not accessible from v2)
         assertEq(keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, key, timestamp1)), keccak256("")); // Empty in v2
@@ -2457,7 +2454,6 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
     function test_integration_reorgWithActiveSettlements() public {
         bytes32 chainUID = bytes32(uint256(eids[1]));
-        address chronicle;
 
         // Setup: Settle liquidity at multiple timestamps for version 1
         address[] memory accounts = new address[](2);
@@ -2471,19 +2467,13 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         vm.warp(1000);
         liquidity[0] = 100e18;
         liquidity[1] = 200e18;
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(1000, accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], chainUID, 1000, accounts, liquidity);
 
         // Settlement 2 at t=2000
         vm.warp(2000);
         liquidity[0] = 150e18;
         liquidity[1] = 250e18;
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(2000, accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], chainUID, 2000, accounts, liquidity);
 
         // Reorg happens at t=1500 (between the two settlements)
         changePrank(settlers[0], settlers[0]);
@@ -2499,10 +2489,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         liquidity[0] = 120e18;
         liquidity[1] = 220e18;
         // Settlement after reorg - version handled by chronicle
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(1600, accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], chainUID, 1600, accounts, liquidity);
 
         // Verify: Query at different timestamps returns correct version data
         // Before reorg (t=1400): in version 2 context, no data yet
@@ -2520,7 +2507,6 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
     function test_integration_multipleReorgsWithSettlements() public {
         bytes32 chainUID = bytes32(uint256(eids[1]));
-        address chronicle;
         address[] memory accounts = new address[](1);
         accounts[0] = alice;
         int256[] memory liquidity = new int256[](1);
@@ -2529,10 +2515,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         vm.warp(1000);
         liquidity[0] = 100e18;
         changePrank(settlers[0], settlers[0]);
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(1000, accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], chainUID, 1000, accounts, liquidity);
 
         // First reorg at t=1500
         changePrank(settlers[0], settlers[0]);
@@ -2544,10 +2527,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         vm.warp(2000);
         liquidity[0] = 200e18;
         changePrank(settlers[0], settlers[0]);
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(2000, accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], chainUID, 2000, accounts, liquidity);
 
         // Second reorg at t=2500
         changePrank(settlers[0], settlers[0]);
@@ -2559,10 +2539,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         vm.warp(3000);
         liquidity[0] = 300e18;
         changePrank(settlers[0], settlers[0]);
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(3000, accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], chainUID, 3000, accounts, liquidity);
 
         // Third reorg at t=3500
         changePrank(settlers[0], settlers[0]);
@@ -2574,10 +2551,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         vm.warp(4000);
         liquidity[0] = 400e18;
         changePrank(settlers[0], settlers[0]);
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(4000, accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], chainUID, 4000, accounts, liquidity);
 
         // Verify current version's data (version 4 after last reorg)
         // All previous version data is not accessible from version 4
@@ -2611,7 +2585,6 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
     function test_edgeCase_settlementAtReorgTimestamp() public {
         bytes32 chainUID = bytes32(uint256(eids[1]));
-        address chronicle;
         address[] memory accounts = new address[](1);
         accounts[0] = alice;
         int256[] memory liquidity = new int256[](1);
@@ -2626,10 +2599,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         // Try to settle exactly at reorg timestamp for version 2
         vm.warp(1000);
         changePrank(settlers[0], settlers[0]);
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(1000, accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], chainUID, 1000, accounts, liquidity);
 
         // Verify settlement worked and is associated with version 2
         assertEq(liquidityMatrices[0].getLiquidityAt(apps[0], chainUID, alice, 1000), 100e18);
@@ -2675,10 +2645,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         liquidity[0] = 100e18;
         liquidity[1] = 200e18;
         changePrank(settlers[0], settlers[0]);
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(1000, accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], chainUID, 1000, accounts, liquidity);
 
         // Also settle data for finalization tests
         bytes32[] memory keys = new bytes32[](2);
@@ -2687,8 +2654,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         bytes[] memory values = new bytes[](2);
         values[0] = abi.encode("data1");
         values[1] = abi.encode("data2");
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleData(IRemoteAppChronicle.SettleDataParams(1000, keys, values));
+        _settleData(liquidityMatrices[0], apps[0], chainUID, 1000, keys, values);
 
         // Test all getters BEFORE reorg (at t=1100)
         vm.warp(1100);
@@ -2826,16 +2792,12 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         liquidity[0] = 150e18;
         liquidity[1] = 250e18;
         changePrank(settlers[0], settlers[0]);
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(1700, accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], chainUID, 1700, accounts, liquidity);
 
         // Settle data for finalization
         values[0] = abi.encode("data1_v2");
         values[1] = abi.encode("data2_v2");
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleData(IRemoteAppChronicle.SettleDataParams(1700, keys, values));
+        _settleData(liquidityMatrices[0], apps[0], chainUID, 1700, keys, values);
 
         // Test all getters AFTER new settlement (at t=1800)
         vm.warp(1800);
@@ -2900,7 +2862,6 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
     function test_reorg_allDataGetters() public {
         bytes32 chainUID = bytes32(uint256(eids[1]));
-        address chronicle;
         bytes32[] memory keys = new bytes32[](3);
         keys[0] = keccak256("alpha");
         keys[1] = keccak256("beta");
@@ -2914,8 +2875,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         values[2] = abi.encode("value3", uint256(300));
 
         changePrank(settlers[0], settlers[0]);
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleData(IRemoteAppChronicle.SettleDataParams(1000, keys, values));
+        _settleData(liquidityMatrices[0], apps[0], chainUID, 1000, keys, values);
 
         // Test data getters BEFORE reorg (at t=1100)
         vm.warp(1100);
@@ -2937,10 +2897,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         accounts[0] = alice;
         int256[] memory liquidity = new int256[](1);
         liquidity[0] = 100e18;
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(1000, accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], chainUID, 1000, accounts, liquidity);
 
         assertEq(
             keccak256(liquidityMatrices[0].getDataAt(apps[0], chainUID, keys[0], 1000)),
@@ -3000,14 +2957,10 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         values[2] = abi.encode("value3_v2", uint256(3000));
 
         changePrank(settlers[0], settlers[0]);
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleData(IRemoteAppChronicle.SettleDataParams(1700, keys, values));
+        _settleData(liquidityMatrices[0], apps[0], chainUID, 1700, keys, values);
 
         // Also settle liquidity for finalization
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(1700, accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], chainUID, 1700, accounts, liquidity);
 
         // Test data getters AFTER new settlement (at t=1800)
         vm.warp(1800);
@@ -3035,7 +2988,6 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
     function test_reorg_rootGetters() public {
         bytes32 chainUID = bytes32(uint256(eids[1]));
-        address chronicle;
 
         // Setup and sync to get initial roots
         changePrank(apps[1], apps[1]);
@@ -3068,17 +3020,13 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         liquidity[0] = 100e18;
 
         changePrank(settlers[0], settlers[0]);
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(1001, accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], chainUID, 1001, accounts, liquidity);
 
         bytes32[] memory keys = new bytes32[](1);
         keys[0] = key;
         bytes[] memory values = new bytes[](1);
         values[0] = value;
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleData(IRemoteAppChronicle.SettleDataParams(1001, keys, values));
+        _settleData(liquidityMatrices[0], apps[0], chainUID, 1001, keys, values);
 
         // Check settled and finalized roots before reorg
         (bytes32 settledLiqRoot, uint64 settledLiqTime) =
@@ -3141,14 +3089,11 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         // Settle at t=1000 for version 1
         vm.warp(1000);
         changePrank(settlers[0], settlers[0]);
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(1000, accounts, liquidity)
-        );
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleData(IRemoteAppChronicle.SettleDataParams(1000, keys, values));
+        _settleLiquidity(liquidityMatrices[0], apps[0], chainUID, 1000, accounts, liquidity);
+        _settleData(liquidityMatrices[0], apps[0], chainUID, 1000, keys, values);
 
         // Check settlement status before reorg
+        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
         IRemoteAppChronicle remoteChronicle = IRemoteAppChronicle(chronicle);
         assertTrue(remoteChronicle.isLiquiditySettled(1000), "Liquidity settled at 1000");
         assertTrue(remoteChronicle.isDataSettled(1000), "Data settled at 1000");
@@ -3178,10 +3123,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         // Settle only liquidity for version 2 at t=1700
         vm.warp(1700);
         changePrank(settlers[0], settlers[0]);
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(1700, accounts, liquidity)
-        );
+        _settleLiquidity(liquidityMatrices[0], apps[0], chainUID, 1700, accounts, liquidity);
 
         // Check partial settlement (liquidity but not data)
         assertTrue(remoteChronicle.isLiquiditySettled(1700), "Liquidity settled at 1700");
@@ -3189,7 +3131,7 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         assertFalse(remoteChronicle.isFinalized(1700), "Not finalized without data");
 
         // Now settle data
-        IRemoteAppChronicle(chronicle).settleData(IRemoteAppChronicle.SettleDataParams(1700, keys, values));
+        _settleData(liquidityMatrices[0], apps[0], chainUID, 1700, keys, values);
 
         // Check full settlement
         assertTrue(remoteChronicle.isLiquiditySettled(1700), "Liquidity settled at 1700");
@@ -3216,20 +3158,20 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         liquidity[0] = 100e18;
 
         changePrank(settlers[0], settlers[0]);
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(1000, accounts, liquidity)
-        );
+
+        // Use helper to settle liquidity with proper Merkle proof
+        _settleLiquidity(liquidityMatrices[0], apps[0], chainUID, 1000, accounts, liquidity);
 
         // Also settle data for version 1 to achieve finalization
         bytes32[] memory keys = new bytes32[](1);
         keys[0] = keccak256("test_key");
         bytes[] memory values = new bytes[](1);
         values[0] = abi.encode("test_value");
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleData(IRemoteAppChronicle.SettleDataParams(1000, keys, values));
+
+        _settleData(liquidityMatrices[0], apps[0], chainUID, 1000, keys, values);
 
         // Check finalization for version 1 (both liquidity and data are settled)
+        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
         IRemoteAppChronicle remoteChronicle = IRemoteAppChronicle(chronicle);
         assertTrue(remoteChronicle.isFinalized(1000));
 
@@ -3253,15 +3195,14 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
         // Settle liquidity and data for version 2
         liquidity[0] = 200e18;
         changePrank(settlers[0], settlers[0]);
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleLiquidity(
-            IRemoteAppChronicle.SettleLiquidityParams(2000, accounts, liquidity)
-        );
+
+        _settleLiquidity(liquidityMatrices[0], apps[0], chainUID, 2000, accounts, liquidity);
+
         values[0] = abi.encode("test_value_v2");
-        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
-        IRemoteAppChronicle(chronicle).settleData(IRemoteAppChronicle.SettleDataParams(2000, keys, values));
+        _settleData(liquidityMatrices[0], apps[0], chainUID, 2000, keys, values);
 
         // Check finalization for version 2
+        chronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
         remoteChronicle = IRemoteAppChronicle(chronicle);
         assertTrue(remoteChronicle.isFinalized(2000));
 
@@ -3291,5 +3232,111 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
             }
         }
         revert("Unknown address");
+    }
+
+    // Helper function to settle liquidity with automatic proof generation
+    function _settleLiquidity(
+        ILiquidityMatrix targetMatrix,
+        address app,
+        bytes32 chainUID,
+        uint64 timestamp,
+        address[] memory accounts,
+        int256[] memory liquidity
+    ) internal {
+        // Compute the app's liquidity root
+        bytes32[] memory accountKeys = new bytes32[](accounts.length);
+        bytes32[] memory liquidityValues = new bytes32[](accounts.length);
+        for (uint256 i = 0; i < accounts.length; i++) {
+            accountKeys[i] = bytes32(uint256(uint160(accounts[i])));
+            liquidityValues[i] = bytes32(uint256(liquidity[i]));
+        }
+        bytes32 appLiquidityRoot = MerkleTreeLib.computeRoot(accountKeys, liquidityValues);
+
+        // Create a simple top tree with just this app for testing
+        bytes32[] memory appKeys = new bytes32[](1);
+        bytes32[] memory appRoots = new bytes32[](1);
+        appKeys[0] = bytes32(uint256(uint160(app)));
+        appRoots[0] = appLiquidityRoot;
+
+        // Compute the top root and store it via onReceiveRoots
+        bytes32 topRoot = MerkleTreeLib.computeRoot(appKeys, appRoots);
+
+        // Store the top root as if received from remote chain
+        (,, address msgSender) = vm.readCallers();
+        vm.stopPrank();
+        vm.prank(address(targetMatrix.gateway()));
+        targetMatrix.onReceiveRoots(chainUID, targetMatrix.currentVersion(), topRoot, bytes32(0), timestamp);
+        if (msgSender != address(0)) {
+            vm.startPrank(msgSender, msgSender);
+        }
+
+        // Get the proof for this app in the top tree
+        uint256 appIndex = 0;
+        bytes32[] memory proof = MerkleTreeLib.getProof(appKeys, appRoots, appIndex);
+
+        // Get the RemoteAppChronicle and settle liquidity
+        address chronicle = targetMatrix.getCurrentRemoteAppChronicle(app, chainUID);
+        RemoteAppChronicle(chronicle).settleLiquidity(
+            RemoteAppChronicle.SettleLiquidityParams({
+                timestamp: timestamp,
+                accounts: accounts,
+                liquidity: liquidity,
+                liquidityRoot: appLiquidityRoot,
+                index: appIndex,
+                proof: proof
+            })
+        );
+    }
+
+    // Helper function to settle data with automatic proof generation
+    function _settleData(
+        ILiquidityMatrix targetMatrix,
+        address app,
+        bytes32 chainUID,
+        uint64 timestamp,
+        bytes32[] memory keys,
+        bytes[] memory values
+    ) internal {
+        // Compute the app's data root
+        bytes32[] memory valueHashes = new bytes32[](values.length);
+        for (uint256 i = 0; i < values.length; i++) {
+            valueHashes[i] = keccak256(values[i]);
+        }
+        bytes32 appDataRoot = MerkleTreeLib.computeRoot(keys, valueHashes);
+
+        // Create a simple top tree with just this app for testing
+        bytes32[] memory appKeys = new bytes32[](1);
+        bytes32[] memory appRoots = new bytes32[](1);
+        appKeys[0] = bytes32(uint256(uint160(app)));
+        appRoots[0] = appDataRoot;
+
+        // Compute the top root and store it via onReceiveRoots
+        bytes32 topRoot = MerkleTreeLib.computeRoot(appKeys, appRoots);
+
+        // Store the top root as if received from remote chain
+        (,, address msgSender) = vm.readCallers();
+        vm.stopPrank();
+        vm.prank(address(targetMatrix.gateway()));
+        targetMatrix.onReceiveRoots(chainUID, targetMatrix.currentVersion(), bytes32(0), topRoot, timestamp);
+        if (msgSender != address(0)) {
+            vm.startPrank(msgSender, msgSender);
+        }
+
+        // Get the proof for this app in the top tree
+        uint256 appIndex = 0;
+        bytes32[] memory proof = MerkleTreeLib.getProof(appKeys, appRoots, appIndex);
+
+        // Get the RemoteAppChronicle and settle data
+        address chronicle = targetMatrix.getCurrentRemoteAppChronicle(app, chainUID);
+        RemoteAppChronicle(chronicle).settleData(
+            RemoteAppChronicle.SettleDataParams({
+                timestamp: timestamp,
+                keys: keys,
+                values: values,
+                dataRoot: appDataRoot,
+                index: appIndex,
+                proof: proof
+            })
+        );
     }
 }

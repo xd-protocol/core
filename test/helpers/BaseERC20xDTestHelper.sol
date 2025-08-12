@@ -10,11 +10,12 @@ import {
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
 import { LocalAppChronicleDeployer } from "src/chronicles/LocalAppChronicleDeployer.sol";
 import { RemoteAppChronicleDeployer } from "src/chronicles/RemoteAppChronicleDeployer.sol";
+import { RemoteAppChronicle } from "src/chronicles/RemoteAppChronicle.sol";
 import { LayerZeroGateway } from "src/gateways/LayerZeroGateway.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { ILiquidityMatrix } from "src/interfaces/ILiquidityMatrix.sol";
 import { IGatewayApp } from "src/interfaces/IGatewayApp.sol";
-import { IRemoteAppChronicle } from "src/interfaces/IRemoteAppChronicle.sol";
+import { MerkleTreeLib } from "src/libraries/MerkleTreeLib.sol";
 import { LiquidityMatrixTestHelper } from "./LiquidityMatrixTestHelper.sol";
 import { SettlerMock } from "../mocks/SettlerMock.sol";
 
@@ -199,15 +200,69 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
                 liquidity[j] = remote.getLocalLiquidity(address(remoteApp), users[j]);
             }
 
-            // Get the RemoteAppChronicle and settle liquidity there
-            address chronicle = local.getCurrentRemoteAppChronicle(address(localApp), bytes32(uint256(eids[i])));
-            IRemoteAppChronicle(chronicle).settleLiquidity(
-                IRemoteAppChronicle.SettleLiquidityParams(uint64(rootTimestamp), users, liquidity)
+            // Settle liquidity with automatic proof generation
+            _settleLiquidityHelper(
+                local, address(localApp), bytes32(uint256(eids[i])), uint64(rootTimestamp), users, liquidity
             );
         }
 
         // Stop the prank to avoid conflicts in tests
         vm.stopPrank();
+    }
+
+    // Helper function to settle liquidity with automatic proof generation
+    function _settleLiquidityHelper(
+        ILiquidityMatrix targetMatrix,
+        address app,
+        bytes32 chainUID,
+        uint64 timestamp,
+        address[] memory accounts,
+        int256[] memory liquidity
+    ) internal {
+        // Compute the app's liquidity root
+        bytes32[] memory accountKeys = new bytes32[](accounts.length);
+        bytes32[] memory liquidityValues = new bytes32[](accounts.length);
+        for (uint256 i = 0; i < accounts.length; i++) {
+            accountKeys[i] = bytes32(uint256(uint160(accounts[i])));
+            liquidityValues[i] = bytes32(uint256(liquidity[i]));
+        }
+        bytes32 appLiquidityRoot = MerkleTreeLib.computeRoot(accountKeys, liquidityValues);
+
+        // Create a simple top tree with just this app for testing
+        bytes32[] memory appKeys = new bytes32[](1);
+        bytes32[] memory appRoots = new bytes32[](1);
+        appKeys[0] = bytes32(uint256(uint160(app)));
+        appRoots[0] = appLiquidityRoot;
+
+        // Compute the top root and store it via onReceiveRoots
+        bytes32 topRoot = MerkleTreeLib.computeRoot(appKeys, appRoots);
+
+        // Store the top root as if received from remote chain
+        (, address txOrigin, address msgSender) = vm.readCallers();
+        vm.stopPrank();
+        vm.startPrank(address(targetMatrix.gateway()), address(targetMatrix.gateway()));
+        targetMatrix.onReceiveRoots(chainUID, targetMatrix.currentVersion(), topRoot, bytes32(0), timestamp);
+        vm.stopPrank();
+        if (msgSender != address(0)) {
+            vm.startPrank(txOrigin, msgSender);
+        }
+
+        // Get the proof for this app in the top tree
+        uint256 appIndex = 0;
+        bytes32[] memory proof = MerkleTreeLib.getProof(appKeys, appRoots, appIndex);
+
+        // Get the RemoteAppChronicle and settle liquidity
+        address chronicle = targetMatrix.getCurrentRemoteAppChronicle(app, chainUID);
+        RemoteAppChronicle(chronicle).settleLiquidity(
+            RemoteAppChronicle.SettleLiquidityParams({
+                timestamp: timestamp,
+                accounts: accounts,
+                liquidity: liquidity,
+                liquidityRoot: appLiquidityRoot,
+                index: appIndex,
+                proof: proof
+            })
+        );
     }
 
     function _executeTransfer(BaseERC20xD erc20, address user, bytes memory error) internal {

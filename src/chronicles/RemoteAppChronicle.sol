@@ -37,6 +37,46 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
     using ArrayLib for uint256[];
 
     /*//////////////////////////////////////////////////////////////
+                                TYPES
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Parameters for settling liquidity from a remote chain
+     * @param timestamp The timestamp of the remote state being settled
+     * @param accounts Array of account addresses
+     * @param liquidity Array of liquidity values corresponding to accounts
+     * @param liquidityRoot The root of this app's liquidity tree on the remote chain
+     * @param index The app's index in the remote chain's top liquidity tree
+     * @param proof Merkle proof that the app's root is in the remote top tree
+     */
+    struct SettleLiquidityParams {
+        uint64 timestamp;
+        address[] accounts;
+        int256[] liquidity;
+        bytes32 liquidityRoot;
+        uint256 index;
+        bytes32[] proof;
+    }
+
+    /**
+     * @notice Parameters for settling data from a remote chain
+     * @param timestamp The timestamp of the remote state being settled
+     * @param keys Array of data keys
+     * @param values Array of data values corresponding to keys
+     * @param dataRoot The root of this app's data tree on the remote chain
+     * @param index The app's index in the remote chain's top data tree
+     * @param proof Merkle proof that the app's root is in the remote top tree
+     */
+    struct SettleDataParams {
+        uint64 timestamp;
+        bytes32[] keys;
+        bytes[] values;
+        bytes32 dataRoot;
+        uint256 index;
+        bytes32[] proof;
+    }
+
+    /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
 
@@ -159,9 +199,33 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    /// @inheritdoc IRemoteAppChronicle
+    /**
+     * @notice Settles liquidity data from a remote chain
+     * @dev Only callable by the app's authorized settler.
+     *      Processes account liquidity updates, handles account mapping,
+     *      and triggers optional hooks for the application.
+     *      Reverts if liquidity is already settled for the timestamp.
+     * @param params Settlement parameters containing timestamp, accounts, and liquidity values
+     */
     function settleLiquidity(SettleLiquidityParams memory params) external onlySettler {
         if (isLiquiditySettled[params.timestamp]) revert LiquidityAlreadySettled();
+
+        // Get the remote chain's top liquidity tree root
+        bytes32 topLiquidityRoot =
+            ILiquidityMatrix(liquidityMatrix).getLiquidityRootAt(chainUID, version, params.timestamp);
+
+        if (topLiquidityRoot == bytes32(0)) revert RootNotReceived();
+
+        // Verify that the app's liquidity root is in the remote top tree
+        bool valid = MerkleTreeLib.verifyProof(
+            bytes32(uint256(uint160(app))), // Key is the app address
+            params.liquidityRoot, // App's liquidity root on remote chain
+            params.index, // App's index in remote top tree
+            params.proof, // Merkle proof for remote top tree
+            topLiquidityRoot // Root of remote top tree
+        );
+
+        if (!valid) revert InvalidMerkleProof();
 
         (, bool syncMappedAccountsOnly, bool useHook,) = ILiquidityMatrix(liquidityMatrix).getAppSetting(app);
 
@@ -212,9 +276,31 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
         emit SettleLiquidity(params.timestamp);
     }
 
-    /// @inheritdoc IRemoteAppChronicle
+    /**
+     * @notice Settles data from a remote chain
+     * @dev Only callable by the app's authorized settler.
+     *      Processes key-value data updates and triggers optional hooks.
+     *      Reverts if data is already settled for the timestamp.
+     * @param params Settlement parameters containing timestamp, keys, and values
+     */
     function settleData(SettleDataParams memory params) external onlySettler {
         if (isDataSettled[params.timestamp]) revert DataAlreadySettled();
+
+        // Get the remote chain's top data tree root
+        bytes32 topDataRoot = ILiquidityMatrix(liquidityMatrix).getDataRootAt(chainUID, version, params.timestamp);
+
+        if (topDataRoot == bytes32(0)) revert RootNotReceived();
+
+        // Verify that the app's data root is in the remote top tree
+        bool valid = MerkleTreeLib.verifyProof(
+            bytes32(uint256(uint160(app))), // Key is the app address
+            params.dataRoot, // App's data root on remote chain
+            params.index, // App's index in remote top tree
+            params.proof, // Merkle proof for remote top tree
+            topDataRoot // Root of remote top tree
+        );
+
+        if (!valid) revert InvalidMerkleProof();
 
         (,, bool useHook,) = ILiquidityMatrix(liquidityMatrix).getAppSetting(app);
 

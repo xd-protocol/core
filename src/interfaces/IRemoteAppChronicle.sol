@@ -16,34 +16,6 @@ pragma solidity ^0.8.0;
  */
 interface IRemoteAppChronicle {
     /*//////////////////////////////////////////////////////////////
-                                TYPES
-    //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @notice Parameters for settling liquidity from a remote chain
-     * @param timestamp The timestamp of the remote state being settled
-     * @param accounts Array of account addresses
-     * @param liquidity Array of liquidity values corresponding to accounts
-     */
-    struct SettleLiquidityParams {
-        uint64 timestamp;
-        address[] accounts;
-        int256[] liquidity;
-    }
-
-    /**
-     * @notice Parameters for settling data from a remote chain
-     * @param timestamp The timestamp of the remote state being settled
-     * @param keys Array of data keys
-     * @param values Array of data values corresponding to keys
-     */
-    struct SettleDataParams {
-        uint64 timestamp;
-        bytes32[] keys;
-        bytes[] values;
-    }
-
-    /*//////////////////////////////////////////////////////////////
                                 EVENTS
     //////////////////////////////////////////////////////////////*/
 
@@ -103,6 +75,16 @@ interface IRemoteAppChronicle {
      * @notice Thrown when attempting to settle data that's already settled
      */
     error DataAlreadySettled();
+
+    /**
+     * @notice Thrown when no root has been received for the given timestamp
+     */
+    error RootNotReceived();
+
+    /**
+     * @notice Thrown when the Merkle proof verification fails
+     */
+    error InvalidMerkleProof();
 
     /*//////////////////////////////////////////////////////////////
                             VIEW FUNCTIONS
@@ -215,27 +197,4 @@ interface IRemoteAppChronicle {
      * @return The nearest finalized timestamp at or before the input
      */
     function getFinalizedTimestampAt(uint64 timestamp) external view returns (uint64);
-
-    /*//////////////////////////////////////////////////////////////
-                                LOGIC
-    //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @notice Settles liquidity data from a remote chain
-     * @dev Only callable by the app's authorized settler.
-     *      Processes account liquidity updates, handles account mapping,
-     *      and triggers optional hooks for the application.
-     *      Reverts if liquidity is already settled for the timestamp.
-     * @param params Settlement parameters containing timestamp, accounts, and liquidity values
-     */
-    function settleLiquidity(SettleLiquidityParams memory params) external;
-
-    /**
-     * @notice Settles data from a remote chain
-     * @dev Only callable by the app's authorized settler.
-     *      Processes key-value data updates and triggers optional hooks.
-     *      Reverts if data is already settled for the timestamp.
-     * @param params Settlement parameters containing timestamp, keys, and values
-     */
-    function settleData(SettleDataParams memory params) external;
 }
