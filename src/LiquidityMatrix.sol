@@ -1199,7 +1199,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         }
 
         // Send cross-chain message via gateway
-        bytes memory message = abi.encode(MAP_REMOTE_ACCOUNTS, msg.sender, remoteApp, locals, remotes);
+        bytes memory message = abi.encode(MAP_REMOTE_ACCOUNTS, msg.sender, remoteApp, remotes, locals);
         guid = gateway.sendMessage{ value: msg.value }(chainUID, message, data);
 
         emit RequestMapRemoteAccounts(msg.sender, chainUID, remoteApp, remotes, locals);
