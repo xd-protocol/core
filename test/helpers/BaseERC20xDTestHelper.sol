@@ -46,15 +46,26 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
         address[] memory _liquidityMatrices = new address[](CHAINS);
         address[] memory _gateways = new address[](CHAINS);
         address[] memory _erc20s = new address[](CHAINS);
-        // Deploy deployers once (shared across all chains for testing)
-        LocalAppChronicleDeployer localDeployer = new LocalAppChronicleDeployer();
-        RemoteAppChronicleDeployer remoteDeployer = new RemoteAppChronicleDeployer();
+        // Deploy deployers for each chain (they need the LiquidityMatrix address)
+        LocalAppChronicleDeployer[] memory localDeployers = new LocalAppChronicleDeployer[](CHAINS);
+        RemoteAppChronicleDeployer[] memory remoteDeployers = new RemoteAppChronicleDeployer[](CHAINS);
 
         for (uint32 i; i < CHAINS; ++i) {
             eids[i] = i + 1;
             syncers[i] = makeAddr(string.concat("syncer", vm.toString(i)));
-            // Create LiquidityMatrix with owner, timestamp, and deployers
-            liquidityMatrices[i] = new LiquidityMatrix(owner, 1, address(localDeployer), address(remoteDeployer));
+
+            // Create a dummy LiquidityMatrix first to get the address
+            LiquidityMatrix tempMatrix = new LiquidityMatrix(owner, 1, address(0), address(0));
+
+            // Create deployers with the LiquidityMatrix address
+            localDeployers[i] = new LocalAppChronicleDeployer(address(tempMatrix));
+            remoteDeployers[i] = new RemoteAppChronicleDeployer(address(tempMatrix));
+
+            // Update the LiquidityMatrix with the correct deployer addresses
+            tempMatrix.updateLocalAppChronicleDeployer(address(localDeployers[i]));
+            tempMatrix.updateRemoteAppChronicleDeployer(address(remoteDeployers[i]));
+
+            liquidityMatrices[i] = tempMatrix;
             _liquidityMatrices[i] = address(liquidityMatrices[i]);
 
             // Create gateway with endpoint first (needed by Synchronizer)

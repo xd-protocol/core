@@ -854,7 +854,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         state.useHook = useHook;
         state.settler = settler;
 
-        address chronicle = ILocalAppChronicleDeployer(localAppChronicleDeployer).deploy(address(this), app, version);
+        address chronicle = ILocalAppChronicleDeployer(localAppChronicleDeployer).deploy(app, version);
         if (chronicle == address(0)) revert ChronicleDeploymentFailed();
         state.chronicles[version] = chronicle;
 
@@ -896,7 +896,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         if (!appState.registered) revert AppNotRegistered();
         if (appState.chronicles[version] != address(0)) revert AppChronicleAlreadyAdded();
 
-        address chronicle = ILocalAppChronicleDeployer(localAppChronicleDeployer).deploy(address(this), app, version);
+        address chronicle = ILocalAppChronicleDeployer(localAppChronicleDeployer).deploy(app, version);
         if (chronicle == address(0)) revert ChronicleDeploymentFailed();
 
         appState.chronicles[version] = chronicle;
@@ -914,8 +914,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         RemoteAppState storage remoteState = _remoteAppStates[app][chainUID];
         if (remoteState.chronicles[version] != address(0)) revert AppChronicleAlreadyAdded();
 
-        address chronicle =
-            IRemoteAppChronicleDeployer(remoteAppChronicleDeployer).deploy(address(this), app, chainUID, version);
+        address chronicle = IRemoteAppChronicleDeployer(remoteAppChronicleDeployer).deploy(app, chainUID, version);
         if (chronicle == address(0)) revert ChronicleDeploymentFailed();
 
         remoteState.chronicles[version] = chronicle;
