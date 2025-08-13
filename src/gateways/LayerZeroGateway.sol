@@ -169,6 +169,7 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
         uint16 cmdLabel = _lastCmdLabel + 1;
         _lastCmdLabel = cmdLabel;
         appStates[app].cmdLabel = cmdLabel;
+        getApp[cmdLabel] = app;
 
         emit RegisterApp(app, cmdLabel);
     }
