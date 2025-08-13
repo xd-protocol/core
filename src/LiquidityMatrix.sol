@@ -195,14 +195,15 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     uint16 internal constant CMD_SYNC = 1;
     uint16 internal constant MAP_REMOTE_ACCOUNTS = 1;
 
-    // Gateway for cross-chain operations
+    /// @inheritdoc ILiquidityMatrix
     IGateway public gateway;
-    // Address authorized to initiate sync operations
+    /// @inheritdoc ILiquidityMatrix
     address public syncer;
     // Rate limiting: timestamp of last sync request
     mapping(uint256 version => uint64) internal _lastSyncRequestTimestamp;
-    // Deployers for chronicle contracts
+    /// @inheritdoc ILiquidityMatrix
     address public localAppChronicleDeployer;
+    /// @inheritdoc ILiquidityMatrix
     address public remoteAppChronicleDeployer;
 
     /*//////////////////////////////////////////////////////////////
@@ -418,6 +419,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return _remoteAppStates[app][chainUID].mappedAccounts[remote];
     }
 
+    /// @inheritdoc ILiquidityMatrix
     function getLocalAccount(address app, bytes32 chainUID, address remote) external view returns (address) {
         address mapped = getMappedAccount(app, chainUID, remote);
         if (mapped != address(0)) {
@@ -426,17 +428,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return remote;
     }
 
-    /**
-     * @notice Checks if a local account is already mapped to a remote account
-     * @param app The application address
-     * @param chainUID The chain unique identifier of the remote chain
-     * @param local The local account address
-     * @return Whether the local account is mapped
-     */
+    /// @inheritdoc ILiquidityMatrix
     function isLocalAccountMapped(address app, bytes32 chainUID, address local) external view returns (bool) {
         return _remoteAppStates[app][chainUID].localAccountMapped[local];
     }
 
+    /// @inheritdoc ILiquidityMatrix
     function getCurrentRemoteAppChronicle(address app, bytes32 chainUID) public view returns (address) {
         return getRemoteAppChronicle(app, chainUID, currentVersion());
     }
@@ -457,10 +454,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return IRemoteAppChronicle(chronicle);
     }
 
+    /// @inheritdoc ILiquidityMatrix
     function getRemoteAppChronicleAt(address app, bytes32 chainUID, uint64 timestamp) public view returns (address) {
         return getRemoteAppChronicle(app, chainUID, getVersion(timestamp));
     }
 
+    /// @inheritdoc ILiquidityMatrix
     function getRemoteAppChronicle(address app, bytes32 chainUID, uint256 version) public view returns (address) {
         return _remoteAppStates[app][chainUID].chronicles[version];
     }
@@ -491,6 +490,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return getRemoteLiquidityRootAt(chainUID, getVersion(timestamp), timestamp);
     }
 
+    /// @inheritdoc ILiquidityMatrix
     function getRemoteLiquidityRootAt(bytes32 chainUID, uint256 version, uint64 timestamp)
         public
         view
@@ -508,6 +508,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return getLastReceivedRemoteLiquidityRoot(chainUID, currentVersion());
     }
 
+    /// @inheritdoc ILiquidityMatrix
     function getLastReceivedRemoteLiquidityRoot(bytes32 chainUID, uint256 version)
         public
         view
@@ -523,13 +524,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         }
     }
 
-    /**
-     * @notice Gets the last settled liquidity root for an app on a specific chain
-     * @param app The application address
-     * @param chainUID The chain unique identifier of the remote chain
-     * @return root The liquidity root hash
-     * @return timestamp The timestamp of the settled root
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getLastSettledRemoteLiquidityRoot(address app, bytes32 chainUID)
         public
         view
@@ -538,14 +533,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return getLastSettledRemoteLiquidityRoot(app, chainUID, currentVersion());
     }
 
-    /**
-     * @notice Gets the last settled liquidity root for an app on a specific chain at a specific version
-     * @param app The application address
-     * @param chainUID The chain unique identifier of the remote chain
-     * @param version The version number to query
-     * @return root The liquidity root hash
-     * @return timestamp The timestamp of the settled root
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getLastSettledRemoteLiquidityRoot(address app, bytes32 chainUID, uint256 version)
         public
         view
@@ -557,14 +545,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         }
     }
 
-    /**
-     * @notice Gets the last finalized liquidity root (both liquidity and data settled)
-     * @dev A root is finalized when both liquidity and data roots are settled for the same timestamp
-     * @param app The application address
-     * @param chainUID The chain unique identifier of the remote chain
-     * @return root The liquidity root hash
-     * @return timestamp The timestamp of the finalized root
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getLastFinalizedRemoteLiquidityRoot(address app, bytes32 chainUID)
         public
         view
@@ -573,15 +554,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return getLastFinalizedRemoteLiquidityRoot(app, chainUID, currentVersion());
     }
 
-    /**
-     * @notice Gets the last finalized liquidity root for an app on a specific chain at a specific version
-     * @dev A root is finalized when both liquidity and data roots are settled for the same timestamp
-     * @param app The application address
-     * @param chainUID The chain unique identifier of the remote chain
-     * @param version The version number to query
-     * @return root The liquidity root hash
-     * @return timestamp The timestamp of the finalized root
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getLastFinalizedRemoteLiquidityRoot(address app, bytes32 chainUID, uint256 version)
         public
         view
@@ -593,16 +566,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         }
     }
 
-    /**
-     * @notice Gets the data root at a specific timestamp
-     * @param chainUID The chain unique identifier of the remote chain
-     * @param timestamp The timestamp to query
-     * @return root The data root at the timestamp
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getRemoteDataRootAt(bytes32 chainUID, uint64 timestamp) external view returns (bytes32 root) {
         return getRemoteDataRootAt(chainUID, getVersion(timestamp), timestamp);
     }
 
+    /// @inheritdoc ILiquidityMatrix
     function getRemoteDataRootAt(bytes32 chainUID, uint256 version, uint64 timestamp)
         public
         view
@@ -611,23 +580,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return _remoteStates[chainUID][version].dataRoots.get(timestamp);
     }
 
-    /**
-     * @notice Gets the last received data root from a remote chain
-     * @param chainUID The chain unique identifier of the remote chain
-     * @return root The data root hash
-     * @return timestamp The timestamp when the root was received
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getLastReceivedRemoteDataRoot(bytes32 chainUID) external view returns (bytes32 root, uint64 timestamp) {
         return getLastReceivedRemoteDataRoot(chainUID, currentVersion());
     }
 
-    /**
-     * @notice Gets the last received data root from a remote chain for a specific version
-     * @param chainUID The chain unique identifier of the remote chain
-     * @param version The version number to query
-     * @return root The data root hash
-     * @return timestamp The timestamp when the root was received
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getLastReceivedRemoteDataRoot(bytes32 chainUID, uint256 version)
         public
         view
@@ -643,13 +601,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         }
     }
 
-    /**
-     * @notice Gets the last settled data root for an app on a specific chain
-     * @param app The application address
-     * @param chainUID The chain unique identifier of the remote chain
-     * @return root The data root hash
-     * @return timestamp The timestamp of the settled root
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getLastSettledRemoteDataRoot(address app, bytes32 chainUID)
         public
         view
@@ -658,14 +610,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return getLastSettledRemoteDataRoot(app, chainUID, currentVersion());
     }
 
-    /**
-     * @notice Gets the last settled data root for an app on a specific chain at a specific version
-     * @param app The application address
-     * @param chainUID The chain unique identifier of the remote chain
-     * @param version The version number to query
-     * @return root The data root hash
-     * @return timestamp The timestamp of the settled root
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getLastSettledRemoteDataRoot(address app, bytes32 chainUID, uint256 version)
         public
         view
@@ -677,13 +622,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         }
     }
 
-    /**
-     * @notice Gets the last finalized data root for an app on a specific chain
-     * @param app The application address
-     * @param chainUID The chain unique identifier of the remote chain
-     * @return root The data root hash
-     * @return timestamp The timestamp of the finalized root
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getLastFinalizedRemoteDataRoot(address app, bytes32 chainUID)
         external
         view
@@ -692,15 +631,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return getLastFinalizedRemoteDataRoot(app, chainUID, currentVersion());
     }
 
-    /**
-     * @notice Gets the last finalized data root for an app on a specific chain at a specific version
-     * @dev A root is finalized when both liquidity and data roots are settled for the same timestamp
-     * @param app The application address
-     * @param chainUID The chain unique identifier of the remote chain
-     * @param version The version number to query
-     * @return root The data root hash
-     * @return timestamp The timestamp of the finalized root
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getLastFinalizedRemoteDataRoot(address app, bytes32 chainUID, uint256 version)
         public
         view
@@ -716,24 +647,13 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
                         REMOTE STATE VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Gets the aggregated settled total liquidity across all configured chains
-     * @dev Delegates to the overloaded version with all chain UIDs from gateway config
-     * @param app The application address
-     * @return liquidity The sum of local and all settled remote total liquidity
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getAggregatedSettledTotalLiquidity(address app) external view returns (int256 liquidity) {
         (bytes32[] memory chainUIDs,) = chainConfigs();
         return getAggregatedSettledTotalLiquidity(app, chainUIDs);
     }
 
-    /**
-     * @notice Gets the aggregated settled total liquidity for specific chains
-     * @dev Sums local total liquidity with settled remote total liquidity from specified chains
-     * @param app The application address
-     * @param chainUIDs Array of chain unique identifiers to aggregate
-     * @return liquidity The sum of local and specified remote total liquidity
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getAggregatedSettledTotalLiquidity(address app, bytes32[] memory chainUIDs)
         public
         view
@@ -749,24 +669,13 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         }
     }
 
-    /**
-     * @notice Gets the aggregated finalized total liquidity across all configured chains
-     * @dev Delegates to the overloaded version with all chain UIDs from gateway config
-     * @param app The application address
-     * @return liquidity The sum of local and all finalized remote total liquidity
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getAggregatedFinalizedTotalLiquidity(address app) external view returns (int256 liquidity) {
         (bytes32[] memory chainUIDs,) = chainConfigs();
         return getAggregatedFinalizedTotalLiquidity(app, chainUIDs);
     }
 
-    /**
-     * @notice Gets the aggregated finalized total liquidity for specific chains
-     * @dev Sums local total liquidity with finalized remote total liquidity from specified chains
-     * @param app The application address
-     * @param chainUIDs Array of chain unique identifiers to aggregate
-     * @return liquidity The sum of local and specified finalized remote total liquidity
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getAggregatedFinalizedTotalLiquidity(address app, bytes32[] memory chainUIDs)
         public
         view
@@ -782,25 +691,13 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         }
     }
 
-    /**
-     * @notice Gets the total liquidity at the timestamp
-     * @param app The application address
-     * @param timestamp The timestamp to query
-     * @return liquidity The total liquidity at the latest valid timestamp
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getAggregatedTotalLiquidityAt(address app, uint64 timestamp) external view returns (int256 liquidity) {
         (bytes32[] memory chainUIDs,) = chainConfigs();
         return getAggregatedTotalLiquidityAt(app, chainUIDs, timestamp);
     }
 
-    /**
-     * @notice Gets the aggregated total liquidity at a specific timestamp for specific chains
-     * @dev Sums local total liquidity with remote total liquidity from specified chains at the timestamp
-     * @param app The application address
-     * @param chainUIDs Array of chain unique identifiers to aggregate
-     * @param timestamp The timestamp to query
-     * @return liquidity The sum of local and specified remote total liquidity at the timestamp
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getAggregatedTotalLiquidityAt(address app, bytes32[] memory chainUIDs, uint64 timestamp)
         public
         view
@@ -815,14 +712,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         }
     }
 
-    /**
-     * @notice Gets the total liquidity from a specific remote chain at a timestamp
-     * @dev Uses the version active at the timestamp to query the appropriate RemoteAppChronicle
-     * @param app The application address
-     * @param chainUID The chain unique identifier of the remote chain
-     * @param timestamp The timestamp to query
-     * @return liquidity The total liquidity from the specified chain at the timestamp
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getRemoteTotalLiquidityAt(address app, bytes32 chainUID, uint64 timestamp)
         external
         view
@@ -831,26 +721,13 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return _getRemoteAppChronicleOrRevert(app, chainUID, getVersion(timestamp)).getTotalLiquidityAt(timestamp);
     }
 
-    /**
-     * @notice Gets the aggregated settled liquidity for an account across all configured chains
-     * @dev Delegates to the overloaded version with all chain UIDs from gateway config
-     * @param app The application address
-     * @param account The account address
-     * @return liquidity The sum of local and all settled remote liquidity for the account
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getAggregatedSettledLiquidityAt(address app, address account) external view returns (int256 liquidity) {
         (bytes32[] memory chainUIDs,) = chainConfigs();
         return getAggregatedSettledLiquidityAt(app, chainUIDs, account);
     }
 
-    /**
-     * @notice Gets the aggregated settled liquidity for an account for specific chains
-     * @dev Sums local account liquidity with settled remote account liquidity from specified chains
-     * @param app The application address
-     * @param chainUIDs Array of chain unique identifiers to aggregate
-     * @param account The account address
-     * @return liquidity The sum of local and specified settled remote liquidity for the account
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getAggregatedSettledLiquidityAt(address app, bytes32[] memory chainUIDs, address account)
         public
         view
@@ -866,26 +743,13 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         }
     }
 
-    /**
-     * @notice Gets the aggregated finalized liquidity for an account across all configured chains
-     * @dev Delegates to the overloaded version with all chain UIDs from gateway config
-     * @param app The application address
-     * @param account The account address
-     * @return liquidity The sum of local and all finalized remote liquidity for the account
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getAggregatedFinalizedLiquidityAt(address app, address account) external view returns (int256 liquidity) {
         (bytes32[] memory chainUIDs,) = chainConfigs();
         return getAggregatedFinalizedLiquidityAt(app, chainUIDs, account);
     }
 
-    /**
-     * @notice Gets the aggregated finalized liquidity for an account for specific chains
-     * @dev Sums local account liquidity with finalized remote account liquidity from specified chains
-     * @param app The application address
-     * @param chainUIDs Array of chain unique identifiers to aggregate
-     * @param account The account address
-     * @return liquidity The sum of local and specified finalized remote liquidity for the account
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getAggregatedFinalizedLiquidityAt(address app, bytes32[] memory chainUIDs, address account)
         public
         view
@@ -901,13 +765,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         }
     }
 
-    /**
-     * @notice Gets the total liquidity at the timestamp
-     * @param app The application address
-     * @param account The account address
-     * @param timestamp The timestamp to query
-     * @return liquidity The total liquidity at the latest valid timestamp
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getAggregatedLiquidityAt(address app, address account, uint64 timestamp)
         external
         view
@@ -917,15 +775,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return getAggregatedLiquidityAt(app, chainUIDs, account, timestamp);
     }
 
-    /**
-     * @notice Gets the aggregated liquidity for an account at a timestamp for specific chains
-     * @dev Sums local account liquidity with remote account liquidity from specified chains at the timestamp
-     * @param app The application address
-     * @param chainUIDs Array of chain unique identifiers to aggregate
-     * @param account The account address
-     * @param timestamp The timestamp to query
-     * @return liquidity The sum of local and specified remote liquidity for the account at the timestamp
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getAggregatedLiquidityAt(address app, bytes32[] memory chainUIDs, address account, uint64 timestamp)
         public
         view
@@ -940,15 +790,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         }
     }
 
-    /**
-     * @notice Gets the liquidity for an account from a specific remote chain at a timestamp
-     * @dev Uses the version active at the timestamp to query the appropriate RemoteAppChronicle
-     * @param app The application address
-     * @param chainUID The chain unique identifier of the remote chain
-     * @param account The account address
-     * @param timestamp The timestamp to query
-     * @return liquidity The liquidity from the specified chain at the timestamp
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getRemoteLiquidityAt(address app, bytes32 chainUID, address account, uint64 timestamp)
         external
         view
@@ -957,15 +799,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return _getRemoteAppChronicleOrRevert(app, chainUID, getVersion(timestamp)).getLiquidityAt(account, timestamp);
     }
 
-    /**
-     * @notice Gets the data from a remote chain at a specific timestamp
-     * @dev Uses the version active at the timestamp to query the appropriate RemoteAppChronicle
-     * @param app The application address
-     * @param chainUID The chain unique identifier of the remote chain
-     * @param key The data key
-     * @param timestamp The timestamp to query
-     * @return value The remote data value at the timestamp
-     */
+    /// @inheritdoc ILiquidityMatrix
     function getRemoteDataAt(address app, bytes32 chainUID, bytes32 key, uint64 timestamp)
         public
         view
@@ -978,11 +812,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Creates a new version for state isolation
-     * @dev Only callable by settler. The timestamp must be greater than the last version timestamp.
-     * @param timestamp The timestamp of the new version
-     */
+    /// @inheritdoc ILiquidityMatrix
     function addVersion(uint64 timestamp) external onlySettler {
         uint64 lastTimestamp = uint64(_versions.last());
         if (timestamp <= lastTimestamp) {
@@ -993,21 +823,13 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         emit AddVersion(currentVersion(), timestamp);
     }
 
-    /**
-     * @notice Updates the LocalAppChronicle deployer
-     * @dev Only callable by owner. Used to upgrade chronicle creation logic.
-     * @param deployer The new LocalAppChronicle deployer contract
-     */
+    /// @inheritdoc ILiquidityMatrix
     function updateLocalAppChronicleDeployer(address deployer) external onlyOwner {
         localAppChronicleDeployer = deployer;
         emit UpdateLocalAppChronicleDeployer(deployer);
     }
 
-    /**
-     * @notice Updates the RemoteAppChronicle deployer
-     * @dev Only callable by owner. Used to upgrade chronicle creation logic.
-     * @param deployer The new RemoteAppChronicle deployer contract
-     */
+    /// @inheritdoc ILiquidityMatrix
     function updateRemoteAppChronicleDeployer(address deployer) external onlyOwner {
         remoteAppChronicleDeployer = deployer;
         emit UpdateRemoteAppChronicleDeployer(deployer);
@@ -1017,13 +839,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
                         LOCAL STATE LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Registers a new application with the LiquidityMatrix
-     * @dev Initializes the app's liquidity and data trees
-     * @param syncMappedAccountsOnly If true, only syncs liquidity for mapped accounts
-     * @param useHook If true, triggers callbacks to the app on state updates
-     * @param settler Address authorized to settle roots for this app
-     */
+    /// @inheritdoc ILiquidityMatrix
     function registerApp(bool syncMappedAccountsOnly, bool useHook, address settler) external {
         if (!_isSettlerWhitelisted[settler]) revert InvalidSettler();
 
@@ -1046,29 +862,19 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         emit RegisterApp(app, version, syncMappedAccountsOnly, useHook, settler);
     }
 
-    /**
-     * @notice Updates whether to sync only mapped accounts
-     * @param syncMappedAccountsOnly New setting value
-     */
+    /// @inheritdoc ILiquidityMatrix
     function updateSyncMappedAccountsOnly(bool syncMappedAccountsOnly) external onlyApp {
         _appStates[msg.sender].syncMappedAccountsOnly = syncMappedAccountsOnly;
         emit UpdateSyncMappedAccountsOnly(msg.sender, syncMappedAccountsOnly);
     }
 
-    /**
-     * @notice Updates whether to use callbacks for state updates
-     * @param useHook New setting value
-     */
+    /// @inheritdoc ILiquidityMatrix
     function updateUseHook(bool useHook) external onlyApp {
         _appStates[msg.sender].useHook = useHook;
         emit UpdateUseHook(msg.sender, useHook);
     }
 
-    /**
-     * @notice Updates the authorized settler for the app
-     * @dev Only callable by registered apps. The new settler must be whitelisted.
-     * @param settler New settler address
-     */
+    /// @inheritdoc ILiquidityMatrix
     function updateSettler(address settler) external onlyApp {
         _appStates[msg.sender].settler = settler;
         emit UpdateSettler(msg.sender, settler);
@@ -1082,12 +888,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         emit UpdateRemoteApp(msg.sender, chainUID, app, appIndex);
     }
 
-    /**
-     * @notice Creates a new LocalAppChronicle for an app at a specific version
-     * @dev Only callable by the app's settler. Required after a reorg to enable local state tracking.
-     * @param app The application address
-     * @param version The version number for the chronicle
-     */
+    /// @inheritdoc ILiquidityMatrix
     function addLocalAppChronicle(address app, uint256 version) external onlyAppSettler(app) {
         if (version > currentVersion()) revert InvalidVersion();
 
@@ -1103,13 +904,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         emit AddLocalAppChronicle(app, version, chronicle);
     }
 
-    /**
-     * @notice Creates a new RemoteAppChronicle for an app and chain at a specific version
-     * @dev Only callable by the app's settler. Required after a reorg to enable remote state tracking.
-     * @param app The application address
-     * @param chainUID The chain unique identifier
-     * @param version The version number for the chronicle
-     */
+    /// @inheritdoc ILiquidityMatrix
     function addRemoteAppChronicle(address app, bytes32 chainUID, uint256 version) external onlyAppSettler(app) {
         if (version > currentVersion()) revert InvalidVersion();
 
@@ -1128,14 +923,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         emit AddRemoteAppChronicle(app, chainUID, version, chronicle);
     }
 
-    /**
-     * @notice Updates the top-level liquidity tree with an app's liquidity root
-     * @dev Only callable by LocalAppChronicle contracts
-     * @param version The version number
-     * @param app The application address
-     * @param appLiquidityRoot The app's liquidity tree root
-     * @return treeIndex The index in the top liquidity tree
-     */
+    /// @inheritdoc ILiquidityMatrix
     function updateTopLiquidityTree(uint256 version, address app, bytes32 appLiquidityRoot)
         external
         onlyLocalAppChronicle(app, version)
@@ -1147,14 +935,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         emit UpdateTopLiquidityTree(version, app, appLiquidityRoot, state.topLiquidityTree.getRoot());
     }
 
-    /**
-     * @notice Updates the top-level data tree with an app's data root
-     * @dev Only callable by LocalAppChronicle contracts
-     * @param version The version number
-     * @param app The application address
-     * @param appDataRoot The app's data tree root
-     * @return treeIndex The index in the top data tree
-     */
+    /// @inheritdoc ILiquidityMatrix
     function updateTopDataTree(uint256 version, address app, bytes32 appDataRoot)
         external
         onlyLocalAppChronicle(app, version)
@@ -1166,14 +947,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         emit UpdateTopDataTree(version, app, appDataRoot, state.topDataTree.getRoot());
     }
 
-    /**
-     * @notice Updates the local liquidity for an account
-     * @dev Only callable by registered apps. Updates both app and main trees
-     * @param account The account to update
-     * @param liquidity The new liquidity value (replaces current value)
-     * @return mainTreeIndex The index in the main liquidity tree
-     * @return appTreeIndex The index in the app's liquidity tree
-     */
+    /// @inheritdoc ILiquidityMatrix
     function updateLocalLiquidity(address account, int256 liquidity)
         external
         onlyApp
@@ -1182,14 +956,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return _getCurrentLocalAppChronicleOrRevert(msg.sender).updateLiquidity(account, liquidity);
     }
 
-    /**
-     * @notice Updates local data for a key
-     * @dev Only callable by registered apps. Updates both app and main data trees
-     * @param key The data key to update
-     * @param value The data value to store
-     * @return mainTreeIndex The index in the main data tree
-     * @return appTreeIndex The index in the app's data tree
-     */
+    /// @inheritdoc ILiquidityMatrix
     function updateLocalData(bytes32 key, bytes memory value)
         external
         onlyApp
@@ -1202,56 +969,30 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
                         REMOTE STATE LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Updates the whitelist status of a settler
-     * @dev Only callable by owner
-     * @param account The settler account
-     * @param whitelisted Whether to whitelist or remove from whitelist
-     */
+    /// @inheritdoc ILiquidityMatrix
     function updateSettlerWhitelisted(address account, bool whitelisted) external onlyOwner {
         _isSettlerWhitelisted[account] = whitelisted;
         emit UpdateSettlerWhitelisted(account, whitelisted);
     }
 
-    /**
-     * @notice Sets the gateway contract address
-     * @dev Only callable by owner. The gateway handles all cross-chain communication.
-     * @param _gateway Address of the gateway contract
-     */
+    /// @inheritdoc ILiquidityMatrix
     function updateGateway(address _gateway) external onlyOwner {
         gateway = IGateway(_gateway);
         emit UpdateGateway(_gateway);
     }
 
-    /**
-     * @notice Sets the syncer address
-     * @dev Only callable by owner. Syncer is authorized to initiate sync operations.
-     * @param _syncer Address authorized to sync
-     */
+    /// @inheritdoc ILiquidityMatrix
     function updateSyncer(address _syncer) external onlyOwner {
         syncer = _syncer;
         emit UpdateSyncer(_syncer);
     }
 
-    /**
-     * @notice Updates the read target for a specific chain
-     * @dev Updates where to read from on the remote chain
-     * @param chainUID The chain UID
-     * @param target The target address on the remote chain
-     */
+    /// @inheritdoc ILiquidityMatrix
     function updateReadTarget(bytes32 chainUID, bytes32 target) external onlyOwner {
         gateway.updateReadTarget(chainUID, target);
     }
 
-    /**
-     * @notice Receives and stores Merkle roots from remote chains
-     * @dev Only callable by the gateway or this contract (via onRead)
-     * @param chainUID The chain unique identifier of the remote chain
-     * @param version The version number from the remote chain
-     * @param liquidityRoot The liquidity Merkle root from the remote chain
-     * @param dataRoot The data Merkle root from the remote chain
-     * @param timestamp The timestamp when the roots were generated
-     */
+    /// @inheritdoc ILiquidityMatrix
     function onReceiveRoots(
         bytes32 chainUID,
         uint256 version,
@@ -1272,13 +1013,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         emit ReceiveRoots(chainUID, version, liquidityRoot, dataRoot, timestamp);
     }
 
-    /**
-     * @notice Processes remote account mapping requests received from other chains
-     * @dev Called by synchronizer when receiving cross-chain mapping requests.
-     *      Validates mappings and consolidates liquidity from remote to local accounts.
-     * @param _fromChainUID Source chain unique identifier
-     * @param _localApp Local app address that should process this request
-     */
+    /// @inheritdoc ILiquidityMatrix
     function onReceiveMapRemoteAccountRequests(
         bytes32 _fromChainUID,
         address _localApp,
@@ -1326,12 +1061,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
                             SYNC LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Initiates a sync operation to fetch roots from all configured chains
-     * @dev Only callable by the authorized syncer. Rate limited to once per block.
-     * @param data Encoded (uint128 gasLimit, address refundTo) for the cross-chain operation
-     * @return receipt The messaging receipt from the gateway
-     */
+    /// @inheritdoc ILiquidityMatrix
     function sync(bytes memory data) external payable onlySyncer returns (MessagingReceipt memory receipt) {
         // Rate limiting: only one sync per block
         uint256 version = currentVersion();
@@ -1354,11 +1084,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return receipt;
     }
 
-    /**
-     * @notice Quotes the messaging fee for syncing all configured chains
-     * @param gasLimit The gas limit for the operation
-     * @return fee The estimated messaging fee in native token
-     */
+    /// @inheritdoc ILiquidityMatrix
     function quoteSync(uint128 gasLimit) external view returns (uint256 fee) {
         bytes memory callData = abi.encodeWithSelector(ILiquidityMatrix.getTopRoots.selector);
         return gateway.quoteRead(address(this), callData, 256 * 3, gasLimit);
@@ -1457,21 +1183,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         }
     }
 
-    /**
-     * @notice Requests mapping of remote accounts to local accounts on another chain
-     * @dev Uses the gateway to send cross-chain messages
-     * @param chainUID Target chain unique identifier
-     * @param remoteApp Address of the app on the remote chain
-     * @param locals Array of local account addresses to map
-     * @param remotes Array of remote account addresses to map
-     * @param data Encoded (uint128 gasLimit, address refundTo) parameters for cross-chain messaging
-     * @return guid The unique identifier for this cross-chain request
-     */
+    /// @inheritdoc ILiquidityMatrix
     function requestMapRemoteAccounts(
         bytes32 chainUID,
         address remoteApp,
-        address[] memory locals,
         address[] memory remotes,
+        address[] memory locals,
         bytes memory data
     ) external payable onlyApp returns (bytes32 guid) {
         // Validate input arrays
