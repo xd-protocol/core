@@ -41,6 +41,24 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     using AddressLib for address;
 
     /*//////////////////////////////////////////////////////////////
+                                TYPES
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Context for composition operations to prevent unauthorized transfers
+     * @param active Whether composition is currently active
+     * @param authorizedSpender The address authorized to spend tokens during composition
+     * @param fundingSource The address that provided the tokens for composition
+     * @param maxSpendable The maximum amount that can be spent during composition
+     */
+    struct ComposeContext {
+        bool active;
+        address authorizedSpender;
+        address fundingSource;
+        uint256 maxSpendable;
+    }
+
+    /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
     uint16 internal constant CMD_READ_AVAILABILITY = 1;
@@ -48,7 +66,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     address public liquidityMatrix;
     address public gateway;
 
-    bool internal _composing;
+    ComposeContext internal _composeContext;
     PendingTransfer[] internal _pendingTransfers;
     mapping(address account => uint256) internal _pendingNonce;
 
@@ -309,7 +327,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         _pendingNonce[from] = nonce;
 
         guid = IGateway(gateway).read{ value: msg.value - value }(
-            abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from, nonce), abi.encode(nonce), 256, data
+            abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from), abi.encode(nonce), 256, data
         );
 
         address[] memory _hooks = hooks;
@@ -353,7 +371,29 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         override(BaseERC20, IERC20)
         returns (bool)
     {
-        if (!_composing) revert NotComposing();
+        if (!_composeContext.active) revert NotComposing();
+
+        // Only allow transfers from the authorized spender during composition
+        if (msg.sender != _composeContext.authorizedSpender) {
+            revert UnauthorizedComposeSpender();
+        }
+
+        // Only allow spending from authorized sources during composition
+        if (from == address(this)) {
+            // Spending from the contract's balance (tokens transferred in for composition)
+            // This is the intended behavior - spending the tokens provided for composition
+        } else if (from == _composeContext.fundingSource) {
+            // Allow spending from the original funding source, but validate balance
+            int256 balance = localBalanceOf(from);
+            if (balance < int256(amount)) revert InsufficientBalance();
+        } else {
+            // Prevent spending from any other account during composition
+            revert UnauthorizedComposeSource();
+        }
+
+        // Ensure we don't exceed the maximum spendable amount
+        if (amount > _composeContext.maxSpendable) revert InsufficientBalance();
+        _composeContext.maxSpendable -= amount;
 
         uint256 allowed = allowance[from][msg.sender];
         if (allowed != type(uint256).max) allowance[from][msg.sender] = allowed - amount;
@@ -436,15 +476,20 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         int256 oldBalance = localBalanceOf(address(this));
         _transferFrom(from, address(this), amount, data);
 
-        allowance[address(this)][to] = amount;
-        _composing = true;
+        // Set up secure compose context with strict constraints
+        _composeContext =
+            ComposeContext({ active: true, authorizedSpender: to, fundingSource: from, maxSpendable: amount });
 
-        // transferFrom() can be called multiple times inside the next call
+        allowance[address(this)][to] = amount;
+
+        // Execute the call - transferFrom() can be called multiple times inside this call
         (bool ok, bytes memory reason) = to.call{ value: value }(callData);
         if (!ok) revert CallFailure(to, reason);
 
+        // Clear compose context and allowances
         allowance[address(this)][to] = 0;
-        _composing = false;
+        _composeContext =
+            ComposeContext({ active: false, authorizedSpender: address(0), fundingSource: address(0), maxSpendable: 0 });
 
         int256 newBalance = localBalanceOf(address(this));
         // refund the change if any
@@ -540,13 +585,18 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @param timestamp The timestamp of the settled data
      * @param account The account whose liquidity was updated
      */
-    function onSettleLiquidity(bytes32 chainUID, uint256, uint64 timestamp, address account)
+    function onSettleLiquidity(bytes32 chainUID, uint256 version, uint64 timestamp, address account)
         external
         virtual
         override
     {
-        // Only allow calls from the LiquidityMatrix contract
-        if (msg.sender != liquidityMatrix) revert Forbidden();
+        // Allow calls from LiquidityMatrix or its registered RemoteAppChronicles
+        if (msg.sender != liquidityMatrix) {
+            // Check if sender is a valid RemoteAppChronicle for this app
+            address chronicle =
+                ILiquidityMatrix(liquidityMatrix).getRemoteAppChronicle(address(this), chainUID, version);
+            if (msg.sender != chronicle) revert Forbidden();
+        }
 
         // Call onSettleLiquidity on all registered hooks
         address[] memory _hooks = hooks;
@@ -567,9 +617,14 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @param chainUID The chain unique identifier of the remote chain
      * @param timestamp The timestamp of the settled data
      */
-    function onSettleTotalLiquidity(bytes32 chainUID, uint256, uint64 timestamp) external virtual override {
-        // Only allow calls from the LiquidityMatrix contract
-        if (msg.sender != liquidityMatrix) revert Forbidden();
+    function onSettleTotalLiquidity(bytes32 chainUID, uint256 version, uint64 timestamp) external virtual override {
+        // Allow calls from LiquidityMatrix or its registered RemoteAppChronicles
+        if (msg.sender != liquidityMatrix) {
+            // Check if sender is a valid RemoteAppChronicle for this app
+            address chronicle =
+                ILiquidityMatrix(liquidityMatrix).getRemoteAppChronicle(address(this), chainUID, version);
+            if (msg.sender != chronicle) revert Forbidden();
+        }
 
         // Call onSettleTotalLiquidity on all registered hooks
         address[] memory _hooks = hooks;
@@ -591,9 +646,14 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @param timestamp The timestamp of the settled data
      * @param key The data key that was updated
      */
-    function onSettleData(bytes32 chainUID, uint256, uint64 timestamp, bytes32 key) external virtual override {
-        // Only allow calls from the LiquidityMatrix contract
-        if (msg.sender != liquidityMatrix) revert Forbidden();
+    function onSettleData(bytes32 chainUID, uint256 version, uint64 timestamp, bytes32 key) external virtual override {
+        // Allow calls from LiquidityMatrix or its registered RemoteAppChronicles
+        if (msg.sender != liquidityMatrix) {
+            // Check if sender is a valid RemoteAppChronicle for this app
+            address chronicle =
+                ILiquidityMatrix(liquidityMatrix).getRemoteAppChronicle(address(this), chainUID, version);
+            if (msg.sender != chronicle) revert Forbidden();
+        }
 
         // Call onSettleData on all registered hooks
         address[] memory _hooks = hooks;

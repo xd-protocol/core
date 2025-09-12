@@ -45,6 +45,8 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
     error InsufficientAvailability(uint256 nonce, uint256 amount, int256 availabillity);
     error CallFailure(address to, bytes reason);
     error NotComposing();
+    error UnauthorizedComposeSpender();
+    error UnauthorizedComposeSource();
     error HookAlreadyAdded();
     error HookNotFound();
 

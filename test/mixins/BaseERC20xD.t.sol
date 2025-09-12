@@ -28,6 +28,40 @@ contract Composable {
     }
 }
 
+contract MaliciousComposable {
+    // Attempt to call transferFrom from an unauthorized spender (not the recipient)
+    function attemptUnauthorizedSpender(address token, uint256 amount) external {
+        // Create a secondary contract to try to call transferFrom
+        SecondaryAttacker attacker = new SecondaryAttacker();
+
+        // Give the attacker an allowance from the token contract
+        BaseERC20xD(token).approve(address(attacker), amount);
+
+        // Try to have the attacker call transferFrom - this should fail
+        attacker.attack(token, msg.sender, address(this), amount);
+    }
+
+    // Attempt to spend from an unauthorized source (not the funding source or contract)
+    function attemptUnauthorizedSource(address token, uint256 amount, address unauthorizedSource) external {
+        // This should fail because 'unauthorizedSource' is not the funding source or the contract
+        BaseERC20xD(token).transferFrom(unauthorizedSource, address(this), amount);
+    }
+
+    // Attempt to spend more than the max spendable amount
+    function attemptExcessiveSpending(address token, uint256 excessiveAmount) external {
+        // This should fail because it exceeds the maxSpendable limit
+        BaseERC20xD(token).transferFrom(msg.sender, address(this), excessiveAmount);
+    }
+}
+
+contract SecondaryAttacker {
+    function attack(address token, address from, address to, uint256 amount) external {
+        // This call should fail with UnauthorizedComposeSpender because this contract
+        // is not the authorized spender (the recipient) in the compose context
+        BaseERC20xD(token).transferFrom(from, to, amount);
+    }
+}
+
 contract BaseERC20xDTest is BaseERC20xDTestHelper {
     using OptionsBuilder for bytes;
 
@@ -466,6 +500,145 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         vm.prank(bob);
         vm.expectRevert(IBaseERC20xD.NotComposing.selector);
         token.transferFrom(alice, charlie, 50e18);
+    }
+
+    function test_transferFrom_revertUnauthorizedComposeSpender() public {
+        BaseERC20xD token = erc20s[0];
+
+        _syncAndSettleLiquidity();
+
+        // Create a malicious composable contract that tries to spend from unauthorized spender
+        MaliciousComposable malicious = new MaliciousComposable();
+
+        // Alice approves the malicious contract
+        vm.prank(alice);
+        token.approve(address(malicious), 200e18);
+
+        // Bob also has a balance and approves the malicious contract
+        vm.prank(bob);
+        token.approve(address(malicious), 200e18);
+
+        changePrank(alice, alice);
+        uint256 amount = 50e18;
+        bytes memory callData =
+            abi.encodeWithSelector(MaliciousComposable.attemptUnauthorizedSpender.selector, address(token), amount);
+        uint256 fee = token.quoteTransfer(alice, 1_000_000);
+
+        // This should work normally - transfer to malicious contract with callData
+        token.transfer{ value: fee }(address(malicious), amount, callData, 0, abi.encode(1_000_000, alice));
+
+        // Execute the transfer - the malicious contract will try to spend but should be blocked
+        // The compose call will revert with UnauthorizedComposeSpender wrapped in CallFailure
+        _executeTransfer(
+            token,
+            alice,
+            abi.encodeWithSelector(
+                IBaseERC20xD.CallFailure.selector,
+                address(malicious),
+                abi.encodeWithSelector(IBaseERC20xD.UnauthorizedComposeSpender.selector)
+            )
+        );
+    }
+
+    function test_transferFrom_revertUnauthorizedComposeSource() public {
+        BaseERC20xD token = erc20s[0];
+
+        _syncAndSettleLiquidity();
+
+        // Create a malicious composable contract
+        MaliciousComposable malicious = new MaliciousComposable();
+
+        // Alice approves the malicious contract
+        vm.prank(alice);
+        token.approve(address(malicious), 200e18);
+
+        // Charlie also has a balance and approves the malicious contract
+        vm.prank(charlie);
+        token.approve(address(malicious), 200e18);
+
+        changePrank(alice, alice);
+        uint256 amount = 50e18;
+        bytes memory callData = abi.encodeWithSelector(
+            MaliciousComposable.attemptUnauthorizedSource.selector,
+            address(token),
+            amount,
+            charlie // Try to spend from charlie who is not the funding source
+        );
+        uint256 fee = token.quoteTransfer(alice, 1_000_000);
+
+        // This transfer should fail when the malicious contract tries to spend from unauthorized source
+        token.transfer{ value: fee }(address(malicious), amount, callData, 0, abi.encode(1_000_000, alice));
+
+        // Execute the transfer - should fail due to unauthorized source
+        // The compose call will revert with UnauthorizedComposeSource wrapped in CallFailure
+        _executeTransfer(
+            token,
+            alice,
+            abi.encodeWithSelector(
+                IBaseERC20xD.CallFailure.selector,
+                address(malicious),
+                abi.encodeWithSelector(IBaseERC20xD.UnauthorizedComposeSource.selector)
+            )
+        );
+    }
+
+    function test_transferFrom_revertExceedMaxSpendable() public {
+        BaseERC20xD token = erc20s[0];
+
+        _syncAndSettleLiquidity();
+
+        // Create a malicious composable contract
+        MaliciousComposable malicious = new MaliciousComposable();
+
+        // Alice approves the malicious contract for a large amount
+        vm.prank(alice);
+        token.approve(address(malicious), 1000e18);
+
+        changePrank(alice, alice);
+        uint256 amount = 50e18;
+        bytes memory callData = abi.encodeWithSelector(
+            MaliciousComposable.attemptExcessiveSpending.selector,
+            address(token),
+            amount + 1e18 // Try to spend more than was provided
+        );
+        uint256 fee = token.quoteTransfer(alice, 1_000_000);
+
+        // This transfer should fail when trying to exceed max spendable
+        token.transfer{ value: fee }(address(malicious), amount, callData, 0, abi.encode(1_000_000, alice));
+
+        // Execute the transfer - should fail due to exceeding max spendable
+        // The compose call will revert with InsufficientBalance wrapped in CallFailure
+        _executeTransfer(
+            token,
+            alice,
+            abi.encodeWithSelector(
+                IBaseERC20xD.CallFailure.selector,
+                address(malicious),
+                abi.encodeWithSelector(IBaseERC20xD.InsufficientBalance.selector)
+            )
+        );
+    }
+
+    function test_transferFrom_allowedComposition() public {
+        BaseERC20xD token = erc20s[0];
+
+        _syncAndSettleLiquidity();
+
+        changePrank(alice, alice);
+        uint256 amount = 50e18;
+        bytes memory callData = abi.encodeWithSelector(Composable.compose.selector, address(token), amount);
+        uint256 fee = token.quoteTransfer(alice, 1_000_000);
+
+        // This should work - legitimate composition
+        token.transfer{ value: fee }(address(composable), amount, callData, 0, abi.encode(1_000_000, alice));
+
+        // Execute the transfer - should succeed
+        vm.expectEmit();
+        emit Composable.Compose(address(token), amount);
+        _executeTransfer(token, alice, "");
+
+        // Verify the composition worked
+        assertEq(token.balanceOf(address(composable)), amount);
     }
 
     /*//////////////////////////////////////////////////////////////
