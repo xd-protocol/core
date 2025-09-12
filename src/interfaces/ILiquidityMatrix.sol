@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { IGateway } from "./IGateway.sol";
 
 /**
@@ -859,9 +858,9 @@ interface ILiquidityMatrix {
      * @notice Initiates a sync operation to fetch roots from all configured chains
      * @dev Only callable by the authorized syncer. Rate limited to once per block.
      * @param data Encoded (uint128 gasLimit, address refundTo) for the cross-chain operation
-     * @return receipt The messaging receipt from the gateway
+     * @return guid The messaging receipt from the gateway
      */
-    function sync(bytes memory data) external payable returns (MessagingReceipt memory receipt);
+    function sync(bytes memory data) external payable returns (bytes32 guid);
 
     /**
      * @notice Quotes the messaging fee for syncing all configured chains

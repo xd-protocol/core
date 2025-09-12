@@ -95,6 +95,6 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
     /// @inheritdoc IWrappedERC20xD
     function quoteUnwrap(uint128 gasLimit) external view virtual returns (uint256) {
         // Unwrap requires cross-chain messaging for global availability check
-        return quoteTransfer(msg.sender, gasLimit);
+        return this.quoteTransfer(msg.sender, gasLimit);
     }
 }

@@ -56,6 +56,7 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
 
     event UpdateLiquidityMatrix(address indexed liquidityMatrix);
     event UpdateGateway(address indexed gateway);
+    event WalletFactoryUpdated(address indexed walletFactory);
     event InitiateTransfer(
         address indexed from, address indexed to, uint256 amount, uint256 value, uint256 indexed nonce
     );
@@ -107,6 +108,12 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
      * @return The Gateway contract address
      */
     function gateway() external view returns (address);
+
+    /**
+     * @notice Returns the address of the UserWalletFactory contract
+     * @return The UserWalletFactory contract address
+     */
+    function walletFactory() external view returns (address);
 
     /**
      * @notice Returns the hook address at a specific index
@@ -180,6 +187,13 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
      * @param newGateway The new gateway address
      */
     function updateGateway(address newGateway) external;
+
+    /**
+     * @notice Updates the UserWalletFactory address for compose operations
+     * @param newWalletFactory The new UserWalletFactory contract address
+     * @dev Setting to address(0) disables UserWallet and falls back to legacy compose
+     */
+    function updateWalletFactory(address newWalletFactory) external;
 
     /**
      * @notice Updates the read target address for a specific chain

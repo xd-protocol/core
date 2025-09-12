@@ -2,7 +2,6 @@
 pragma solidity ^0.8.28;
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
-import { MessagingReceipt } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { ReentrancyGuard } from "solmate/utils/ReentrancyGuard.sol";
 import { ILocalAppChronicleDeployer } from "./interfaces/ILocalAppChronicleDeployer.sol";
 import { IRemoteAppChronicleDeployer } from "./interfaces/IRemoteAppChronicleDeployer.sol";
@@ -380,6 +379,10 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /// @inheritdoc ILiquidityMatrix
     function chainConfigs() public view returns (bytes32[] memory chainUIDs, uint16[] memory confirmations) {
+        if (address(gateway) == address(0)) {
+            // Return empty arrays if gateway not set
+            return (new bytes32[](0), new uint16[](0));
+        }
         return gateway.chainConfigs();
     }
 
@@ -649,7 +652,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /// @inheritdoc ILiquidityMatrix
     function getAggregatedSettledTotalLiquidity(address app) external view returns (int256 liquidity) {
-        (bytes32[] memory chainUIDs,) = chainConfigs();
+        if (address(gateway) == address(0)) return _getCurrentLocalAppChronicleOrRevert(app).getTotalLiquidity();
+        (bytes32[] memory chainUIDs,) = gateway.chainConfigs();
         return getAggregatedSettledTotalLiquidity(app, chainUIDs);
     }
 
@@ -671,7 +675,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /// @inheritdoc ILiquidityMatrix
     function getAggregatedFinalizedTotalLiquidity(address app) external view returns (int256 liquidity) {
-        (bytes32[] memory chainUIDs,) = chainConfigs();
+        if (address(gateway) == address(0)) return _getCurrentLocalAppChronicleOrRevert(app).getTotalLiquidity();
+        (bytes32[] memory chainUIDs,) = gateway.chainConfigs();
         return getAggregatedFinalizedTotalLiquidity(app, chainUIDs);
     }
 
@@ -693,7 +698,10 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /// @inheritdoc ILiquidityMatrix
     function getAggregatedTotalLiquidityAt(address app, uint64 timestamp) external view returns (int256 liquidity) {
-        (bytes32[] memory chainUIDs,) = chainConfigs();
+        if (address(gateway) == address(0)) {
+            return _getCurrentLocalAppChronicleOrRevert(app).getTotalLiquidityAt(timestamp);
+        }
+        (bytes32[] memory chainUIDs,) = gateway.chainConfigs();
         return getAggregatedTotalLiquidityAt(app, chainUIDs, timestamp);
     }
 
@@ -723,7 +731,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /// @inheritdoc ILiquidityMatrix
     function getAggregatedSettledLiquidityAt(address app, address account) external view returns (int256 liquidity) {
-        (bytes32[] memory chainUIDs,) = chainConfigs();
+        if (address(gateway) == address(0)) return _getCurrentLocalAppChronicleOrRevert(app).getLiquidity(account);
+        (bytes32[] memory chainUIDs,) = gateway.chainConfigs();
         return getAggregatedSettledLiquidityAt(app, chainUIDs, account);
     }
 
@@ -745,7 +754,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /// @inheritdoc ILiquidityMatrix
     function getAggregatedFinalizedLiquidityAt(address app, address account) external view returns (int256 liquidity) {
-        (bytes32[] memory chainUIDs,) = chainConfigs();
+        if (address(gateway) == address(0)) return _getCurrentLocalAppChronicleOrRevert(app).getLiquidity(account);
+        (bytes32[] memory chainUIDs,) = gateway.chainConfigs();
         return getAggregatedFinalizedLiquidityAt(app, chainUIDs, account);
     }
 
@@ -771,7 +781,10 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         view
         returns (int256 liquidity)
     {
-        (bytes32[] memory chainUIDs,) = chainConfigs();
+        if (address(gateway) == address(0)) {
+            return _getCurrentLocalAppChronicleOrRevert(app).getLiquidityAt(account, timestamp);
+        }
+        (bytes32[] memory chainUIDs,) = gateway.chainConfigs();
         return getAggregatedLiquidityAt(app, chainUIDs, account, timestamp);
     }
 
@@ -1061,7 +1074,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc ILiquidityMatrix
-    function sync(bytes memory data) external payable onlySyncer returns (MessagingReceipt memory receipt) {
+    function sync(bytes memory data) external payable onlySyncer returns (bytes32 guid) {
         // Rate limiting: only one sync per block
         uint256 version = currentVersion();
         if (block.timestamp <= _lastSyncRequestTimestamp[version]) revert AlreadyRequested();
@@ -1074,13 +1087,11 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         bytes memory extra = abi.encode(CMD_SYNC);
 
         // Use gateway.read() for the sync operation
-        bytes32 guid = gateway.read{ value: msg.value }(callData, extra, 256 * 3, data);
+        guid = gateway.read{ value: msg.value }(callData, extra, 256 * 3, data);
 
         emit Sync(msg.sender);
 
-        // Return a receipt with the guid for compatibility
-        receipt.guid = guid;
-        return receipt;
+        return guid;
     }
 
     /// @inheritdoc ILiquidityMatrix

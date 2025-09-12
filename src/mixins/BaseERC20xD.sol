@@ -12,6 +12,8 @@ import { IERC20xDHook } from "../interfaces/IERC20xDHook.sol";
 import { ILiquidityMatrixHook } from "../interfaces/ILiquidityMatrixHook.sol";
 import { IGatewayApp } from "../interfaces/IGatewayApp.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
+import { IUserWallet } from "../interfaces/IUserWallet.sol";
+import { IUserWalletFactory } from "../interfaces/IUserWalletFactory.sol";
 
 /**
  * @title BaseERC20xD
@@ -65,6 +67,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
 
     address public liquidityMatrix;
     address public gateway;
+    address public walletFactory; // UserWalletFactory for compose operations
 
     ComposeContext internal _composeContext;
     PendingTransfer[] internal _pendingTransfers;
@@ -147,7 +150,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     }
 
     /// @inheritdoc IBaseERC20xD
-    function localTotalSupply() public view returns (int256) {
+    function localTotalSupply() external view returns (int256) {
         return ILiquidityMatrix(liquidityMatrix).getLocalTotalLiquidity(address(this));
     }
 
@@ -164,7 +167,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     }
 
     /// @inheritdoc IBaseERC20xD
-    function availableLocalBalanceOf(address account) public view returns (int256 balance) {
+    function availableLocalBalanceOf(address account) external view returns (int256 balance) {
         uint256 nonce = _pendingNonce[account];
         PendingTransfer storage pending = _pendingTransfers[nonce];
         return localBalanceOf(account) - int256(pending.pending ? pending.amount : 0);
@@ -202,6 +205,12 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         gateway = _gateway;
 
         emit UpdateGateway(_gateway);
+    }
+
+    /// @inheritdoc IBaseERC20xD
+    function updateWalletFactory(address _walletFactory) external onlyOwner {
+        walletFactory = _walletFactory;
+        emit WalletFactoryUpdated(_walletFactory);
     }
 
     /// @inheritdoc IBaseERC20xD
@@ -466,35 +475,69 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @param value Native token value to send with the call
      * @param callData The calldata to execute on the recipient
      * @param data Extra data containing cross-chain parameters
-     * @dev Transfers tokens to this contract, sets allowance, executes call, and refunds any remaining tokens
+     * @dev When wallet factory is set, transfers tokens to user's wallet and executes call through wallet.
+     *      Otherwise, uses contract as intermediary for backwards compatibility.
      */
     function _compose(address from, address to, uint256 amount, uint256 value, bytes memory callData, bytes memory data)
         internal
         virtual
-    // TODO: should be kept or not: nonReentrant
     {
-        int256 oldBalance = localBalanceOf(address(this));
-        _transferFrom(from, address(this), amount, data);
+        bool useWalletFactory = walletFactory != address(0);
+        address executionContext;
+        address fundingSource;
+        int256 oldBalance;
 
-        // Set up secure compose context with strict constraints
+        // Determine execution context based on wallet factory availability
+        if (useWalletFactory) {
+            // Use UserWallet for execution
+            executionContext = IUserWalletFactory(walletFactory).getOrCreateWallet(from);
+            fundingSource = executionContext;
+        } else {
+            // Use contract itself for execution (backwards compatibility)
+            executionContext = address(this);
+            fundingSource = from;
+            oldBalance = localBalanceOf(executionContext);
+        }
+
+        // Transfer tokens to execution context
+        _transferFrom(from, executionContext, amount, data);
+
+        // Set up compose context
         _composeContext =
-            ComposeContext({ active: true, authorizedSpender: to, fundingSource: from, maxSpendable: amount });
+            ComposeContext({ active: true, authorizedSpender: to, fundingSource: fundingSource, maxSpendable: amount });
 
-        allowance[address(this)][to] = amount;
+        // Give the target contract allowance from execution context
+        allowance[executionContext][to] = amount;
 
-        // Execute the call - transferFrom() can be called multiple times inside this call
-        (bool ok, bytes memory reason) = to.call{ value: value }(callData);
+        // Execute the call
+        bool ok;
+        bytes memory reason;
+        if (useWalletFactory) {
+            // Execute through wallet (wallet becomes msg.sender)
+            (ok, reason) = IUserWallet(payable(executionContext)).execute(to, value, callData);
+        } else {
+            // Execute directly from contract
+            (ok, reason) = to.call{ value: value }(callData);
+        }
         if (!ok) revert CallFailure(to, reason);
 
-        // Clear compose context and allowances
-        allowance[address(this)][to] = 0;
-        _composeContext =
-            ComposeContext({ active: false, authorizedSpender: address(0), fundingSource: address(0), maxSpendable: 0 });
+        // Clear allowances and context
+        allowance[executionContext][to] = 0;
+        _composeContext.active = false;
 
-        int256 newBalance = localBalanceOf(address(this));
-        // refund the change if any
-        if (oldBalance < newBalance) {
-            _transferFrom(address(this), from, uint256(newBalance - oldBalance), data);
+        // Handle refunds
+        if (useWalletFactory) {
+            // Return any remaining tokens from wallet to user
+            int256 walletBalance = localBalanceOf(executionContext);
+            if (walletBalance > 0) {
+                _transferFrom(executionContext, from, uint256(walletBalance), data);
+            }
+        } else {
+            // Refund the change if any (backwards compatibility mode)
+            int256 newBalance = localBalanceOf(executionContext);
+            if (oldBalance < newBalance) {
+                _transferFrom(executionContext, from, uint256(newBalance - oldBalance), data);
+            }
         }
     }
 
@@ -530,14 +573,15 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         if (from != to) {
             if (amount > uint256(type(int256).max)) revert Overflow();
 
+            address _liquidityMatrix = liquidityMatrix;
             if (from != address(0)) {
-                ILiquidityMatrix(liquidityMatrix).updateLocalLiquidity(
-                    from, ILiquidityMatrix(liquidityMatrix).getLocalLiquidity(address(this), from) - int256(amount)
+                ILiquidityMatrix(_liquidityMatrix).updateLocalLiquidity(
+                    from, ILiquidityMatrix(_liquidityMatrix).getLocalLiquidity(address(this), from) - int256(amount)
                 );
             }
             if (to != address(0)) {
-                ILiquidityMatrix(liquidityMatrix).updateLocalLiquidity(
-                    to, ILiquidityMatrix(liquidityMatrix).getLocalLiquidity(address(this), to) + int256(amount)
+                ILiquidityMatrix(_liquidityMatrix).updateLocalLiquidity(
+                    to, ILiquidityMatrix(_liquidityMatrix).getLocalLiquidity(address(this), to) + int256(amount)
                 );
             }
         }
