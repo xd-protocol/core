@@ -86,4 +86,10 @@ contract LiquidityMatrixMock {
     function updateSettlerWhitelisted(address settler, bool whitelisted) external {
         settlerWhitelisted[settler] = whitelisted;
     }
+
+    function getRemoteAppChronicle(address, bytes32, uint256) external pure returns (address) {
+        // Return address(0) to trigger Forbidden error in BaseERC20xD
+        // This simulates the case where there's no RemoteAppChronicle set
+        return address(0);
+    }
 }
