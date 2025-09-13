@@ -89,6 +89,9 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
         // Pass recipient address in callData for hooks to use
         guid = _transfer(msg.sender, address(0), amount, abi.encode(to), 0, data);
 
+        // Transfer underlying tokens back to the recipient
+        ERC20(underlying).safeTransfer(to, amount);
+
         emit Unwrap(to, amount);
     }
 

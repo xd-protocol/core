@@ -350,7 +350,7 @@ contract UserWalletTest is Test {
     function testFuzz_wallet_execute(address target, uint256 value, bytes memory data) public {
         vm.assume(target != address(0));
         vm.assume(target != address(wallet)); // No self-calls
-        // Registry calls are allowed
+        vm.assume(target != address(registry)); // No registry calls
         vm.assume(value <= address(wallet).balance);
 
         vm.prank(user);

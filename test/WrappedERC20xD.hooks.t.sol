@@ -11,7 +11,7 @@ import { LiquidityMatrixMock } from "./mocks/LiquidityMatrixMock.sol";
 import { LayerZeroGatewayMock } from "./mocks/LayerZeroGatewayMock.sol";
 import { SafeTransferLib, ERC20 } from "solmate/utils/SafeTransferLib.sol";
 
-// Hook that releases underlying tokens on burn
+// Hook that tracks redemptions (no longer needs to transfer since contract does it)
 contract SimpleRedemptionHook is IERC20xDHook {
     using SafeTransferLib for ERC20;
 
@@ -29,8 +29,7 @@ contract SimpleRedemptionHook is IERC20xDHook {
         if (msg.sender != wrappedToken) return;
         if (to != address(0)) return; // Only process burns
 
-        // Release underlying to the burner
-        ERC20(underlying).safeTransfer(from, amount);
+        // Just emit event - underlying already transferred by contract
         emit Redeemed(from, amount);
     }
 
@@ -111,12 +110,13 @@ contract DataUsingHook is IERC20xDHook {
     function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
 }
 
-// Hook that redeems to a different recipient
+// Hook that tracks recipient overrides (can't actually override since contract sends directly)
 contract RecipientRedemptionHook is IERC20xDHook {
     using SafeTransferLib for ERC20;
 
     address public immutable underlying;
     mapping(address => address) public recipientOverrides;
+    mapping(address => uint256) public redirectedAmounts;
 
     constructor(address _underlying) {
         underlying = _underlying;
@@ -129,8 +129,11 @@ contract RecipientRedemptionHook is IERC20xDHook {
     function afterTransfer(address from, address to, uint256 amount, bytes memory) external override {
         if (to != address(0)) return;
 
-        address recipient = recipientOverrides[from] != address(0) ? recipientOverrides[from] : from;
-        ERC20(underlying).safeTransfer(recipient, amount);
+        // Can't redirect since contract already sent to recipient
+        // Just track what would have been redirected
+        if (recipientOverrides[from] != address(0)) {
+            redirectedAmounts[recipientOverrides[from]] += amount;
+        }
     }
 
     function onInitiateTransfer(address, address, uint256, bytes memory, uint256, bytes memory) external override { }
@@ -288,10 +291,10 @@ contract WrappedERC20xDHooksTest is Test {
 
         _simulateGatewayResponse(1, 0);
 
-        // Verify: Tokens burned even though hook failed
+        // Verify: Tokens burned and underlying still returned (contract does it, not hook)
         assertEq(wrappedToken.balanceOf(alice), 50e6);
-        // Underlying not redeemed because hook failed
-        assertEq(underlying.balanceOf(alice), 900e6);
+        // Underlying returned even though hook failed (fix applied)
+        assertEq(underlying.balanceOf(alice), 950e6);
     }
 
     function test_unwrapWithMultipleHooks_oneFails() public {
@@ -380,9 +383,9 @@ contract WrappedERC20xDHooksTest is Test {
         // Simulate gateway response
         _simulateGatewayResponse(1, 0);
 
-        // Verify: Tokens burned but no redemption
+        // Verify: Tokens burned AND underlying returned (fix applied)
         assertEq(wrappedToken.balanceOf(alice), 60e6);
-        assertEq(underlying.balanceOf(alice), 900e6); // No change
+        assertEq(underlying.balanceOf(alice), 940e6); // 900 + 40 returned
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -474,9 +477,9 @@ contract WrappedERC20xDHooksTest is Test {
         // Simulate gateway response
         _simulateGatewayResponse(1, 0);
 
-        // Verify: Alice's tokens burned, but bob received underlying
+        // Verify: Alice's tokens burned and alice received underlying (contract sends directly)
         assertEq(wrappedToken.balanceOf(alice), 50e6);
-        assertEq(underlying.balanceOf(alice), 900e6); // No change
-        assertEq(underlying.balanceOf(bob), 1050e6); // Received redemption
+        assertEq(underlying.balanceOf(alice), 950e6); // Alice gets the underlying
+        assertEq(underlying.balanceOf(bob), 1000e6); // Bob unchanged
     }
 }

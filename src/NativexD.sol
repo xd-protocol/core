@@ -77,6 +77,9 @@ contract NativexD is BaseERC20xD, INativexD {
         // Pass recipient address in callData for hooks to use
         guid = _transfer(msg.sender, address(0), amount, abi.encode(to), 0, data);
 
+        // Send native ETH back to the recipient
+        AddressLib.transferNative(to, amount);
+
         emit Unwrap(to, amount);
     }
 
