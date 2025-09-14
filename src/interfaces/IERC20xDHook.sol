@@ -93,4 +93,31 @@ interface IERC20xDHook {
      * @param value The settled data value
      */
     function onSettleData(bytes32 chainUID, uint256 timestamp, bytes32 key, bytes memory value) external;
+
+    /**
+     * @notice Called when tokens are being wrapped
+     * @dev For ERC20 tokens: The wrapped token contract holds the tokens and gives this hook an allowance.
+     *      The hook should use transferFrom to pull the exact amount needed.
+     *      For native tokens: Called WITH native tokens attached as msg.value.
+     *      The hook is responsible for managing these tokens (e.g., depositing to a vault).
+     *      This function should not revert as it could block wrapping.
+     * @param from The address providing the underlying tokens
+     * @param to The address receiving the wrapped tokens
+     * @param amount The amount of underlying tokens being wrapped (equals msg.value for native)
+     * @return actualAmount The actual amount of wrapped tokens to mint (usually same as amount)
+     */
+    function onWrap(address from, address to, uint256 amount) external payable returns (uint256 actualAmount);
+
+    /**
+     * @notice Called when tokens are being unwrapped
+     * @dev This function is called BEFORE burning the wrapped tokens.
+     *      The hook must transfer the underlying tokens to the unwrap contract.
+     *      Can return more underlying than shares if yield was accrued.
+     *      This function should not revert as it could block unwrapping.
+     * @param from The address providing the wrapped tokens
+     * @param to The address receiving the underlying tokens
+     * @param shares The amount of wrapped tokens being burned
+     * @return underlyingAmount The actual amount of underlying tokens to return (can exceed shares if yield accrued)
+     */
+    function onUnwrap(address from, address to, uint256 shares) external returns (uint256 underlyingAmount);
 }

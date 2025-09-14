@@ -74,6 +74,14 @@ contract OrderTrackingHook is IERC20xDHook {
     function onSettleData(bytes32, uint256, bytes32, bytes memory) external override {
         onSettleDataCallOrder = tracker.incrementAndGet();
     }
+
+    function onWrap(address, address, uint256 amount) external override returns (uint256) {
+        return amount; // No modification
+    }
+
+    function onUnwrap(address, address, uint256 shares) external override returns (uint256) {
+        return shares; // No yield
+    }
 }
 
 contract BaseERC20xDHooksTest is Test {

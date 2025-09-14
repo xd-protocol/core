@@ -89,6 +89,12 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
     event OnSettleDataHookFailure(
         address indexed hook, bytes32 indexed chainUID, uint64 timestamp, bytes32 indexed key, bytes value, bytes reason
     );
+    event OnWrapHookFailure(
+        address indexed hook, address indexed from, address indexed to, uint256 amount, bytes reason
+    );
+    event OnUnwrapHookFailure(
+        address indexed hook, address indexed from, address indexed to, uint256 shares, bytes reason
+    );
 
     /*//////////////////////////////////////////////////////////////
                             VIEW FUNCTIONS

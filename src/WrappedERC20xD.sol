@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import { ERC20, SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 import { BaseERC20xD } from "./mixins/BaseERC20xD.sol";
 import { IWrappedERC20xD } from "./interfaces/IWrappedERC20xD.sol";
+import { IERC20xDHook } from "./interfaces/IERC20xDHook.sol";
 
 /**
  * @title WrappedERC20xD
@@ -67,13 +68,32 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
         if (to == address(0)) revert InvalidAddress();
         if (amount == 0) revert InvalidAmount();
 
-        // Transfer underlying tokens from caller
+        // Always transfer underlying tokens to this contract first
         ERC20(underlying).safeTransferFrom(msg.sender, address(this), amount);
 
-        // Mint wrapped tokens
-        _transferFrom(address(0), to, amount);
+        address _hook = hook;
+        uint256 actualAmount = amount;
 
-        emit Wrap(to, amount);
+        if (_hook != address(0)) {
+            // Approve the hook to pull the tokens
+            ERC20(underlying).approve(_hook, amount);
+
+            // Call onWrap hook - hook should pull tokens using transferFrom
+            try IERC20xDHook(_hook).onWrap(msg.sender, to, amount) returns (uint256 _actualAmount) {
+                actualAmount = _actualAmount;
+            } catch (bytes memory reason) {
+                emit OnWrapHookFailure(_hook, msg.sender, to, amount, reason);
+                // Continue with original amount if hook fails
+            }
+
+            // Clear any remaining allowance
+            ERC20(underlying).approve(_hook, 0);
+        }
+
+        // Mint wrapped tokens
+        _transferFrom(address(0), to, actualAmount);
+
+        emit Wrap(to, actualAmount);
     }
 
     /// @inheritdoc IWrappedERC20xD
@@ -87,17 +107,46 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
         if (to == address(0)) revert InvalidAddress();
 
         // Pass recipient address in callData for hooks to use
+        // The actual burn and underlying transfer will happen in _transferFrom after cross-chain check
         guid = _transfer(msg.sender, address(0), amount, abi.encode(to), 0, data);
-
-        // Transfer underlying tokens back to the recipient
-        ERC20(underlying).safeTransfer(to, amount);
-
-        emit Unwrap(to, amount);
     }
 
     /// @inheritdoc IWrappedERC20xD
     function quoteUnwrap(uint128 gasLimit) external view virtual returns (uint256) {
         // Unwrap requires cross-chain messaging for global availability check
         return this.quoteTransfer(msg.sender, gasLimit);
+    }
+
+    /**
+     * @dev Override _transferFrom to handle unwrap logic when burning tokens
+     */
+    function _transferFrom(address from, address to, uint256 amount, bytes memory data) internal virtual override {
+        // Call parent implementation first to handle the burn
+        super._transferFrom(from, to, amount, data);
+
+        // If this is a burn (unwrap), handle underlying token transfer
+        if (to == address(0) && from != address(0)) {
+            // Decode the recipient address from data (passed from unwrap function)
+            address recipient = abi.decode(data, (address));
+            if (recipient == address(0)) revert InvalidAddress();
+
+            address _hook = hook;
+            uint256 underlyingAmount = amount;
+
+            if (_hook != address(0)) {
+                // Call onUnwrap hook to get actual amount of underlying to return
+                try IERC20xDHook(_hook).onUnwrap(from, recipient, amount) returns (uint256 _underlyingAmount) {
+                    underlyingAmount = _underlyingAmount;
+                    // Hook should have transferred the underlying tokens to this contract
+                } catch (bytes memory reason) {
+                    emit OnUnwrapHookFailure(_hook, from, recipient, amount, reason);
+                    // Continue with original amount if hook fails
+                }
+            }
+
+            // Transfer underlying tokens to the recipient
+            ERC20(underlying).safeTransfer(recipient, underlyingAmount);
+            emit Unwrap(recipient, amount, underlyingAmount);
+        }
     }
 }

@@ -41,6 +41,16 @@ contract SimpleRedemptionHook is IERC20xDHook {
     function onSettleLiquidity(bytes32, uint256, address, int256) external override { }
     function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
     function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
+
+    function onWrap(address, address, uint256 amount) external payable override returns (uint256) {
+        return amount; // No modification
+    }
+
+    function onUnwrap(address from, address, uint256 shares) external override returns (uint256) {
+        // Transfer underlying back to wrapped token contract
+        ERC20(underlying).safeTransfer(wrappedToken, shares);
+        return shares; // No yield
+    }
 }
 
 // Hook that fails during redemption
@@ -58,6 +68,14 @@ contract FailingRedemptionHook is IERC20xDHook {
     function onSettleLiquidity(bytes32, uint256, address, int256) external override { }
     function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
     function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
+
+    function onWrap(address, address, uint256) external pure override returns (uint256) {
+        revert RedemptionFailed();
+    }
+
+    function onUnwrap(address, address, uint256) external pure override returns (uint256) {
+        revert RedemptionFailed();
+    }
 }
 
 // Hook that tracks call order
@@ -86,6 +104,14 @@ contract OrderTrackingHook is IERC20xDHook {
     function onSettleLiquidity(bytes32, uint256, address, int256) external override { }
     function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
     function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
+
+    function onWrap(address, address, uint256 amount) external override returns (uint256) {
+        return amount;
+    }
+
+    function onUnwrap(address, address, uint256 shares) external override returns (uint256) {
+        return shares;
+    }
 }
 
 // Hook that uses data parameter
@@ -108,6 +134,14 @@ contract DataUsingHook is IERC20xDHook {
     function onSettleLiquidity(bytes32, uint256, address, int256) external override { }
     function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
     function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
+
+    function onWrap(address, address, uint256 amount) external override returns (uint256) {
+        return amount;
+    }
+
+    function onUnwrap(address, address, uint256 shares) external override returns (uint256) {
+        return shares;
+    }
 }
 
 // Hook that tracks recipient overrides (can't actually override since contract sends directly)
@@ -143,6 +177,15 @@ contract RecipientRedemptionHook is IERC20xDHook {
     function onSettleLiquidity(bytes32, uint256, address, int256) external override { }
     function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
     function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
+
+    function onWrap(address, address, uint256 amount) external override returns (uint256) {
+        return amount;
+    }
+
+    function onUnwrap(address, address, uint256 shares) external override returns (uint256) {
+        // Can't actually redirect since contract handles transfer
+        return shares;
+    }
 }
 
 contract WrappedERC20xDHooksTest is Test {

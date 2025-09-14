@@ -9,7 +9,7 @@ interface INativexD is IBaseERC20xD {
     //////////////////////////////////////////////////////////////*/
 
     event Wrap(address indexed to, uint256 amount);
-    event Unwrap(address indexed to, uint256 amount);
+    event Unwrap(address indexed to, uint256 shares, uint256 assets);
 
     /*//////////////////////////////////////////////////////////////
                             VIEW FUNCTIONS

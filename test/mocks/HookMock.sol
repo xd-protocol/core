@@ -54,6 +54,22 @@ contract HookMock is IERC20xDHook {
         bytes value;
     }
 
+    struct WrapCall {
+        address from;
+        address to;
+        uint256 amount;
+        uint256 returnedAmount;
+        uint256 timestamp;
+    }
+
+    struct UnwrapCall {
+        address from;
+        address to;
+        uint256 shares;
+        uint256 returnedAmount;
+        uint256 timestamp;
+    }
+
     InitiateTransferCall[] public initiateTransferCalls;
     GlobalAvailabilityCall[] public globalAvailabilityCalls;
     TransferCall[] public beforeTransferCalls;
@@ -62,6 +78,8 @@ contract HookMock is IERC20xDHook {
     SettleLiquidityCall[] public settleLiquidityCalls;
     SettleTotalLiquidityCall[] public settleTotalLiquidityCalls;
     SettleDataCall[] public settleDataCalls;
+    WrapCall[] public wrapCalls;
+    UnwrapCall[] public unwrapCalls;
 
     bool public shouldRevertOnInitiate;
     bool public shouldRevertOnGlobalAvailability;
@@ -71,6 +89,8 @@ contract HookMock is IERC20xDHook {
     bool public shouldRevertOnSettleLiquidity;
     bool public shouldRevertOnSettleTotalLiquidity;
     bool public shouldRevertOnSettleData;
+    bool public shouldRevertOnWrap;
+    bool public shouldRevertOnUnwrap;
 
     string public revertReason = "HookMock: Intentional revert";
 
@@ -235,5 +255,45 @@ contract HookMock is IERC20xDHook {
 
     function setRevertReason(string memory _reason) external {
         revertReason = _reason;
+    }
+
+    function onWrap(address from, address to, uint256 amount) external override returns (uint256) {
+        if (shouldRevertOnWrap) {
+            revert(revertReason);
+        }
+        uint256 returnedAmount = amount; // Default: return same amount
+        wrapCalls.push(
+            WrapCall({ from: from, to: to, amount: amount, returnedAmount: returnedAmount, timestamp: block.timestamp })
+        );
+        return returnedAmount;
+    }
+
+    function onUnwrap(address from, address to, uint256 shares) external override returns (uint256) {
+        if (shouldRevertOnUnwrap) {
+            revert(revertReason);
+        }
+        uint256 returnedAmount = shares; // Default: return same amount as shares
+        unwrapCalls.push(
+            UnwrapCall({ from: from, to: to, shares: shares, returnedAmount: returnedAmount, timestamp: block.timestamp })
+        );
+        return returnedAmount;
+    }
+
+    // Getters for wrap/unwrap call counts
+    function getWrapCallCount() external view returns (uint256) {
+        return wrapCalls.length;
+    }
+
+    function getUnwrapCallCount() external view returns (uint256) {
+        return unwrapCalls.length;
+    }
+
+    // Setters for wrap/unwrap revert flags
+    function setShouldRevertOnWrap(bool _shouldRevert) external {
+        shouldRevertOnWrap = _shouldRevert;
+    }
+
+    function setShouldRevertOnUnwrap(bool _shouldRevert) external {
+        shouldRevertOnUnwrap = _shouldRevert;
     }
 }

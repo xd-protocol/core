@@ -32,20 +32,25 @@ abstract contract BaseERC20xDHook is IERC20xDHook {
         bytes memory data
     ) external { }
 
-    function onReadGlobalAvailability(address account, int256 globalAvailability) external virtual { }
+    function onReadGlobalAvailability(address, int256) external virtual { }
 
-    function beforeTransfer(address from, address to, uint256 amount, bytes memory data) external virtual { }
+    function beforeTransfer(address, address, uint256, bytes memory) external virtual { }
 
-    function afterTransfer(address from, address to, uint256 amount, bytes memory data) external virtual { }
+    function afterTransfer(address, address, uint256, bytes memory) external virtual { }
 
-    function onMapAccounts(bytes32 chainUID, address remoteAccount, address localAccount) external virtual { }
+    function onMapAccounts(bytes32, address, address) external virtual { }
 
-    function onSettleLiquidity(bytes32 chainUID, uint256 timestamp, address account, int256 liquidity)
-        external
-        virtual
-    { }
+    function onSettleLiquidity(bytes32, uint256, address, int256) external virtual { }
 
-    function onSettleTotalLiquidity(bytes32 chainUID, uint256 timestamp, int256 totalLiquidity) external virtual { }
+    function onSettleTotalLiquidity(bytes32, uint256, int256) external virtual { }
 
-    function onSettleData(bytes32 chainUID, uint256 timestamp, bytes32 key, bytes memory value) external virtual { }
+    function onSettleData(bytes32, uint256, bytes32, bytes memory) external virtual { }
+
+    function onWrap(address, address, uint256 amount) external payable virtual returns (uint256) {
+        return amount;
+    }
+
+    function onUnwrap(address, address, uint256 shares) external virtual returns (uint256) {
+        return shares;
+    }
 }
