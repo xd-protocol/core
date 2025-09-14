@@ -229,4 +229,140 @@ contract NativexDTest is BaseERC20xDTestHelper {
         assertEq(actualFee, expectedFee);
         assertGt(actualFee, 0); // Should be non-zero for cross-chain messaging
     }
+
+    /*//////////////////////////////////////////////////////////////
+                        ROUND-TRIP TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_wrapUnwrap_roundTrip() public {
+        NativexD wrapped = NativexD(payable(address(erc20s[0])));
+        uint256 wrapAmount = 100 ether;
+
+        uint256 aliceInitialBalance = alice.balance;
+
+        // Wrap native tokens
+        vm.prank(alice);
+        wrapped.wrap{ value: wrapAmount }(alice);
+
+        assertEq(wrapped.balanceOf(alice), wrapAmount);
+        assertEq(alice.balance, aliceInitialBalance - wrapAmount);
+
+        // Unwrap all tokens
+        uint256 fee = wrapped.quoteUnwrap(500_000);
+        vm.prank(alice);
+        wrapped.unwrap{ value: fee }(alice, wrapAmount, abi.encode(uint128(500_000), alice));
+
+        // Simulate gateway response to complete unwrap
+        _simulateGatewayResponse(wrapped, 1, 0);
+
+        // Should have original balance minus gas fees
+        assertEq(wrapped.balanceOf(alice), 0);
+        assertEq(alice.balance, aliceInitialBalance - fee); // Original minus only the unwrap fee
+    }
+
+    function test_wrapUnwrap_partialAmounts() public {
+        NativexD wrapped = NativexD(payable(address(erc20s[0])));
+        uint256 wrapAmount = 100 ether;
+        uint256 unwrapAmount = 40 ether;
+
+        // Wrap
+        vm.prank(alice);
+        wrapped.wrap{ value: wrapAmount }(alice);
+        assertEq(wrapped.balanceOf(alice), wrapAmount);
+
+        // Partial unwrap
+        uint256 fee = wrapped.quoteUnwrap(500_000);
+        vm.prank(alice);
+        wrapped.unwrap{ value: fee }(alice, unwrapAmount, abi.encode(uint128(500_000), alice));
+
+        _simulateGatewayResponse(wrapped, 1, 0);
+
+        // Should have remaining wrapped tokens
+        assertEq(wrapped.balanceOf(alice), wrapAmount - unwrapAmount);
+    }
+
+    function test_wrapUnwrap_multipleUsers() public {
+        NativexD wrapped = NativexD(payable(address(erc20s[0])));
+
+        // Alice wraps
+        vm.prank(alice);
+        wrapped.wrap{ value: 75 ether }(alice);
+
+        // Bob wraps
+        vm.prank(bob);
+        wrapped.wrap{ value: 50 ether }(bob);
+
+        assertEq(wrapped.totalSupply(), 125 ether);
+
+        // Alice unwraps partial
+        uint256 fee1 = wrapped.quoteUnwrap(500_000);
+        vm.prank(alice);
+        wrapped.unwrap{ value: fee1 }(alice, 25 ether, abi.encode(uint128(500_000), alice));
+
+        // Bob unwraps full
+        uint256 fee2 = wrapped.quoteUnwrap(500_000);
+        vm.prank(bob);
+        wrapped.unwrap{ value: fee2 }(bob, 50 ether, abi.encode(uint128(500_000), bob));
+
+        // Simulate responses
+        _simulateGatewayResponse(wrapped, 1, 0); // Alice's unwrap
+        _simulateGatewayResponse(wrapped, 2, 0); // Bob's unwrap
+
+        // Verify final balances
+        assertEq(wrapped.balanceOf(alice), 50 ether); // 75 - 25
+        assertEq(wrapped.balanceOf(bob), 0); // All unwrapped
+        assertEq(wrapped.totalSupply(), 50 ether);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        EDGE CASE TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_wrap_maxAmount() public {
+        NativexD wrapped = NativexD(payable(address(erc20s[0])));
+        uint256 maxAmount = alice.balance - 1 ether; // Leave some for gas
+
+        vm.prank(alice);
+        wrapped.wrap{ value: maxAmount }(alice);
+
+        assertEq(wrapped.balanceOf(alice), maxAmount);
+        assertLe(alice.balance, 1 ether); // Should have less than or equal to 1 ether left
+    }
+
+    function test_unwrap_withInsufficientBalance_reverts() public {
+        NativexD wrapped = NativexD(payable(address(erc20s[0])));
+
+        // Wrap some tokens
+        vm.prank(alice);
+        wrapped.wrap{ value: 10 ether }(alice);
+
+        // Try to unwrap more than balance
+        uint256 fee = wrapped.quoteUnwrap(500_000);
+        vm.prank(alice);
+        vm.expectRevert(); // Should revert due to insufficient balance
+        wrapped.unwrap{ value: fee }(alice, 20 ether, abi.encode(uint128(500_000), alice));
+    }
+
+    function test_contractReceivesNativeTokens() public {
+        NativexD wrapped = NativexD(payable(address(erc20s[0])));
+
+        // Wrap tokens - contract should receive them
+        uint256 contractBalanceBefore = address(wrapped).balance;
+
+        vm.prank(alice);
+        wrapped.wrap{ value: 10 ether }(alice);
+
+        assertEq(address(wrapped).balance, contractBalanceBefore + 10 ether);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        HELPER FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    function _simulateGatewayResponse(NativexD wrapped, uint256 nonce, int256 globalAvailability) internal {
+        // Simulate the gateway calling back with global availability
+        address gateway = address(gateways[0]); // Use the first gateway from test setup
+        vm.prank(gateway);
+        wrapped.onRead(abi.encode(globalAvailability), abi.encode(nonce));
+    }
 }

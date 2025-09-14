@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import { BaseERC20xD } from "./mixins/BaseERC20xD.sol";
+import { IBaseERC20xD } from "./interfaces/IBaseERC20xD.sol";
 import { INativexD } from "./interfaces/INativexD.sol";
 import { IERC20xDHook } from "./interfaces/IERC20xDHook.sol";
 import { AddressLib } from "./libraries/AddressLib.sol";
@@ -91,9 +92,11 @@ contract NativexD is BaseERC20xD, INativexD {
     {
         if (to == address(0)) revert InvalidAddress();
 
-        // Pass recipient address in callData for hooks to use
-        // The actual burn and native transfer will happen in _transferFrom after cross-chain check
-        guid = _transfer(msg.sender, address(0), amount, abi.encode(to), 0, data);
+        // Encode the recipient address with the callData for the burn operation
+        bytes memory callData = abi.encode(to);
+
+        // The actual burn and native transfer will happen in _executePendingTransfer after cross-chain check
+        guid = _transfer(msg.sender, address(0), amount, callData, 0, data);
     }
 
     /// @inheritdoc INativexD
@@ -103,35 +106,40 @@ contract NativexD is BaseERC20xD, INativexD {
     }
 
     /**
-     * @dev Override _transferFrom to handle unwrap logic when burning tokens
+     * @dev Override _executePendingTransfer to handle unwrap logic
      */
-    function _transferFrom(address from, address to, uint256 amount, bytes memory data) internal virtual override {
-        // Call parent implementation first to handle the burn
-        super._transferFrom(from, to, amount, data);
+    function _executePendingTransfer(IBaseERC20xD.PendingTransfer memory pending) internal virtual override {
+        // For burns (unwraps), handle the recipient from callData
+        if (pending.to == address(0) && pending.callData.length > 0) {
+            // Decode the recipient from callData
+            address recipient = abi.decode(pending.callData, (address));
 
-        // If this is a burn (unwrap), handle native token transfer
-        if (to == address(0) && from != address(0)) {
-            // Decode the recipient address from data (passed from unwrap function)
-            address recipient = abi.decode(data, (address));
-            if (recipient == address(0)) revert InvalidAddress();
+            // Perform the burn
+            _transferFrom(pending.from, address(0), pending.amount, pending.data);
 
+            // Handle native token transfer
             address _hook = hook;
-            uint256 underlyingAmount = amount;
+            uint256 underlyingAmount = pending.amount;
 
             if (_hook != address(0)) {
                 // Call onUnwrap hook to get actual amount of native tokens to return
-                try IERC20xDHook(_hook).onUnwrap(from, recipient, amount) returns (uint256 _underlyingAmount) {
+                try IERC20xDHook(_hook).onUnwrap(pending.from, recipient, pending.amount) returns (
+                    uint256 _underlyingAmount
+                ) {
                     underlyingAmount = _underlyingAmount;
                     // Hook should have transferred the native tokens to this contract
                 } catch (bytes memory reason) {
-                    emit OnUnwrapHookFailure(_hook, from, recipient, amount, reason);
+                    emit OnUnwrapHookFailure(_hook, pending.from, recipient, pending.amount, reason);
                     // Continue with original amount if hook fails
                 }
             }
 
             // Send native tokens to the recipient
             AddressLib.transferNative(recipient, underlyingAmount);
-            emit Unwrap(recipient, amount, underlyingAmount);
+            emit Unwrap(recipient, pending.amount, underlyingAmount);
+        } else {
+            // For normal transfers, use parent implementation
+            super._executePendingTransfer(pending);
         }
     }
 }

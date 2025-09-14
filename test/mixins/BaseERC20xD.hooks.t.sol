@@ -15,7 +15,7 @@ import {
 import { ERC20xDMock } from "../mocks/ERC20xDMock.sol";
 import { LiquidityMatrixMock } from "../mocks/LiquidityMatrixMock.sol";
 import { LayerZeroGatewayMock } from "../mocks/LayerZeroGatewayMock.sol";
-import { HookMock } from "../mocks/HookMock.sol";
+import { HookMock } from "../mocks/hooks/HookMock.sol";
 
 // Contract to track the order of hook calls using a shared counter
 contract CallOrderTracker {
@@ -75,7 +75,7 @@ contract OrderTrackingHook is IERC20xDHook {
         onSettleDataCallOrder = tracker.incrementAndGet();
     }
 
-    function onWrap(address, address, uint256 amount) external override returns (uint256) {
+    function onWrap(address, address, uint256 amount) external payable override returns (uint256) {
         return amount; // No modification
     }
 

@@ -3,116 +3,20 @@ pragma solidity ^0.8.28;
 
 import { Test } from "forge-std/Test.sol";
 import { WrappedERC20xD } from "src/WrappedERC20xD.sol";
+import { IWrappedERC20xD } from "src/interfaces/IWrappedERC20xD.sol";
 import { BaseERC20xD } from "src/mixins/BaseERC20xD.sol";
 import { IBaseERC20xD } from "src/interfaces/IBaseERC20xD.sol";
 import { IERC20xDHook } from "src/interfaces/IERC20xDHook.sol";
 import { ERC20Mock } from "./mocks/ERC20Mock.sol";
 import { LiquidityMatrixMock } from "./mocks/LiquidityMatrixMock.sol";
 import { LayerZeroGatewayMock } from "./mocks/LayerZeroGatewayMock.sol";
+import { SimpleRedemptionHookMock } from "./mocks/hooks/SimpleRedemptionHookMock.sol";
+import { FailingRedemptionHookMock } from "./mocks/hooks/FailingRedemptionHookMock.sol";
+import { OrderTrackingHookMock } from "./mocks/hooks/OrderTrackingHookMock.sol";
+import { YieldVaultHookMock } from "./mocks/hooks/YieldVaultHookMock.sol";
+import { HookMock } from "./mocks/hooks/HookMock.sol";
+import { CallOrderTrackerMock } from "./mocks/CallOrderTrackerMock.sol";
 import { SafeTransferLib, ERC20 } from "solmate/utils/SafeTransferLib.sol";
-
-// Hook that tracks redemptions (no longer needs to transfer since contract does it)
-contract SimpleRedemptionHook is IERC20xDHook {
-    using SafeTransferLib for ERC20;
-
-    address public immutable wrappedToken;
-    address public immutable underlying;
-
-    event Redeemed(address indexed recipient, uint256 amount);
-
-    constructor(address _wrappedToken, address _underlying) {
-        wrappedToken = _wrappedToken;
-        underlying = _underlying;
-    }
-
-    function afterTransfer(address from, address to, uint256 amount, bytes memory) external override {
-        if (msg.sender != wrappedToken) return;
-        if (to != address(0)) return; // Only process burns
-
-        // Just emit event - underlying already transferred by contract
-        emit Redeemed(from, amount);
-    }
-
-    // Empty implementations for other hooks
-    function onInitiateTransfer(address, address, uint256, bytes memory, uint256, bytes memory) external override { }
-    function onReadGlobalAvailability(address, int256) external override { }
-    function beforeTransfer(address, address, uint256, bytes memory) external override { }
-    function onMapAccounts(bytes32, address, address) external override { }
-    function onSettleLiquidity(bytes32, uint256, address, int256) external override { }
-    function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
-    function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
-
-    function onWrap(address, address, uint256 amount) external payable override returns (uint256) {
-        return amount; // No modification
-    }
-
-    function onUnwrap(address from, address, uint256 shares) external override returns (uint256) {
-        // Transfer underlying back to wrapped token contract
-        ERC20(underlying).safeTransfer(wrappedToken, shares);
-        return shares; // No yield
-    }
-}
-
-// Hook that fails during redemption
-contract FailingRedemptionHook is IERC20xDHook {
-    error RedemptionFailed();
-
-    function afterTransfer(address, address to, uint256, bytes memory) external pure override {
-        if (to == address(0)) revert RedemptionFailed();
-    }
-
-    function onInitiateTransfer(address, address, uint256, bytes memory, uint256, bytes memory) external override { }
-    function onReadGlobalAvailability(address, int256) external override { }
-    function beforeTransfer(address, address, uint256, bytes memory) external override { }
-    function onMapAccounts(bytes32, address, address) external override { }
-    function onSettleLiquidity(bytes32, uint256, address, int256) external override { }
-    function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
-    function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
-
-    function onWrap(address, address, uint256) external pure override returns (uint256) {
-        revert RedemptionFailed();
-    }
-
-    function onUnwrap(address, address, uint256) external pure override returns (uint256) {
-        revert RedemptionFailed();
-    }
-}
-
-// Hook that tracks call order
-contract OrderTrackingHook is IERC20xDHook {
-    uint256 public callOrder;
-    uint256 public lastCallTimestamp;
-    address public lastFrom;
-    address public lastTo;
-    uint256 public lastAmount;
-
-    constructor(uint256 _order) {
-        callOrder = _order;
-    }
-
-    function afterTransfer(address from, address to, uint256 amount, bytes memory) external override {
-        lastCallTimestamp = block.timestamp;
-        lastFrom = from;
-        lastTo = to;
-        lastAmount = amount;
-    }
-
-    function onInitiateTransfer(address, address, uint256, bytes memory, uint256, bytes memory) external override { }
-    function onReadGlobalAvailability(address, int256) external override { }
-    function beforeTransfer(address, address, uint256, bytes memory) external override { }
-    function onMapAccounts(bytes32, address, address) external override { }
-    function onSettleLiquidity(bytes32, uint256, address, int256) external override { }
-    function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
-    function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
-
-    function onWrap(address, address, uint256 amount) external override returns (uint256) {
-        return amount;
-    }
-
-    function onUnwrap(address, address, uint256 shares) external override returns (uint256) {
-        return shares;
-    }
-}
 
 // Hook that uses data parameter
 contract DataUsingHook is IERC20xDHook {
@@ -135,7 +39,7 @@ contract DataUsingHook is IERC20xDHook {
     function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
     function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
 
-    function onWrap(address, address, uint256 amount) external override returns (uint256) {
+    function onWrap(address, address, uint256 amount) external payable override returns (uint256) {
         return amount;
     }
 
@@ -178,7 +82,7 @@ contract RecipientRedemptionHook is IERC20xDHook {
     function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
     function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
 
-    function onWrap(address, address, uint256 amount) external override returns (uint256) {
+    function onWrap(address, address, uint256 amount) external payable override returns (uint256) {
         return amount;
     }
 
@@ -196,8 +100,10 @@ contract WrappedERC20xDHooksTest is Test {
     LiquidityMatrixMock public liquidityMatrix;
     LayerZeroGatewayMock public gateway;
 
-    SimpleRedemptionHook public redemptionHook;
-    FailingRedemptionHook public failingHook;
+    SimpleRedemptionHookMock public redemptionHook;
+    FailingRedemptionHookMock public failingHook;
+    YieldVaultHookMock public yieldHook;
+    HookMock public trackingHook;
 
     address constant owner = address(0x1);
     address constant alice = address(0x2);
@@ -208,6 +114,14 @@ contract WrappedERC20xDHooksTest is Test {
         address indexed hook, address indexed from, address indexed to, uint256 amount, bytes reason
     );
     event Redeemed(address indexed recipient, uint256 amount);
+    event Wrap(address indexed to, uint256 amount);
+    event Unwrap(address indexed to, uint256 shares, uint256 assets);
+    event OnWrapHookFailure(
+        address indexed hook, address indexed from, address indexed to, uint256 amount, bytes reason
+    );
+    event OnUnwrapHookFailure(
+        address indexed hook, address indexed from, address indexed to, uint256 shares, bytes reason
+    );
 
     function setUp() public {
         // Deploy mocks
@@ -229,8 +143,10 @@ contract WrappedERC20xDHooksTest is Test {
         wrappedToken.updateReadTarget(bytes32(uint256(1)), bytes32(uint256(uint160(address(wrappedToken)))));
 
         // Deploy hooks
-        redemptionHook = new SimpleRedemptionHook(address(wrappedToken), address(underlying));
-        failingHook = new FailingRedemptionHook();
+        redemptionHook = new SimpleRedemptionHookMock(address(wrappedToken), address(underlying));
+        failingHook = new FailingRedemptionHookMock();
+        yieldHook = new YieldVaultHookMock(address(wrappedToken), address(underlying));
+        trackingHook = new HookMock();
 
         // Setup test accounts
         vm.deal(alice, 10 ether);
@@ -238,6 +154,7 @@ contract WrappedERC20xDHooksTest is Test {
         underlying.mint(alice, 1000e6);
         underlying.mint(bob, 1000e6);
         underlying.mint(address(redemptionHook), 10_000e6); // Fund hook for redemptions
+        underlying.mint(address(yieldHook), 10_000e6); // Fund yield hook
 
         // Approve tokens
         vm.prank(alice);
@@ -255,6 +172,96 @@ contract WrappedERC20xDHooksTest is Test {
         bytes memory message = abi.encode(globalAvailability);
         vm.prank(address(gateway));
         wrappedToken.onRead(message, abi.encode(nonce));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        WRAP WITH HOOKS TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_wrap_withHook_transfersToContract() public {
+        vm.prank(owner);
+        wrappedToken.setHook(address(yieldHook));
+
+        uint256 wrappedBalanceBefore = underlying.balanceOf(address(wrappedToken));
+        uint256 hookBalanceBefore = underlying.balanceOf(address(yieldHook));
+
+        vm.prank(alice);
+        wrappedToken.wrap(alice, 100e6);
+
+        // Tokens should go to contract first, then hook pulls them
+        assertEq(underlying.balanceOf(address(wrappedToken)), wrappedBalanceBefore);
+        assertEq(underlying.balanceOf(address(yieldHook)), hookBalanceBefore + 100e6);
+    }
+
+    function test_wrap_withHook_approvesHook() public {
+        // Create a tracking hook that checks approval
+        HookMock hook = new HookMock();
+        vm.prank(owner);
+        wrappedToken.setHook(address(hook));
+
+        vm.prank(alice);
+        wrappedToken.wrap(alice, 100e6);
+
+        // Verify hook was called
+        assertEq(hook.getWrapCallCount(), 1);
+    }
+
+    function test_wrap_withHook_clearsApproval() public {
+        vm.prank(owner);
+        wrappedToken.setHook(address(yieldHook));
+
+        vm.prank(alice);
+        wrappedToken.wrap(alice, 100e6);
+
+        // Approval should be cleared after wrap
+        assertEq(underlying.allowance(address(wrappedToken), address(yieldHook)), 0);
+    }
+
+    function test_wrap_withHook_mintsCorrectAmount() public {
+        vm.prank(owner);
+        wrappedToken.setHook(address(yieldHook));
+
+        vm.prank(alice);
+        wrappedToken.wrap(alice, 100e6);
+
+        // Should mint the amount returned by hook (same in this case)
+        assertEq(wrappedToken.balanceOf(alice), 100e6);
+    }
+
+    function test_wrap_withHook_emitsCorrectEvents() public {
+        vm.prank(owner);
+        wrappedToken.setHook(address(yieldHook));
+
+        vm.expectEmit(true, false, false, true);
+        emit Wrap(alice, 100e6);
+
+        vm.prank(alice);
+        wrappedToken.wrap(alice, 100e6);
+    }
+
+    function test_wrap_withHookFailure_continuesWithOriginalAmount() public {
+        vm.prank(owner);
+        wrappedToken.setHook(address(failingHook));
+
+        // Expect failure event
+        vm.expectEmit(true, true, true, false);
+        emit OnWrapHookFailure(address(failingHook), alice, alice, 100e6, "");
+
+        vm.prank(alice);
+        wrappedToken.wrap(alice, 100e6);
+
+        // Should still mint original amount despite hook failure
+        assertEq(wrappedToken.balanceOf(alice), 100e6);
+    }
+
+    function test_wrap_withoutHook_worksNormally() public {
+        // No hook set
+        vm.prank(alice);
+        wrappedToken.wrap(alice, 100e6);
+
+        // Tokens should go directly to contract
+        assertEq(underlying.balanceOf(address(wrappedToken)), 100e6);
+        assertEq(wrappedToken.balanceOf(alice), 100e6);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -347,7 +354,8 @@ contract WrappedERC20xDHooksTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_singleHookExecutionOrder() public {
-        OrderTrackingHook hook1 = new OrderTrackingHook(1);
+        CallOrderTrackerMock tracker = new CallOrderTrackerMock();
+        OrderTrackingHookMock hook1 = new OrderTrackingHookMock(tracker);
 
         // Set single hook
         vm.prank(owner);
@@ -365,8 +373,9 @@ contract WrappedERC20xDHooksTest is Test {
         _simulateGatewayResponse(1, 0);
 
         // Verify hook was called with correct parameters
+        // The onUnwrap hook is called with recipient (alice) as the 'to' parameter
         assertEq(hook1.lastFrom(), alice);
-        assertEq(hook1.lastTo(), address(0));
+        assertEq(hook1.lastTo(), alice); // onUnwrap receives recipient, not address(0)
         assertEq(hook1.lastAmount(), 25e6);
     }
 
@@ -486,4 +495,159 @@ contract WrappedERC20xDHooksTest is Test {
         assertEq(underlying.balanceOf(alice), 950e6); // Alice gets the underlying
         assertEq(underlying.balanceOf(bob), 1000e6); // Bob unchanged
     }
+
+    /*//////////////////////////////////////////////////////////////
+                     ADDITIONAL UNWRAP HOOK TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_unwrap_withHook_burnsSharesFirst() public {
+        // Setup: wrap first
+        vm.prank(owner);
+        wrappedToken.setHook(address(yieldHook));
+
+        vm.prank(alice);
+        wrappedToken.wrap(alice, 100e6);
+
+        uint256 sharesBefore = wrappedToken.balanceOf(alice);
+
+        // Unwrap initiates transfer
+        uint256 fee = wrappedToken.quoteUnwrap(500_000);
+        vm.prank(alice);
+        wrappedToken.unwrap{ value: fee }(alice, 50e6, abi.encode(uint128(500_000), alice));
+
+        // At this point, transfer is pending, shares not burned yet
+        assertEq(wrappedToken.balanceOf(alice), sharesBefore);
+
+        // Simulate gateway callback to complete unwrap
+        _simulateGatewayResponse(1, 0);
+
+        // Now shares should be burned
+        assertEq(wrappedToken.balanceOf(alice), sharesBefore - 50e6);
+    }
+
+    function test_unwrap_withHook_returnsMoreThanShares() public {
+        // Setup: wrap and accrue yield
+        vm.prank(owner);
+        wrappedToken.setHook(address(yieldHook));
+
+        vm.prank(alice);
+        wrappedToken.wrap(alice, 100e6);
+
+        // Simulate 10% yield accrual
+        yieldHook.accrueYield();
+
+        // Unwrap half the shares
+        uint256 fee = wrappedToken.quoteUnwrap(500_000);
+
+        vm.prank(alice);
+        wrappedToken.unwrap{ value: fee }(alice, 50e6, abi.encode(uint128(500_000), alice));
+
+        // Expect event during gateway response
+        vm.expectEmit(true, false, false, true);
+        emit Unwrap(alice, 50e6, 55e6); // Expect 50e6 shares to return 55e6 assets (10% yield)
+
+        _simulateGatewayResponse(1, 0);
+
+        // Alice should receive more underlying than shares burned
+        assertEq(underlying.balanceOf(alice), 1000e6 - 100e6 + 55e6); // Initial - wrapped + unwrapped with yield
+    }
+
+    function test_unwrap_withHook_emitsCorrectEvent() public {
+        // Setup
+        vm.prank(owner);
+        wrappedToken.setHook(address(yieldHook));
+
+        vm.prank(alice);
+        wrappedToken.wrap(alice, 100e6);
+
+        // Test unwrap event
+        uint256 fee = wrappedToken.quoteUnwrap(500_000);
+
+        vm.prank(alice);
+        wrappedToken.unwrap{ value: fee }(alice, 30e6, abi.encode(uint128(500_000), alice));
+
+        // Expect event during gateway response
+        vm.expectEmit(true, false, false, true);
+        emit Unwrap(alice, 30e6, 30e6); // No yield, so shares == assets
+
+        _simulateGatewayResponse(1, 0);
+    }
+
+    function test_unwrap_withHookFailure_returnsOriginalAmount() public {
+        // Setup with failing hook
+        vm.prank(owner);
+        wrappedToken.setHook(address(failingHook));
+
+        // Wrap first (will fail but continue)
+        vm.prank(alice);
+        wrappedToken.wrap(alice, 100e6);
+
+        // Unwrap with failing hook
+        uint256 fee = wrappedToken.quoteUnwrap(500_000);
+
+        vm.prank(alice);
+        wrappedToken.unwrap{ value: fee }(alice, 50e6, abi.encode(uint128(500_000), alice));
+
+        // Expect hook failure event during gateway response
+        vm.expectEmit(true, true, true, false);
+        emit OnUnwrapHookFailure(address(failingHook), alice, alice, 50e6, "");
+
+        _simulateGatewayResponse(1, 0);
+
+        // Should still return original amount despite hook failure
+        assertEq(underlying.balanceOf(alice), 1000e6 - 100e6 + 50e6);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        ROUND-TRIP TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_wrapUnwrap_roundTrip_noYield() public {
+        // Wrap
+        vm.prank(alice);
+        wrappedToken.wrap(alice, 100e6);
+
+        assertEq(wrappedToken.balanceOf(alice), 100e6);
+        assertEq(underlying.balanceOf(alice), 900e6);
+
+        // Unwrap
+        uint256 fee = wrappedToken.quoteUnwrap(500_000);
+        vm.prank(alice);
+        wrappedToken.unwrap{ value: fee }(alice, 100e6, abi.encode(uint128(500_000), alice));
+
+        _simulateGatewayResponse(1, 0);
+
+        // Should have original balance
+        assertEq(wrappedToken.balanceOf(alice), 0);
+        assertEq(underlying.balanceOf(alice), 1000e6);
+    }
+
+    function test_wrapUnwrap_roundTrip_withYield() public {
+        // Setup with yield hook
+        vm.prank(owner);
+        wrappedToken.setHook(address(yieldHook));
+
+        // Wrap
+        vm.prank(alice);
+        wrappedToken.wrap(alice, 100e6);
+
+        // Accrue 20% yield
+        yieldHook.setYieldPercentage(2000);
+        yieldHook.accrueYield();
+
+        // Unwrap all
+        uint256 fee = wrappedToken.quoteUnwrap(500_000);
+        vm.prank(alice);
+        wrappedToken.unwrap{ value: fee }(alice, 100e6, abi.encode(uint128(500_000), alice));
+
+        _simulateGatewayResponse(1, 0);
+
+        // Should have original + yield
+        assertEq(wrappedToken.balanceOf(alice), 0);
+        assertEq(underlying.balanceOf(alice), 1000e6 - 100e6 + 120e6); // 20% yield on 100e6
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            HELPER FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 }

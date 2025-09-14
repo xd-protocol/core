@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL
 pragma solidity ^0.8.28;
 
-import { IERC20xDHook } from "src/interfaces/IERC20xDHook.sol";
+import { IERC20xDHook } from "../../../src/interfaces/IERC20xDHook.sol";
 
 contract HookMock is IERC20xDHook {
     struct InitiateTransferCall {
@@ -257,7 +257,7 @@ contract HookMock is IERC20xDHook {
         revertReason = _reason;
     }
 
-    function onWrap(address from, address to, uint256 amount) external override returns (uint256) {
+    function onWrap(address from, address to, uint256 amount) external payable override returns (uint256) {
         if (shouldRevertOnWrap) {
             revert(revertReason);
         }
