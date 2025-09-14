@@ -219,9 +219,9 @@ contract WrappedERC20xDHooksTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_unwrapWithRedemptionHook() public {
-        // Add redemption hook
+        // Set redemption hook
         vm.prank(owner);
-        wrappedToken.addHook(address(redemptionHook));
+        wrappedToken.setHook(address(redemptionHook));
 
         // Alice wraps tokens
         vm.prank(alice);
@@ -248,7 +248,7 @@ contract WrappedERC20xDHooksTest is Test {
 
     function test_unwrapFullAmountWithHook() public {
         vm.prank(owner);
-        wrappedToken.addHook(address(redemptionHook));
+        wrappedToken.setHook(address(redemptionHook));
 
         // Wrap and unwrap full amount
         vm.prank(alice);
@@ -271,9 +271,9 @@ contract WrappedERC20xDHooksTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_unwrapWithFailingHook_stillBurnsTokens() public {
-        // Add failing hook
+        // Set failing hook
         vm.prank(owner);
-        wrappedToken.addHook(address(failingHook));
+        wrappedToken.setHook(address(failingHook));
 
         // Alice wraps tokens
         vm.prank(alice);
@@ -297,49 +297,18 @@ contract WrappedERC20xDHooksTest is Test {
         assertEq(underlying.balanceOf(alice), 950e6);
     }
 
-    function test_unwrapWithMultipleHooks_oneFails() public {
-        // Add both hooks
-        vm.prank(owner);
-        wrappedToken.addHook(address(redemptionHook));
-        vm.prank(owner);
-        wrappedToken.addHook(address(failingHook));
-
-        // Wrap tokens
-        vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
-
-        // Unwrap - redemption succeeds, failing hook fails
-        uint256 fee = wrappedToken.quoteTransfer(alice, 500_000);
-
-        vm.prank(alice);
-        wrappedToken.unwrap{ value: fee }(alice, 30e6, "");
-
-        // Simulate gateway response - both events happen here
-        vm.expectEmit(true, false, false, true);
-        emit Redeemed(alice, 30e6);
-
-        _simulateGatewayResponse(1, 0);
-
-        // Verify: Redemption still happened despite one hook failing
-        assertEq(wrappedToken.balanceOf(alice), 70e6);
-        assertEq(underlying.balanceOf(alice), 930e6); // Redeemed despite failure
-    }
+    // Note: Multiple hooks test removed since we now support only single hook
 
     /*//////////////////////////////////////////////////////////////
-                     MULTIPLE HOOKS ORDERING TESTS
+                     SINGLE HOOK TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_multipleHooksExecutionOrder() public {
+    function test_singleHookExecutionOrder() public {
         OrderTrackingHook hook1 = new OrderTrackingHook(1);
-        OrderTrackingHook hook2 = new OrderTrackingHook(2);
-        OrderTrackingHook hook3 = new OrderTrackingHook(3);
 
-        // Add hooks in order
-        vm.startPrank(owner);
-        wrappedToken.addHook(address(hook1));
-        wrappedToken.addHook(address(hook2));
-        wrappedToken.addHook(address(hook3));
-        vm.stopPrank();
+        // Set single hook
+        vm.prank(owner);
+        wrappedToken.setHook(address(hook1));
 
         // Wrap and unwrap
         vm.prank(alice);
@@ -352,18 +321,10 @@ contract WrappedERC20xDHooksTest is Test {
         // Simulate gateway response
         _simulateGatewayResponse(1, 0);
 
-        // Verify all hooks were called with correct parameters
+        // Verify hook was called with correct parameters
         assertEq(hook1.lastFrom(), alice);
         assertEq(hook1.lastTo(), address(0));
         assertEq(hook1.lastAmount(), 25e6);
-
-        assertEq(hook2.lastFrom(), alice);
-        assertEq(hook2.lastTo(), address(0));
-        assertEq(hook2.lastAmount(), 25e6);
-
-        assertEq(hook3.lastFrom(), alice);
-        assertEq(hook3.lastTo(), address(0));
-        assertEq(hook3.lastAmount(), 25e6);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -396,7 +357,7 @@ contract WrappedERC20xDHooksTest is Test {
         DataUsingHook dataHook = new DataUsingHook();
 
         vm.prank(owner);
-        wrappedToken.addHook(address(dataHook));
+        wrappedToken.setHook(address(dataHook));
 
         // Wrap tokens
         vm.prank(alice);
@@ -423,7 +384,7 @@ contract WrappedERC20xDHooksTest is Test {
 
     function test_concurrentUnwrapsFromMultipleUsers() public {
         vm.prank(owner);
-        wrappedToken.addHook(address(redemptionHook));
+        wrappedToken.setHook(address(redemptionHook));
 
         // Multiple users wrap
         vm.prank(alice);
@@ -464,7 +425,7 @@ contract WrappedERC20xDHooksTest is Test {
         recipientHook.setRecipientOverride(alice, bob);
 
         vm.prank(owner);
-        wrappedToken.addHook(address(recipientHook));
+        wrappedToken.setHook(address(recipientHook));
 
         // Alice wraps and unwraps
         vm.prank(alice);

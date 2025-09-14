@@ -47,8 +47,6 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
     error NotComposing();
     error UnauthorizedComposeSpender();
     error UnauthorizedComposeSource();
-    error HookAlreadyAdded();
-    error HookNotFound();
 
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
@@ -61,8 +59,7 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
         address indexed from, address indexed to, uint256 amount, uint256 value, uint256 indexed nonce
     );
     event CancelPendingTransfer(uint256 indexed nonce);
-    event HookAdded(address indexed hook);
-    event HookRemoved(address indexed hook);
+    event SetHook(address indexed oldHook, address indexed newHook);
     event OnInitiateTransferHookFailure(
         address indexed hook, address indexed from, address indexed to, uint256 amount, uint256 value, bytes reason
     );
@@ -114,20 +111,6 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
      * @return The UserWalletFactory contract address
      */
     function walletFactory() external view returns (address);
-
-    /**
-     * @notice Returns the hook address at a specific index
-     * @param index The index of the hook to retrieve
-     * @return The hook contract address
-     */
-    function hooks(uint256 index) external view returns (address);
-
-    /**
-     * @notice Checks if an address is a registered hook
-     * @param hook The address to check
-     * @return True if the address is a registered hook
-     */
-    function isHook(address hook) external view returns (bool);
 
     /**
      * @notice Returns the pending transfer nonce for an account
@@ -229,22 +212,16 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
     function updateRemoteApp(bytes32 chainUID, address app, uint256 appIndex) external;
 
     /**
-     * @notice Adds a hook to the token
-     * @param hook The hook address to add
+     * @notice Sets the hook for the token (replacing any existing hook)
+     * @param newHook The hook address to set (address(0) to remove hook)
      */
-    function addHook(address hook) external;
+    function setHook(address newHook) external;
 
     /**
-     * @notice Removes a hook from the token
-     * @param hook The hook address to remove
+     * @notice Returns the current hook address
+     * @return The hook address (address(0) if no hook set)
      */
-    function removeHook(address hook) external;
-
-    /**
-     * @notice Returns all registered hooks
-     * @return Array of hook addresses
-     */
-    function getHooks() external view returns (address[] memory);
+    function getHook() external view returns (address);
 
     /**
      * @notice Transfers tokens with encoded cross-chain parameters

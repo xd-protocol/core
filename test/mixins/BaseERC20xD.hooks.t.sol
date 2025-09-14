@@ -90,8 +90,7 @@ contract BaseERC20xDHooksTest is Test {
     address charlie = makeAddr("charlie");
     address settler = makeAddr("settler");
 
-    event HookAdded(address indexed hook);
-    event HookRemoved(address indexed hook);
+    event SetHook(address indexed oldHook, address indexed newHook);
     event OnInitiateTransferHookFailure(
         address indexed hook, address indexed from, address indexed to, uint256 amount, uint256 value, bytes reason
     );
@@ -162,108 +161,73 @@ contract BaseERC20xDHooksTest is Test {
     }
 
     /*//////////////////////////////////////////////////////////////
-                            addHook TESTS
+                            setHook TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_addHook() public {
-        // Add first hook
-        vm.expectEmit(true, false, false, false);
-        emit HookAdded(address(hook1));
+    function test_setHook() public {
+        // Set first hook
+        vm.expectEmit(true, true, false, false);
+        emit SetHook(address(0), address(hook1));
 
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
-        // Verify hook was added
-        assertTrue(token.isHook(address(hook1)));
-        address[] memory hooks = token.getHooks();
-        assertEq(hooks.length, 1);
-        assertEq(hooks[0], address(hook1));
+        // Verify hook was set
+        assertEq(token.getHook(), address(hook1));
     }
 
-    function test_addHook_revertZeroAddress() public {
+    function test_setHook_replaceExisting() public {
+        // Set first hook
         vm.prank(owner);
-        vm.expectRevert(IBaseERC20xD.InvalidAddress.selector);
-        token.addHook(address(0));
+        token.setHook(address(hook1));
+
+        // Replace with second hook
+        vm.expectEmit(true, true, false, false);
+        emit SetHook(address(hook1), address(hook2));
+
+        vm.prank(owner);
+        token.setHook(address(hook2));
+
+        // Verify hook was replaced
+        assertEq(token.getHook(), address(hook2));
     }
 
-    function test_addHook_revertAlreadyAdded() public {
-        vm.startPrank(owner);
-        token.addHook(address(hook1));
+    function test_setHook_clearHook() public {
+        // Set hook first
+        vm.prank(owner);
+        token.setHook(address(hook1));
 
-        vm.expectRevert(IBaseERC20xD.HookAlreadyAdded.selector);
-        token.addHook(address(hook1));
-        vm.stopPrank();
+        // Clear hook
+        vm.expectEmit(true, true, false, false);
+        emit SetHook(address(hook1), address(0));
+
+        vm.prank(owner);
+        token.setHook(address(0));
+
+        // Verify hook was cleared
+        assertEq(token.getHook(), address(0));
     }
 
-    function test_addHook_revertNonOwner() public {
+    function test_setHook_revertNonOwner() public {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
     }
 
     /*//////////////////////////////////////////////////////////////
-                            removeHook TESTS
+                            getHook TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_removeHook() public {
-        // Add hooks
-        vm.startPrank(owner);
-        token.addHook(address(hook1));
-        token.addHook(address(hook2));
-        token.addHook(address(hook3));
+    function test_getHook() public {
+        // Initially no hook
+        assertEq(token.getHook(), address(0));
 
-        // Remove middle hook
-        vm.expectEmit(true, false, false, false);
-        emit HookRemoved(address(hook2));
-        token.removeHook(address(hook2));
-        vm.stopPrank();
-
-        // Verify hook was removed
-        assertFalse(token.isHook(address(hook2)));
-        address[] memory hooks = token.getHooks();
-        assertEq(hooks.length, 2);
-
-        // Check remaining hooks (order might change due to swap-and-pop)
-        bool hasHook1 = hooks[0] == address(hook1) || hooks[1] == address(hook1);
-        bool hasHook3 = hooks[0] == address(hook3) || hooks[1] == address(hook3);
-        assertTrue(hasHook1);
-        assertTrue(hasHook3);
-    }
-
-    function test_removeHook_revertNotFound() public {
+        // Set hook
         vm.prank(owner);
-        vm.expectRevert(IBaseERC20xD.HookNotFound.selector);
-        token.removeHook(address(hook1));
-    }
+        token.setHook(address(hook1));
 
-    function test_removeHook_revertNonOwner() public {
-        vm.prank(owner);
-        token.addHook(address(hook1));
-
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
-        token.removeHook(address(hook1));
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                            getHooks TESTS
-    //////////////////////////////////////////////////////////////*/
-
-    function test_getHooks() public {
-        // Initially empty
-        address[] memory hooks = token.getHooks();
-        assertEq(hooks.length, 0);
-
-        // Add hooks
-        vm.startPrank(owner);
-        token.addHook(address(hook1));
-        token.addHook(address(hook2));
-        vm.stopPrank();
-
-        hooks = token.getHooks();
-        assertEq(hooks.length, 2);
-        assertEq(hooks[0], address(hook1));
-        assertEq(hooks[1], address(hook2));
+        // Verify hook is set
+        assertEq(token.getHook(), address(hook1));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -271,9 +235,9 @@ contract BaseERC20xDHooksTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_onInitiateTransfer_called() public {
-        // Add hook
+        // Set hook
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Initiate transfer
         bytes memory callData = abi.encode("test");
@@ -295,29 +259,13 @@ contract BaseERC20xDHooksTest is Test {
         assertEq(hookData, data);
     }
 
-    function test_onInitiateTransfer_multipleHooks() public {
-        // Add multiple hooks
-        vm.startPrank(owner);
-        token.addHook(address(hook1));
-        token.addHook(address(hook2));
-        token.addHook(address(hook3));
-        vm.stopPrank();
-
-        // Initiate transfer
-        vm.prank(alice);
-        token.transfer{ value: 0.1 ether }(bob, 5e18, "", 0, "");
-
-        // Verify all hooks were called
-        assertEq(hook1.getInitiateTransferCallCount(), 1);
-        assertEq(hook2.getInitiateTransferCallCount(), 1);
-        assertEq(hook3.getInitiateTransferCallCount(), 1);
-    }
+    // Note: Multiple hooks test removed since we now support only single hook
 
     function test_onInitiateTransfer_revertDoesNotBlockTransfer() public {
-        // Add reverting hook
+        // Set reverting hook
         hook1.setShouldRevertOnInitiate(true);
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Expect failure event
         vm.expectEmit(true, true, true, false);
@@ -343,9 +291,9 @@ contract BaseERC20xDHooksTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_onReadGlobalAvailability_called() public {
-        // Add hook
+        // Set hook
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Create pending transfer first
         vm.prank(alice);
@@ -362,32 +310,13 @@ contract BaseERC20xDHooksTest is Test {
         assertEq(globalAvailability, 50e18);
     }
 
-    function test_onReadGlobalAvailability_multipleHooks() public {
-        // Add multiple hooks
-        vm.startPrank(owner);
-        token.addHook(address(hook1));
-        token.addHook(address(hook2));
-        token.addHook(address(hook3));
-        vm.stopPrank();
-
-        // Create pending transfer
-        vm.prank(alice);
-        token.transfer{ value: 0.1 ether }(bob, 5e18, "");
-
-        // Simulate onRead callback
-        token.testOnReadGlobalAvailability(1, 100e18);
-
-        // Verify all hooks were called
-        assertEq(hook1.getGlobalAvailabilityCallCount(), 1);
-        assertEq(hook2.getGlobalAvailabilityCallCount(), 1);
-        assertEq(hook3.getGlobalAvailabilityCallCount(), 1);
-    }
+    // Note: Multiple hooks test removed since we now support only single hook
 
     function test_onReadGlobalAvailability_revertDoesNotBlockTransfer() public {
-        // Add reverting hook
+        // Set reverting hook
         hook1.setShouldRevertOnGlobalAvailability(true);
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Create pending transfer
         vm.prank(alice);
@@ -408,9 +337,9 @@ contract BaseERC20xDHooksTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_beforeTransfer_called() public {
-        // Add hook
+        // Set hook
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Execute transfer
         token.testTransferFrom(alice, bob, 10e18);
@@ -425,9 +354,9 @@ contract BaseERC20xDHooksTest is Test {
     }
 
     function test_beforeTransfer_calledBeforeBalanceUpdate() public {
-        // Add hook that checks balances
+        // Set hook that checks balances
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Record initial balance
         int256 aliceBalBefore = token.localBalanceOf(alice);
@@ -443,28 +372,13 @@ contract BaseERC20xDHooksTest is Test {
         assertEq(token.localBalanceOf(alice), aliceBalBefore - 10e18);
     }
 
-    function test_beforeTransfer_multipleHooks() public {
-        // Add multiple hooks
-        vm.startPrank(owner);
-        token.addHook(address(hook1));
-        token.addHook(address(hook2));
-        token.addHook(address(hook3));
-        vm.stopPrank();
-
-        // Execute transfer
-        token.testTransferFrom(alice, bob, 5e18);
-
-        // Verify all hooks were called
-        assertEq(hook1.getBeforeTransferCallCount(), 1);
-        assertEq(hook2.getBeforeTransferCallCount(), 1);
-        assertEq(hook3.getBeforeTransferCallCount(), 1);
-    }
+    // Note: Multiple hooks test removed since we now support only single hook
 
     function test_beforeTransfer_revertDoesNotBlockTransfer() public {
-        // Add reverting hook
+        // Set reverting hook
         hook1.setShouldRevertBeforeTransfer(true);
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Get initial balances
         int256 aliceBalBefore = token.localBalanceOf(alice);
@@ -489,9 +403,9 @@ contract BaseERC20xDHooksTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_afterTransfer_called() public {
-        // Add hook
+        // Set hook
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Execute transfer
         token.testTransferFrom(alice, bob, 10e18);
@@ -506,9 +420,9 @@ contract BaseERC20xDHooksTest is Test {
     }
 
     function test_afterTransfer_calledAfterBalanceUpdate() public {
-        // Add hook
+        // Set hook
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Record initial balances
         int256 aliceBalBefore = token.localBalanceOf(alice);
@@ -525,28 +439,13 @@ contract BaseERC20xDHooksTest is Test {
         assertEq(token.localBalanceOf(bob), bobBalBefore + 10e18);
     }
 
-    function test_afterTransfer_multipleHooks() public {
-        // Add multiple hooks
-        vm.startPrank(owner);
-        token.addHook(address(hook1));
-        token.addHook(address(hook2));
-        token.addHook(address(hook3));
-        vm.stopPrank();
-
-        // Execute transfer
-        token.testTransferFrom(alice, bob, 5e18);
-
-        // Verify all hooks were called
-        assertEq(hook1.getAfterTransferCallCount(), 1);
-        assertEq(hook2.getAfterTransferCallCount(), 1);
-        assertEq(hook3.getAfterTransferCallCount(), 1);
-    }
+    // Note: Multiple hooks test removed since we now support only single hook
 
     function test_afterTransfer_revertDoesNotBlockTransfer() public {
-        // Add reverting hook
+        // Set reverting hook
         hook1.setShouldRevertAfterTransfer(true);
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Get initial balances
         int256 aliceBalBefore = token.localBalanceOf(alice);
@@ -571,9 +470,9 @@ contract BaseERC20xDHooksTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_hooks_calledOnSelfTransfer() public {
-        // Add hook
+        // Set hook
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Execute self-transfer (should skip balance updates but still call hooks)
         token.testTransferFrom(alice, alice, 10e18);
@@ -584,9 +483,9 @@ contract BaseERC20xDHooksTest is Test {
     }
 
     function test_hooks_calledOnMintScenario() public {
-        // Add hook
+        // Set hook
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Execute mint-like transfer (from address(0))
         token.testTransferFrom(address(0), charlie, 50e18);
@@ -602,9 +501,9 @@ contract BaseERC20xDHooksTest is Test {
     }
 
     function test_hooks_calledOnBurnScenario() public {
-        // Add hook
+        // Set hook
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Execute burn-like transfer (to address(0))
         token.testTransferFrom(alice, address(0), 25e18);
@@ -619,86 +518,14 @@ contract BaseERC20xDHooksTest is Test {
         assertEq(amount, 25e18);
     }
 
-    function test_hookOrdering_maintained() public {
-        // Deploy a shared call order tracker
-        CallOrderTracker tracker = new CallOrderTracker();
+    // Note: Hook ordering test removed since we now support only single hook
 
-        // Deploy three order tracking hooks with the shared tracker
-        OrderTrackingHook orderHook1 = new OrderTrackingHook(tracker);
-        OrderTrackingHook orderHook2 = new OrderTrackingHook(tracker);
-        OrderTrackingHook orderHook3 = new OrderTrackingHook(tracker);
-
-        // Add hooks in specific order: 1, 2, 3
-        vm.startPrank(owner);
-        token.addHook(address(orderHook1));
-        token.addHook(address(orderHook2));
-        token.addHook(address(orderHook3));
-        vm.stopPrank();
-
-        // Execute transfer - this should call hooks in order
-        token.testTransferFrom(alice, bob, 1e18);
-
-        // Verify hooks storage order is maintained
-        address[] memory hooks = token.getHooks();
-        assertEq(hooks.length, 3);
-        assertEq(hooks[0], address(orderHook1));
-        assertEq(hooks[1], address(orderHook2));
-        assertEq(hooks[2], address(orderHook3));
-
-        // Verify all hooks were called (by checking their call order > 0)
-        assertTrue(orderHook1.beforeTransferCallOrder() > 0, "Hook1 beforeTransfer should have been called");
-        assertTrue(orderHook1.afterTransferCallOrder() > 0, "Hook1 afterTransfer should have been called");
-        assertTrue(orderHook2.beforeTransferCallOrder() > 0, "Hook2 beforeTransfer should have been called");
-        assertTrue(orderHook2.afterTransferCallOrder() > 0, "Hook2 afterTransfer should have been called");
-        assertTrue(orderHook3.beforeTransferCallOrder() > 0, "Hook3 beforeTransfer should have been called");
-        assertTrue(orderHook3.afterTransferCallOrder() > 0, "Hook3 afterTransfer should have been called");
-
-        // Verify hooks were called in the correct order
-        // beforeTransfer should be called in order: hook1, hook2, hook3
-        assertEq(orderHook1.beforeTransferCallOrder(), 1, "Hook1 beforeTransfer should be called 1st");
-        assertEq(orderHook2.beforeTransferCallOrder(), 2, "Hook2 beforeTransfer should be called 2nd");
-        assertEq(orderHook3.beforeTransferCallOrder(), 3, "Hook3 beforeTransfer should be called 3rd");
-
-        // afterTransfer should be called in order: hook1, hook2, hook3
-        assertEq(
-            orderHook1.afterTransferCallOrder(),
-            4,
-            "Hook1 afterTransfer should be called 4th (after all beforeTransfer)"
-        );
-        assertEq(orderHook2.afterTransferCallOrder(), 5, "Hook2 afterTransfer should be called 5th");
-        assertEq(orderHook3.afterTransferCallOrder(), 6, "Hook3 afterTransfer should be called 6th");
-    }
-
-    function test_hookOrdering_onInitiateTransfer() public {
-        // Deploy a shared call order tracker
-        CallOrderTracker tracker = new CallOrderTracker();
-
-        // Deploy three order tracking hooks with the shared tracker
-        OrderTrackingHook orderHook1 = new OrderTrackingHook(tracker);
-        OrderTrackingHook orderHook2 = new OrderTrackingHook(tracker);
-        OrderTrackingHook orderHook3 = new OrderTrackingHook(tracker);
-
-        // Add hooks in specific order
-        vm.startPrank(owner);
-        token.addHook(address(orderHook1));
-        token.addHook(address(orderHook2));
-        token.addHook(address(orderHook3));
-        vm.stopPrank();
-
-        // Initiate transfer - this should call onInitiateTransfer hooks in order
-        vm.prank(alice);
-        token.transfer{ value: 0.1 ether }(bob, 10e18, "");
-
-        // Verify onInitiateTransfer was called in correct order
-        assertEq(orderHook1.onInitiateTransferCallOrder(), 1, "Hook1 onInitiateTransfer should be called 1st");
-        assertEq(orderHook2.onInitiateTransferCallOrder(), 2, "Hook2 onInitiateTransfer should be called 2nd");
-        assertEq(orderHook3.onInitiateTransferCallOrder(), 3, "Hook3 onInitiateTransfer should be called 3rd");
-    }
+    // Note: Hook ordering test removed since we now support only single hook
 
     function test_allHooks_inCompleteTransferFlow() public {
-        // Add comprehensive hook
+        // Set comprehensive hook
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // 1. Initiate transfer (triggers onInitiateTransfer)
         vm.prank(alice);
@@ -722,9 +549,9 @@ contract BaseERC20xDHooksTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_onMapAccounts_called() public {
-        // Add hook
+        // Set hook
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Call onMapAccounts as LiquidityMatrix
         bytes32 chainUID = bytes32(uint256(1));
@@ -743,29 +570,13 @@ contract BaseERC20xDHooksTest is Test {
         assertEq(hookLocal, localAccount);
     }
 
-    function test_onMapAccounts_multipleHooks() public {
-        // Add multiple hooks
-        vm.startPrank(owner);
-        token.addHook(address(hook1));
-        token.addHook(address(hook2));
-        token.addHook(address(hook3));
-        vm.stopPrank();
-
-        // Call onMapAccounts
-        vm.prank(address(liquidityMatrix));
-        token.onMapAccounts(bytes32(uint256(30_000)), makeAddr("remote"), bob);
-
-        // Verify all hooks were called
-        assertEq(hook1.getMapAccountsCallCount(), 1);
-        assertEq(hook2.getMapAccountsCallCount(), 1);
-        assertEq(hook3.getMapAccountsCallCount(), 1);
-    }
+    // Note: Multiple hooks test removed since we now support only single hook
 
     function test_onMapAccounts_revertDoesNotBlock() public {
-        // Add reverting hook
+        // Set reverting hook
         hook1.setShouldRevertOnMapAccounts(true);
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Expect failure event
         vm.expectEmit(true, true, false, false);
@@ -794,9 +605,9 @@ contract BaseERC20xDHooksTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_onSettleLiquidity_called() public {
-        // Add hook
+        // Set hook
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Call onSettleLiquidity as LiquidityMatrix
         bytes32 chainUID = bytes32(uint256(30_000));
@@ -817,29 +628,13 @@ contract BaseERC20xDHooksTest is Test {
         assertEq(hookLiquidity, 100e18); // alice has 100e18 liquidity from setup
     }
 
-    function test_onSettleLiquidity_multipleHooks() public {
-        // Add multiple hooks
-        vm.startPrank(owner);
-        token.addHook(address(hook1));
-        token.addHook(address(hook2));
-        token.addHook(address(hook3));
-        vm.stopPrank();
-
-        // Call onSettleLiquidity
-        vm.prank(address(liquidityMatrix));
-        token.onSettleLiquidity(bytes32(uint256(1)), 1, uint64(block.timestamp), bob);
-
-        // Verify all hooks were called
-        assertEq(hook1.getSettleLiquidityCallCount(), 1);
-        assertEq(hook2.getSettleLiquidityCallCount(), 1);
-        assertEq(hook3.getSettleLiquidityCallCount(), 1);
-    }
+    // Note: Multiple hooks test removed since we now support only single hook
 
     function test_onSettleLiquidity_revertDoesNotBlock() public {
-        // Add reverting hook
+        // Set reverting hook
         hook1.setShouldRevertOnSettleLiquidity(true);
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Expect failure event
         vm.expectEmit(true, true, false, true);
@@ -869,9 +664,9 @@ contract BaseERC20xDHooksTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_onSettleTotalLiquidity_called() public {
-        // Add hook
+        // Set hook
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Call onSettleTotalLiquidity as LiquidityMatrix
         bytes32 chainUID = bytes32(uint256(30_001));
@@ -890,29 +685,13 @@ contract BaseERC20xDHooksTest is Test {
         assertEq(hookTotalLiquidity, 1200e18); // total liquidity from setup
     }
 
-    function test_onSettleTotalLiquidity_multipleHooks() public {
-        // Add multiple hooks
-        vm.startPrank(owner);
-        token.addHook(address(hook1));
-        token.addHook(address(hook2));
-        token.addHook(address(hook3));
-        vm.stopPrank();
-
-        // Call onSettleTotalLiquidity
-        vm.prank(address(liquidityMatrix));
-        token.onSettleTotalLiquidity(bytes32(uint256(1)), 1, uint64(block.timestamp));
-
-        // Verify all hooks were called
-        assertEq(hook1.getSettleTotalLiquidityCallCount(), 1);
-        assertEq(hook2.getSettleTotalLiquidityCallCount(), 1);
-        assertEq(hook3.getSettleTotalLiquidityCallCount(), 1);
-    }
+    // Note: Multiple hooks test removed since we now support only single hook
 
     function test_onSettleTotalLiquidity_revertDoesNotBlock() public {
-        // Add reverting hook
+        // Set reverting hook
         hook1.setShouldRevertOnSettleTotalLiquidity(true);
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Expect failure event
         vm.expectEmit(true, true, false, false);
@@ -941,9 +720,9 @@ contract BaseERC20xDHooksTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_onSettleData_called() public {
-        // Add hook
+        // Set hook
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Call onSettleData as LiquidityMatrix
         bytes32 chainUID = bytes32(uint256(30_002));
@@ -966,29 +745,13 @@ contract BaseERC20xDHooksTest is Test {
         assertEq(hookValue, abi.encode("test value", 12_345)); // Value is now fetched from LiquidityMatrix
     }
 
-    function test_onSettleData_multipleHooks() public {
-        // Add multiple hooks
-        vm.startPrank(owner);
-        token.addHook(address(hook1));
-        token.addHook(address(hook2));
-        token.addHook(address(hook3));
-        vm.stopPrank();
-
-        // Call onSettleData
-        vm.prank(address(liquidityMatrix));
-        token.onSettleData(bytes32(uint256(1)), 1, uint64(block.timestamp), bytes32(uint256(123)));
-
-        // Verify all hooks were called
-        assertEq(hook1.getSettleDataCallCount(), 1);
-        assertEq(hook2.getSettleDataCallCount(), 1);
-        assertEq(hook3.getSettleDataCallCount(), 1);
-    }
+    // Note: Multiple hooks test removed since we now support only single hook
 
     function test_onSettleData_revertDoesNotBlock() public {
-        // Add reverting hook
+        // Set reverting hook
         hook1.setShouldRevertOnSettleData(true);
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Expect failure event (value is now fetched from LiquidityMatrix)
         vm.expectEmit(true, true, false, true);
@@ -1013,40 +776,12 @@ contract BaseERC20xDHooksTest is Test {
         token.onSettleData(bytes32(uint256(1)), 1, uint64(block.timestamp), bytes32(0));
     }
 
-    /*//////////////////////////////////////////////////////////////
-                  HOOK ORDERING TESTS FOR NEW CALLBACKS
-    //////////////////////////////////////////////////////////////*/
-
-    function test_hookOrdering_onMapAccounts() public {
-        // Deploy a shared call order tracker
-        CallOrderTracker tracker = new CallOrderTracker();
-
-        // Deploy three order tracking hooks with the shared tracker
-        OrderTrackingHook orderHook1 = new OrderTrackingHook(tracker);
-        OrderTrackingHook orderHook2 = new OrderTrackingHook(tracker);
-        OrderTrackingHook orderHook3 = new OrderTrackingHook(tracker);
-
-        // Add hooks in specific order
-        vm.startPrank(owner);
-        token.addHook(address(orderHook1));
-        token.addHook(address(orderHook2));
-        token.addHook(address(orderHook3));
-        vm.stopPrank();
-
-        // Call onMapAccounts - this should call hooks in order
-        vm.prank(address(liquidityMatrix));
-        token.onMapAccounts(bytes32(uint256(1)), makeAddr("remote"), alice);
-
-        // Verify hooks were called in the correct order
-        assertEq(orderHook1.onMapAccountsCallOrder(), 1, "Hook1 onMapAccounts should be called 1st");
-        assertEq(orderHook2.onMapAccountsCallOrder(), 2, "Hook2 onMapAccounts should be called 2nd");
-        assertEq(orderHook3.onMapAccountsCallOrder(), 3, "Hook3 onMapAccounts should be called 3rd");
-    }
+    // Note: Hook ordering tests removed since we now support only single hook
 
     function test_allCallbackHooks_inSettlementFlow() public {
-        // Add comprehensive hook
+        // Set comprehensive hook
         vm.prank(owner);
-        token.addHook(address(hook1));
+        token.setHook(address(hook1));
 
         // Simulate a complete settlement flow
         vm.startPrank(address(liquidityMatrix));

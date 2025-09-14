@@ -73,9 +73,8 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     PendingTransfer[] internal _pendingTransfers;
     mapping(address account => uint256) internal _pendingNonce;
 
-    // Hooks storage
-    address[] public hooks;
-    mapping(address => bool) public isHook;
+    // Hook storage - single hook instead of array
+    address public hook;
 
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
@@ -239,38 +238,16 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     }
 
     /// @inheritdoc IBaseERC20xD
-    function addHook(address hook) external onlyOwner {
-        if (hook == address(0)) revert InvalidAddress();
-        if (isHook[hook]) revert HookAlreadyAdded();
+    function setHook(address newHook) external onlyOwner {
+        address oldHook = hook;
+        hook = newHook;
 
-        hooks.push(hook);
-        isHook[hook] = true;
-
-        emit HookAdded(hook);
+        emit SetHook(oldHook, newHook);
     }
 
     /// @inheritdoc IBaseERC20xD
-    function removeHook(address hook) external onlyOwner {
-        if (!isHook[hook]) revert HookNotFound();
-
-        // Find and remove hook from array
-        uint256 length = hooks.length;
-        for (uint256 i; i < length; ++i) {
-            if (hooks[i] == hook) {
-                // Move the last element to this position and pop
-                hooks[i] = hooks[length - 1];
-                hooks.pop();
-                break;
-            }
-        }
-
-        isHook[hook] = false;
-        emit HookRemoved(hook);
-    }
-
-    /// @inheritdoc IBaseERC20xD
-    function getHooks() external view returns (address[] memory) {
-        return hooks;
+    function getHook() external view returns (address) {
+        return hook;
     }
 
     /**
@@ -339,12 +316,11 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
             abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from), abi.encode(nonce), 256, data
         );
 
-        address[] memory _hooks = hooks;
-        uint256 length = _hooks.length;
-        for (uint256 i; i < length; ++i) {
-            try IERC20xDHook(_hooks[i]).onInitiateTransfer(from, to, amount, callData, value, data) { }
+        address _hook = hook;
+        if (_hook != address(0)) {
+            try IERC20xDHook(_hook).onInitiateTransfer(from, to, amount, callData, value, data) { }
             catch (bytes memory reason) {
-                emit OnInitiateTransferHookFailure(_hooks[i], from, to, amount, value, reason);
+                emit OnInitiateTransferHookFailure(_hook, from, to, amount, value, reason);
             }
         }
 
@@ -441,12 +417,11 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         int256 availability = localBalanceOf(from) + globalAvailability;
         if (availability < int256(amount)) revert InsufficientAvailability(nonce, amount, availability);
 
-        address[] memory _hooks = hooks;
-        uint256 length = _hooks.length;
-        for (uint256 i; i < length; ++i) {
-            try IERC20xDHook(_hooks[i]).onReadGlobalAvailability(from, globalAvailability) { }
+        address _hook = hook;
+        if (_hook != address(0)) {
+            try IERC20xDHook(_hook).onReadGlobalAvailability(from, globalAvailability) { }
             catch (bytes memory reason) {
-                emit OnReadGlobalAvailabilityHookFailure(_hooks[i], from, globalAvailability, reason);
+                emit OnReadGlobalAvailabilityHookFailure(_hook, from, globalAvailability, reason);
             }
         }
 
@@ -561,12 +536,11 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @dev Calls beforeTransfer and afterTransfer hooks, updates local liquidity, and emits Transfer event
      */
     function _transferFrom(address from, address to, uint256 amount, bytes memory data) internal virtual {
-        address[] memory _hooks = hooks;
-        uint256 length = _hooks.length;
-        for (uint256 i; i < length; ++i) {
-            try IERC20xDHook(_hooks[i]).beforeTransfer(from, to, amount, data) { }
+        address _hook = hook;
+        if (_hook != address(0)) {
+            try IERC20xDHook(_hook).beforeTransfer(from, to, amount, data) { }
             catch (bytes memory reason) {
-                emit BeforeTransferHookFailure(_hooks[i], from, to, amount, reason);
+                emit BeforeTransferHookFailure(_hook, from, to, amount, reason);
             }
         }
 
@@ -586,10 +560,10 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
             }
         }
 
-        for (uint256 i; i < length; ++i) {
-            try IERC20xDHook(_hooks[i]).afterTransfer(from, to, amount, data) { }
+        if (_hook != address(0)) {
+            try IERC20xDHook(_hook).afterTransfer(from, to, amount, data) { }
             catch (bytes memory reason) {
-                emit AfterTransferHookFailure(_hooks[i], from, to, amount, reason);
+                emit AfterTransferHookFailure(_hook, from, to, amount, reason);
             }
         }
 
@@ -611,13 +585,12 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         // Only allow calls from the LiquidityMatrix contract
         if (msg.sender != liquidityMatrix) revert Forbidden();
 
-        // Call onMapAccounts on all registered hooks
-        address[] memory _hooks = hooks;
-        uint256 length = _hooks.length;
-        for (uint256 i; i < length; ++i) {
-            try IERC20xDHook(_hooks[i]).onMapAccounts(chainUID, remoteAccount, localAccount) { }
+        // Call onMapAccounts on the registered hook
+        address _hook = hook;
+        if (_hook != address(0)) {
+            try IERC20xDHook(_hook).onMapAccounts(chainUID, remoteAccount, localAccount) { }
             catch (bytes memory reason) {
-                emit OnMapAccountsHookFailure(_hooks[i], chainUID, remoteAccount, localAccount, reason);
+                emit OnMapAccountsHookFailure(_hook, chainUID, remoteAccount, localAccount, reason);
             }
         }
     }
@@ -642,15 +615,14 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
             if (msg.sender != chronicle) revert Forbidden();
         }
 
-        // Call onSettleLiquidity on all registered hooks
-        address[] memory _hooks = hooks;
-        uint256 length = _hooks.length;
-        for (uint256 i; i < length; ++i) {
+        // Call onSettleLiquidity on the registered hook
+        address _hook = hook;
+        if (_hook != address(0)) {
             int256 liquidity =
                 ILiquidityMatrix(liquidityMatrix).getRemoteLiquidityAt(address(this), chainUID, account, timestamp);
-            try IERC20xDHook(_hooks[i]).onSettleLiquidity(chainUID, timestamp, account, liquidity) { }
+            try IERC20xDHook(_hook).onSettleLiquidity(chainUID, timestamp, account, liquidity) { }
             catch (bytes memory reason) {
-                emit OnSettleLiquidityHookFailure(_hooks[i], chainUID, timestamp, account, liquidity, reason);
+                emit OnSettleLiquidityHookFailure(_hook, chainUID, timestamp, account, liquidity, reason);
             }
         }
     }
@@ -670,15 +642,14 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
             if (msg.sender != chronicle) revert Forbidden();
         }
 
-        // Call onSettleTotalLiquidity on all registered hooks
-        address[] memory _hooks = hooks;
-        uint256 length = _hooks.length;
-        for (uint256 i; i < length; ++i) {
+        // Call onSettleTotalLiquidity on the registered hook
+        address _hook = hook;
+        if (_hook != address(0)) {
             int256 totalLiquidity =
                 ILiquidityMatrix(liquidityMatrix).getRemoteTotalLiquidityAt(address(this), chainUID, timestamp);
-            try IERC20xDHook(_hooks[i]).onSettleTotalLiquidity(chainUID, timestamp, totalLiquidity) { }
+            try IERC20xDHook(_hook).onSettleTotalLiquidity(chainUID, timestamp, totalLiquidity) { }
             catch (bytes memory reason) {
-                emit OnSettleTotalLiquidityHookFailure(_hooks[i], chainUID, timestamp, totalLiquidity, reason);
+                emit OnSettleTotalLiquidityHookFailure(_hook, chainUID, timestamp, totalLiquidity, reason);
             }
         }
     }
@@ -699,15 +670,14 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
             if (msg.sender != chronicle) revert Forbidden();
         }
 
-        // Call onSettleData on all registered hooks
-        address[] memory _hooks = hooks;
-        uint256 length = _hooks.length;
-        for (uint256 i; i < length; ++i) {
+        // Call onSettleData on the registered hook
+        address _hook = hook;
+        if (_hook != address(0)) {
             bytes memory value =
                 ILiquidityMatrix(liquidityMatrix).getRemoteDataAt(address(this), chainUID, key, timestamp);
-            try IERC20xDHook(_hooks[i]).onSettleData(chainUID, timestamp, key, value) { }
+            try IERC20xDHook(_hook).onSettleData(chainUID, timestamp, key, value) { }
             catch (bytes memory reason) {
-                emit OnSettleDataHookFailure(_hooks[i], chainUID, timestamp, key, value, reason);
+                emit OnSettleDataHookFailure(_hook, chainUID, timestamp, key, value, reason);
             }
         }
     }
