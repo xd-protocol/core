@@ -104,9 +104,13 @@ interface IERC20xDHook {
      * @param from The address providing the underlying tokens
      * @param to The address receiving the wrapped tokens
      * @param amount The amount of underlying tokens being wrapped (equals msg.value for native)
+     * @param hookData Custom data to pass to the hook for processing
      * @return actualAmount The actual amount of wrapped tokens to mint (usually same as amount)
      */
-    function onWrap(address from, address to, uint256 amount) external payable returns (uint256 actualAmount);
+    function onWrap(address from, address to, uint256 amount, bytes memory hookData)
+        external
+        payable
+        returns (uint256 actualAmount);
 
     /**
      * @notice Called when tokens are being unwrapped
@@ -117,7 +121,10 @@ interface IERC20xDHook {
      * @param from The address providing the wrapped tokens
      * @param to The address receiving the underlying tokens
      * @param shares The amount of wrapped tokens being burned
+     * @param hookData Custom data to pass to the hook for processing
      * @return underlyingAmount The actual amount of underlying tokens to return (can exceed shares if yield accrued)
      */
-    function onUnwrap(address from, address to, uint256 shares) external returns (uint256 underlyingAmount);
+    function onUnwrap(address from, address to, uint256 shares, bytes memory hookData)
+        external
+        returns (uint256 underlyingAmount);
 }

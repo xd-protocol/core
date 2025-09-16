@@ -65,7 +65,7 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
     receive() external payable virtual { }
 
     /// @inheritdoc IWrappedERC20xD
-    function wrap(address to, uint256 amount) external payable virtual nonReentrant {
+    function wrap(address to, uint256 amount, bytes memory hookData) external payable virtual nonReentrant {
         if (to == address(0)) revert InvalidAddress();
         if (amount == 0) revert InvalidAmount();
 
@@ -80,7 +80,7 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
             ERC20(underlying).approve(_hook, amount);
 
             // Call onWrap hook - hook should pull tokens using transferFrom
-            try IERC20xDHook(_hook).onWrap(msg.sender, to, amount) returns (uint256 _actualAmount) {
+            try IERC20xDHook(_hook).onWrap(msg.sender, to, amount, hookData) returns (uint256 _actualAmount) {
                 actualAmount = _actualAmount;
             } catch (bytes memory reason) {
                 emit OnWrapHookFailure(_hook, msg.sender, to, amount, reason);
@@ -98,7 +98,7 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
     }
 
     /// @inheritdoc IWrappedERC20xD
-    function unwrap(address to, uint256 amount, bytes memory data)
+    function unwrap(address to, uint256 amount, bytes memory data, bytes memory hookData)
         external
         payable
         virtual
@@ -107,9 +107,9 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
     {
         if (to == address(0)) revert InvalidAddress();
 
-        // Encode the recipient address with the callData for the burn operation
+        // Encode the recipient address and hookData for the burn operation
         // This will be available in _transferFrom via pending.callData
-        bytes memory callData = abi.encode(to);
+        bytes memory callData = abi.encode(to, hookData);
 
         // The actual burn and underlying transfer will happen in _transferFrom after cross-chain check
         guid = _transfer(msg.sender, address(0), amount, callData, 0, data);
@@ -127,8 +127,8 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
     function _executePendingTransfer(IBaseERC20xD.PendingTransfer memory pending) internal virtual override {
         // For burns (unwraps), handle the recipient from callData
         if (pending.to == address(0) && pending.callData.length > 0) {
-            // Decode the recipient from callData
-            address recipient = abi.decode(pending.callData, (address));
+            // Decode the recipient and hookData from callData
+            (address recipient, bytes memory hookData) = abi.decode(pending.callData, (address, bytes));
 
             // Perform the burn
             _transferFrom(pending.from, address(0), pending.amount, pending.data);
@@ -139,7 +139,7 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
 
             if (_hook != address(0)) {
                 // Call onUnwrap hook to get actual amount of underlying to return
-                try IERC20xDHook(_hook).onUnwrap(pending.from, recipient, pending.amount) returns (
+                try IERC20xDHook(_hook).onUnwrap(pending.from, recipient, pending.amount, hookData) returns (
                     uint256 _underlyingAmount
                 ) {
                     underlyingAmount = _underlyingAmount;

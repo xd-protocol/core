@@ -75,12 +75,12 @@ contract OrderTrackingHook is IERC20xDHook {
         onSettleDataCallOrder = tracker.incrementAndGet();
     }
 
-    function onWrap(address, address, uint256 amount) external payable override returns (uint256) {
-        return amount; // No modification
+    function onWrap(address, address, uint256 amount, bytes memory) external payable override returns (uint256) {
+        return amount;
     }
 
-    function onUnwrap(address, address, uint256 shares) external override returns (uint256) {
-        return shares; // No yield
+    function onUnwrap(address, address, uint256 shares, bytes memory) external pure override returns (uint256) {
+        return shares;
     }
 }
 

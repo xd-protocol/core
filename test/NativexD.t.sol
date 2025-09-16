@@ -84,7 +84,7 @@ contract NativexDTest is BaseERC20xDTestHelper {
 
         vm.expectEmit();
         emit INativexD.Wrap(alice, amount);
-        wrapped.wrap{ value: amount }(alice);
+        wrapped.wrap{ value: amount }(alice, "");
 
         assertEq(wrapped.balanceOf(alice), amount); // Direct 1:1 minting now
         assertEq(alice.balance, balanceBefore - amount);
@@ -95,7 +95,7 @@ contract NativexDTest is BaseERC20xDTestHelper {
         uint256 amount = 50 ether;
 
         vm.prank(alice);
-        wrapped.wrap{ value: amount }(bob);
+        wrapped.wrap{ value: amount }(bob, "");
 
         assertEq(wrapped.balanceOf(bob), amount);
         assertEq(wrapped.balanceOf(alice), 0);
@@ -105,14 +105,14 @@ contract NativexDTest is BaseERC20xDTestHelper {
         NativexD wrapped = NativexD(payable(address(erc20s[0])));
         vm.prank(alice);
         vm.expectRevert(IBaseERC20xD.InvalidAddress.selector);
-        wrapped.wrap{ value: 50 ether }(address(0));
+        wrapped.wrap{ value: 50 ether }(address(0), "");
     }
 
     function test_wrap_revertZeroAmount() public {
         NativexD wrapped = NativexD(payable(address(erc20s[0])));
         vm.prank(alice);
         vm.expectRevert(IBaseERC20xD.InvalidAmount.selector);
-        wrapped.wrap{ value: 0 }(alice);
+        wrapped.wrap{ value: 0 }(alice, "");
     }
 
     function test_wrap_revertInsufficientValue() public {
@@ -121,17 +121,17 @@ contract NativexDTest is BaseERC20xDTestHelper {
 
         // NativexD checks msg.value == 0, not msg.value < amount
         vm.expectRevert(IBaseERC20xD.InvalidAmount.selector);
-        wrapped.wrap{ value: 0 }(alice);
+        wrapped.wrap{ value: 0 }(alice, "");
     }
 
     function test_wrap_multipleUsers() public {
         NativexD wrapped = NativexD(payable(address(erc20s[0])));
 
         vm.prank(alice);
-        wrapped.wrap{ value: 50 ether }(alice);
+        wrapped.wrap{ value: 50 ether }(alice, "");
 
         vm.prank(bob);
-        wrapped.wrap{ value: 30 ether }(bob);
+        wrapped.wrap{ value: 30 ether }(bob, "");
 
         assertEq(wrapped.balanceOf(alice), 50 ether);
         assertEq(wrapped.balanceOf(bob), 30 ether);
@@ -148,14 +148,14 @@ contract NativexDTest is BaseERC20xDTestHelper {
 
         // Step 1: Alice wraps native tokens
         vm.prank(alice);
-        wrapped.wrap{ value: amount }(alice);
+        wrapped.wrap{ value: amount }(alice, "");
         assertEq(wrapped.balanceOf(alice), amount);
 
         // Step 2: Alice initiates unwrap
         uint256 fee = wrapped.quoteTransfer(alice, uint128(GAS_LIMIT));
         vm.prank(alice);
         bytes memory data = abi.encode(uint128(GAS_LIMIT), alice); // gasLimit, refundTo
-        wrapped.unwrap{ value: fee }(alice, amount, data);
+        wrapped.unwrap{ value: fee }(alice, amount, data, "");
 
         // The actual redemption happens via hooks in afterTransfer
         // For this test, we're just verifying the unwrap call succeeds
@@ -164,11 +164,11 @@ contract NativexDTest is BaseERC20xDTestHelper {
     function test_unwrap_revertZeroAddress() public {
         NativexD wrapped = NativexD(payable(address(erc20s[0])));
         vm.prank(alice);
-        wrapped.wrap{ value: 50 ether }(alice);
+        wrapped.wrap{ value: 50 ether }(alice, "");
 
         vm.prank(alice);
         vm.expectRevert(IBaseERC20xD.InvalidAddress.selector);
-        wrapped.unwrap(address(0), 50 ether, "");
+        wrapped.unwrap(address(0), 50 ether, "", "");
     }
 
     function test_unwrap_differentRecipient() public {
@@ -176,13 +176,13 @@ contract NativexDTest is BaseERC20xDTestHelper {
 
         // Alice wraps
         vm.prank(alice);
-        wrapped.wrap{ value: 50 ether }(alice);
+        wrapped.wrap{ value: 50 ether }(alice, "");
 
         // Alice unwraps to bob
         uint256 fee = wrapped.quoteTransfer(alice, uint128(GAS_LIMIT));
         vm.prank(alice);
         bytes memory data = abi.encode(uint128(GAS_LIMIT), alice);
-        wrapped.unwrap{ value: fee }(bob, 25 ether, data);
+        wrapped.unwrap{ value: fee }(bob, 25 ether, data, "");
 
         // The actual native token transfer to bob happens via hooks
     }
@@ -242,7 +242,7 @@ contract NativexDTest is BaseERC20xDTestHelper {
 
         // Wrap native tokens
         vm.prank(alice);
-        wrapped.wrap{ value: wrapAmount }(alice);
+        wrapped.wrap{ value: wrapAmount }(alice, "");
 
         assertEq(wrapped.balanceOf(alice), wrapAmount);
         assertEq(alice.balance, aliceInitialBalance - wrapAmount);
@@ -250,7 +250,7 @@ contract NativexDTest is BaseERC20xDTestHelper {
         // Unwrap all tokens
         uint256 fee = wrapped.quoteUnwrap(500_000);
         vm.prank(alice);
-        wrapped.unwrap{ value: fee }(alice, wrapAmount, abi.encode(uint128(500_000), alice));
+        wrapped.unwrap{ value: fee }(alice, wrapAmount, abi.encode(uint128(500_000), alice), "");
 
         // Simulate gateway response to complete unwrap
         _simulateGatewayResponse(wrapped, 1, 0);
@@ -267,13 +267,13 @@ contract NativexDTest is BaseERC20xDTestHelper {
 
         // Wrap
         vm.prank(alice);
-        wrapped.wrap{ value: wrapAmount }(alice);
+        wrapped.wrap{ value: wrapAmount }(alice, "");
         assertEq(wrapped.balanceOf(alice), wrapAmount);
 
         // Partial unwrap
         uint256 fee = wrapped.quoteUnwrap(500_000);
         vm.prank(alice);
-        wrapped.unwrap{ value: fee }(alice, unwrapAmount, abi.encode(uint128(500_000), alice));
+        wrapped.unwrap{ value: fee }(alice, unwrapAmount, abi.encode(uint128(500_000), alice), "");
 
         _simulateGatewayResponse(wrapped, 1, 0);
 
@@ -286,23 +286,23 @@ contract NativexDTest is BaseERC20xDTestHelper {
 
         // Alice wraps
         vm.prank(alice);
-        wrapped.wrap{ value: 75 ether }(alice);
+        wrapped.wrap{ value: 75 ether }(alice, "");
 
         // Bob wraps
         vm.prank(bob);
-        wrapped.wrap{ value: 50 ether }(bob);
+        wrapped.wrap{ value: 50 ether }(bob, "");
 
         assertEq(wrapped.totalSupply(), 125 ether);
 
         // Alice unwraps partial
         uint256 fee1 = wrapped.quoteUnwrap(500_000);
         vm.prank(alice);
-        wrapped.unwrap{ value: fee1 }(alice, 25 ether, abi.encode(uint128(500_000), alice));
+        wrapped.unwrap{ value: fee1 }(alice, 25 ether, abi.encode(uint128(500_000), alice), "");
 
         // Bob unwraps full
         uint256 fee2 = wrapped.quoteUnwrap(500_000);
         vm.prank(bob);
-        wrapped.unwrap{ value: fee2 }(bob, 50 ether, abi.encode(uint128(500_000), bob));
+        wrapped.unwrap{ value: fee2 }(bob, 50 ether, abi.encode(uint128(500_000), bob), "");
 
         // Simulate responses
         _simulateGatewayResponse(wrapped, 1, 0); // Alice's unwrap
@@ -323,7 +323,7 @@ contract NativexDTest is BaseERC20xDTestHelper {
         uint256 maxAmount = alice.balance - 1 ether; // Leave some for gas
 
         vm.prank(alice);
-        wrapped.wrap{ value: maxAmount }(alice);
+        wrapped.wrap{ value: maxAmount }(alice, "");
 
         assertEq(wrapped.balanceOf(alice), maxAmount);
         assertLe(alice.balance, 1 ether); // Should have less than or equal to 1 ether left
@@ -334,13 +334,13 @@ contract NativexDTest is BaseERC20xDTestHelper {
 
         // Wrap some tokens
         vm.prank(alice);
-        wrapped.wrap{ value: 10 ether }(alice);
+        wrapped.wrap{ value: 10 ether }(alice, "");
 
         // Try to unwrap more than balance
         uint256 fee = wrapped.quoteUnwrap(500_000);
         vm.prank(alice);
         vm.expectRevert(); // Should revert due to insufficient balance
-        wrapped.unwrap{ value: fee }(alice, 20 ether, abi.encode(uint128(500_000), alice));
+        wrapped.unwrap{ value: fee }(alice, 20 ether, abi.encode(uint128(500_000), alice), "");
     }
 
     function test_contractReceivesNativeTokens() public {
@@ -350,7 +350,7 @@ contract NativexDTest is BaseERC20xDTestHelper {
         uint256 contractBalanceBefore = address(wrapped).balance;
 
         vm.prank(alice);
-        wrapped.wrap{ value: 10 ether }(alice);
+        wrapped.wrap{ value: 10 ether }(alice, "");
 
         assertEq(address(wrapped).balance, contractBalanceBefore + 10 ether);
     }

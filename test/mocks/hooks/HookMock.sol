@@ -257,7 +257,12 @@ contract HookMock is IERC20xDHook {
         revertReason = _reason;
     }
 
-    function onWrap(address from, address to, uint256 amount) external payable override returns (uint256) {
+    function onWrap(address from, address to, uint256 amount, bytes memory hookData)
+        external
+        payable
+        override
+        returns (uint256)
+    {
         if (shouldRevertOnWrap) {
             revert(revertReason);
         }
@@ -265,10 +270,15 @@ contract HookMock is IERC20xDHook {
         wrapCalls.push(
             WrapCall({ from: from, to: to, amount: amount, returnedAmount: returnedAmount, timestamp: block.timestamp })
         );
+        // hookData can be used here if needed
         return returnedAmount;
     }
 
-    function onUnwrap(address from, address to, uint256 shares) external override returns (uint256) {
+    function onUnwrap(address from, address to, uint256 shares, bytes memory hookData)
+        external
+        override
+        returns (uint256)
+    {
         if (shouldRevertOnUnwrap) {
             revert(revertReason);
         }
@@ -276,6 +286,7 @@ contract HookMock is IERC20xDHook {
         unwrapCalls.push(
             UnwrapCall({ from: from, to: to, shares: shares, returnedAmount: returnedAmount, timestamp: block.timestamp })
         );
+        // hookData can be used here if needed
         return returnedAmount;
     }
 

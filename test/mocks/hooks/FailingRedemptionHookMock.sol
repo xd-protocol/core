@@ -22,11 +22,11 @@ contract FailingRedemptionHookMock is IERC20xDHook {
     function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
     function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
 
-    function onWrap(address, address, uint256) external payable override returns (uint256) {
-        revert RedemptionFailed();
+    function onWrap(address, address, uint256, bytes memory) external payable override returns (uint256) {
+        revert("Wrap disabled");
     }
 
-    function onUnwrap(address, address, uint256) external pure override returns (uint256) {
-        revert RedemptionFailed();
+    function onUnwrap(address, address, uint256, bytes memory) external pure override returns (uint256) {
+        revert("Redemption disabled");
     }
 }

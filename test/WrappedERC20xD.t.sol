@@ -97,7 +97,7 @@ contract WrappedERC20xDTest is BaseERC20xDTestHelper {
 
         vm.expectEmit();
         emit IWrappedERC20xD.Wrap(alice, amount);
-        wrapped.wrap(alice, amount);
+        wrapped.wrap(alice, amount, "");
 
         assertEq(wrapped.balanceOf(alice), amount); // Direct 1:1 minting
         assertEq(underlyings[0].balanceOf(alice), underlyingBefore - amount);
@@ -111,7 +111,7 @@ contract WrappedERC20xDTest is BaseERC20xDTestHelper {
         uint256 amount = 50e18;
 
         vm.prank(alice);
-        wrapped.wrap(bob, amount);
+        wrapped.wrap(bob, amount, "");
 
         assertEq(wrapped.balanceOf(bob), amount);
         assertEq(wrapped.balanceOf(alice), 0);
@@ -121,24 +121,24 @@ contract WrappedERC20xDTest is BaseERC20xDTestHelper {
         WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
         vm.prank(alice);
         vm.expectRevert(IBaseERC20xD.InvalidAddress.selector);
-        wrapped.wrap(address(0), 50e18);
+        wrapped.wrap(address(0), 50e18, "");
     }
 
     function test_wrap_revertZeroAmount() public {
         WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
         vm.prank(alice);
         vm.expectRevert(IBaseERC20xD.InvalidAmount.selector);
-        wrapped.wrap(alice, 0);
+        wrapped.wrap(alice, 0, "");
     }
 
     function test_wrap_multipleUsers() public {
         WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
 
         vm.prank(alice);
-        wrapped.wrap(alice, 50e18);
+        wrapped.wrap(alice, 50e18, "");
 
         vm.prank(bob);
-        wrapped.wrap(bob, 30e18);
+        wrapped.wrap(bob, 30e18, "");
 
         assertEq(wrapped.balanceOf(alice), 50e18);
         assertEq(wrapped.balanceOf(bob), 30e18);
@@ -156,14 +156,14 @@ contract WrappedERC20xDTest is BaseERC20xDTestHelper {
 
         // Step 1: Alice wraps tokens
         vm.prank(alice);
-        wrapped.wrap(alice, amount);
+        wrapped.wrap(alice, amount, "");
         assertEq(wrapped.balanceOf(alice), amount);
 
         // Step 2: Alice initiates unwrap
         uint256 fee = wrapped.quoteTransfer(alice, uint128(GAS_LIMIT));
         vm.prank(alice);
         bytes memory data = abi.encode(uint128(GAS_LIMIT), alice); // gasLimit, refundTo
-        wrapped.unwrap{ value: fee }(alice, amount, data);
+        wrapped.unwrap{ value: fee }(alice, amount, data, "");
 
         // The actual redemption happens via hooks in afterTransfer
         // For this test, we're just verifying the unwrap call succeeds
@@ -172,11 +172,11 @@ contract WrappedERC20xDTest is BaseERC20xDTestHelper {
     function test_unwrap_revertZeroAddress() public {
         WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
         vm.prank(alice);
-        wrapped.wrap(alice, 50e18);
+        wrapped.wrap(alice, 50e18, "");
 
         vm.prank(alice);
         vm.expectRevert(IBaseERC20xD.InvalidAddress.selector);
-        wrapped.unwrap(address(0), 50e18, "");
+        wrapped.unwrap(address(0), 50e18, "", "");
     }
 
     function test_unwrap_differentRecipient() public {
@@ -184,13 +184,13 @@ contract WrappedERC20xDTest is BaseERC20xDTestHelper {
 
         // Alice wraps
         vm.prank(alice);
-        wrapped.wrap(alice, 50e18);
+        wrapped.wrap(alice, 50e18, "");
 
         // Alice unwraps to bob
         uint256 fee = wrapped.quoteTransfer(alice, uint128(GAS_LIMIT));
         vm.prank(alice);
         bytes memory data = abi.encode(uint128(GAS_LIMIT), alice);
-        wrapped.unwrap{ value: fee }(bob, 25e18, data);
+        wrapped.unwrap{ value: fee }(bob, 25e18, data, "");
 
         // The actual token transfer to bob happens via hooks
     }

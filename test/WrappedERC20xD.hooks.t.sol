@@ -15,6 +15,7 @@ import { FailingRedemptionHookMock } from "./mocks/hooks/FailingRedemptionHookMo
 import { OrderTrackingHookMock } from "./mocks/hooks/OrderTrackingHookMock.sol";
 import { YieldVaultHookMock } from "./mocks/hooks/YieldVaultHookMock.sol";
 import { HookMock } from "./mocks/hooks/HookMock.sol";
+import { CustomHookWithData } from "./mocks/hooks/CustomHookWithData.sol";
 import { CallOrderTrackerMock } from "./mocks/CallOrderTrackerMock.sol";
 import { SafeTransferLib, ERC20 } from "solmate/utils/SafeTransferLib.sol";
 
@@ -39,11 +40,11 @@ contract DataUsingHook is IERC20xDHook {
     function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
     function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
 
-    function onWrap(address, address, uint256 amount) external payable override returns (uint256) {
+    function onWrap(address, address, uint256 amount, bytes memory) external payable override returns (uint256) {
         return amount;
     }
 
-    function onUnwrap(address, address, uint256 shares) external override returns (uint256) {
+    function onUnwrap(address, address, uint256 shares, bytes memory) external override returns (uint256) {
         return shares;
     }
 }
@@ -82,11 +83,11 @@ contract RecipientRedemptionHook is IERC20xDHook {
     function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
     function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
 
-    function onWrap(address, address, uint256 amount) external payable override returns (uint256) {
+    function onWrap(address, address, uint256 amount, bytes memory) external payable override returns (uint256) {
         return amount;
     }
 
-    function onUnwrap(address, address, uint256 shares) external override returns (uint256) {
+    function onUnwrap(address, address, uint256 shares, bytes memory) external override returns (uint256) {
         // Can't actually redirect since contract handles transfer
         return shares;
     }
@@ -186,7 +187,7 @@ contract WrappedERC20xDHooksTest is Test {
         uint256 hookBalanceBefore = underlying.balanceOf(address(yieldHook));
 
         vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
+        wrappedToken.wrap(alice, 100e6, "");
 
         // Tokens should go to contract first, then hook pulls them
         assertEq(underlying.balanceOf(address(wrappedToken)), wrappedBalanceBefore);
@@ -200,7 +201,7 @@ contract WrappedERC20xDHooksTest is Test {
         wrappedToken.setHook(address(hook));
 
         vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
+        wrappedToken.wrap(alice, 100e6, "");
 
         // Verify hook was called
         assertEq(hook.getWrapCallCount(), 1);
@@ -211,7 +212,7 @@ contract WrappedERC20xDHooksTest is Test {
         wrappedToken.setHook(address(yieldHook));
 
         vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
+        wrappedToken.wrap(alice, 100e6, "");
 
         // Approval should be cleared after wrap
         assertEq(underlying.allowance(address(wrappedToken), address(yieldHook)), 0);
@@ -222,7 +223,7 @@ contract WrappedERC20xDHooksTest is Test {
         wrappedToken.setHook(address(yieldHook));
 
         vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
+        wrappedToken.wrap(alice, 100e6, "");
 
         // Should mint the amount returned by hook (same in this case)
         assertEq(wrappedToken.balanceOf(alice), 100e6);
@@ -236,7 +237,7 @@ contract WrappedERC20xDHooksTest is Test {
         emit Wrap(alice, 100e6);
 
         vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
+        wrappedToken.wrap(alice, 100e6, "");
     }
 
     function test_wrap_withHookFailure_continuesWithOriginalAmount() public {
@@ -248,7 +249,7 @@ contract WrappedERC20xDHooksTest is Test {
         emit OnWrapHookFailure(address(failingHook), alice, alice, 100e6, "");
 
         vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
+        wrappedToken.wrap(alice, 100e6, "");
 
         // Should still mint original amount despite hook failure
         assertEq(wrappedToken.balanceOf(alice), 100e6);
@@ -257,7 +258,7 @@ contract WrappedERC20xDHooksTest is Test {
     function test_wrap_withoutHook_worksNormally() public {
         // No hook set
         vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
+        wrappedToken.wrap(alice, 100e6, "");
 
         // Tokens should go directly to contract
         assertEq(underlying.balanceOf(address(wrappedToken)), 100e6);
@@ -275,7 +276,7 @@ contract WrappedERC20xDHooksTest is Test {
 
         // Alice wraps tokens
         vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
+        wrappedToken.wrap(alice, 100e6, "");
         assertEq(wrappedToken.balanceOf(alice), 100e6);
         assertEq(underlying.balanceOf(alice), 900e6);
 
@@ -283,7 +284,7 @@ contract WrappedERC20xDHooksTest is Test {
         uint256 fee = wrappedToken.quoteTransfer(alice, 500_000);
 
         vm.prank(alice);
-        wrappedToken.unwrap{ value: fee }(alice, 50e6, "");
+        wrappedToken.unwrap{ value: fee }(alice, 50e6, "", "");
 
         // Simulate gateway response - this is when the redemption happens
         vm.expectEmit(true, false, false, true);
@@ -302,11 +303,11 @@ contract WrappedERC20xDHooksTest is Test {
 
         // Wrap and unwrap full amount
         vm.prank(alice);
-        wrappedToken.wrap(alice, 200e6);
+        wrappedToken.wrap(alice, 200e6, "");
 
         uint256 fee = wrappedToken.quoteTransfer(alice, 500_000);
         vm.prank(alice);
-        wrappedToken.unwrap{ value: fee }(alice, 200e6, "");
+        wrappedToken.unwrap{ value: fee }(alice, 200e6, "", "");
 
         // Simulate gateway response
         _simulateGatewayResponse(1, 0);
@@ -327,13 +328,13 @@ contract WrappedERC20xDHooksTest is Test {
 
         // Alice wraps tokens
         vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
+        wrappedToken.wrap(alice, 100e6, "");
 
         // Alice unwraps - hook fails but tokens still burn
         uint256 fee = wrappedToken.quoteTransfer(alice, 500_000);
 
         vm.prank(alice);
-        wrappedToken.unwrap{ value: fee }(alice, 50e6, "");
+        wrappedToken.unwrap{ value: fee }(alice, 50e6, "", "");
 
         // Simulate gateway response - hook failure happens here
         vm.expectEmit(true, true, true, false);
@@ -363,11 +364,11 @@ contract WrappedERC20xDHooksTest is Test {
 
         // Wrap and unwrap
         vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
+        wrappedToken.wrap(alice, 100e6, "");
 
         uint256 fee = wrappedToken.quoteTransfer(alice, 500_000);
         vm.prank(alice);
-        wrappedToken.unwrap{ value: fee }(alice, 25e6, "");
+        wrappedToken.unwrap{ value: fee }(alice, 25e6, "", "");
 
         // Simulate gateway response
         _simulateGatewayResponse(1, 0);
@@ -386,12 +387,12 @@ contract WrappedERC20xDHooksTest is Test {
     function test_unwrapWithNoHooks() public {
         // Wrap tokens
         vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
+        wrappedToken.wrap(alice, 100e6, "");
 
         // Unwrap without any hooks
         uint256 fee = wrappedToken.quoteTransfer(alice, 500_000);
         vm.prank(alice);
-        wrappedToken.unwrap{ value: fee }(alice, 40e6, "");
+        wrappedToken.unwrap{ value: fee }(alice, 40e6, "", "");
 
         // Simulate gateway response
         _simulateGatewayResponse(1, 0);
@@ -413,14 +414,14 @@ contract WrappedERC20xDHooksTest is Test {
 
         // Wrap tokens
         vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
+        wrappedToken.wrap(alice, 100e6, "");
 
         // Unwrap with data
         uint256 fee = wrappedToken.quoteTransfer(alice, 500_000);
         bytes memory data = abi.encode(uint128(300_000), bob);
 
         vm.prank(alice);
-        wrappedToken.unwrap{ value: fee }(alice, 20e6, data);
+        wrappedToken.unwrap{ value: fee }(alice, 20e6, data, "");
 
         // Simulate gateway response
         _simulateGatewayResponse(1, 0);
@@ -440,19 +441,19 @@ contract WrappedERC20xDHooksTest is Test {
 
         // Multiple users wrap
         vm.prank(alice);
-        wrappedToken.wrap(alice, 200e6);
+        wrappedToken.wrap(alice, 200e6, "");
 
         vm.prank(bob);
-        wrappedToken.wrap(bob, 300e6);
+        wrappedToken.wrap(bob, 300e6, "");
 
         // Both unwrap concurrently
         uint256 fee = wrappedToken.quoteTransfer(alice, 500_000);
 
         vm.prank(alice);
-        wrappedToken.unwrap{ value: fee }(alice, 100e6, "");
+        wrappedToken.unwrap{ value: fee }(alice, 100e6, "", "");
 
         vm.prank(bob);
-        wrappedToken.unwrap{ value: fee }(bob, 150e6, "");
+        wrappedToken.unwrap{ value: fee }(bob, 150e6, "", "");
 
         // Simulate gateway responses
         _simulateGatewayResponse(1, 0); // Alice's unwrap
@@ -481,11 +482,11 @@ contract WrappedERC20xDHooksTest is Test {
 
         // Alice wraps and unwraps
         vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
+        wrappedToken.wrap(alice, 100e6, "");
 
         uint256 fee = wrappedToken.quoteTransfer(alice, 500_000);
         vm.prank(alice);
-        wrappedToken.unwrap{ value: fee }(alice, 50e6, "");
+        wrappedToken.unwrap{ value: fee }(alice, 50e6, "", "");
 
         // Simulate gateway response
         _simulateGatewayResponse(1, 0);
@@ -506,14 +507,14 @@ contract WrappedERC20xDHooksTest is Test {
         wrappedToken.setHook(address(yieldHook));
 
         vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
+        wrappedToken.wrap(alice, 100e6, "");
 
         uint256 sharesBefore = wrappedToken.balanceOf(alice);
 
         // Unwrap initiates transfer
         uint256 fee = wrappedToken.quoteUnwrap(500_000);
         vm.prank(alice);
-        wrappedToken.unwrap{ value: fee }(alice, 50e6, abi.encode(uint128(500_000), alice));
+        wrappedToken.unwrap{ value: fee }(alice, 50e6, abi.encode(uint128(500_000), alice), "");
 
         // At this point, transfer is pending, shares not burned yet
         assertEq(wrappedToken.balanceOf(alice), sharesBefore);
@@ -531,7 +532,7 @@ contract WrappedERC20xDHooksTest is Test {
         wrappedToken.setHook(address(yieldHook));
 
         vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
+        wrappedToken.wrap(alice, 100e6, "");
 
         // Simulate 10% yield accrual
         yieldHook.accrueYield();
@@ -540,7 +541,7 @@ contract WrappedERC20xDHooksTest is Test {
         uint256 fee = wrappedToken.quoteUnwrap(500_000);
 
         vm.prank(alice);
-        wrappedToken.unwrap{ value: fee }(alice, 50e6, abi.encode(uint128(500_000), alice));
+        wrappedToken.unwrap{ value: fee }(alice, 50e6, abi.encode(uint128(500_000), alice), "");
 
         // Expect event during gateway response
         vm.expectEmit(true, false, false, true);
@@ -558,13 +559,13 @@ contract WrappedERC20xDHooksTest is Test {
         wrappedToken.setHook(address(yieldHook));
 
         vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
+        wrappedToken.wrap(alice, 100e6, "");
 
         // Test unwrap event
         uint256 fee = wrappedToken.quoteUnwrap(500_000);
 
         vm.prank(alice);
-        wrappedToken.unwrap{ value: fee }(alice, 30e6, abi.encode(uint128(500_000), alice));
+        wrappedToken.unwrap{ value: fee }(alice, 30e6, abi.encode(uint128(500_000), alice), "");
 
         // Expect event during gateway response
         vm.expectEmit(true, false, false, true);
@@ -580,13 +581,13 @@ contract WrappedERC20xDHooksTest is Test {
 
         // Wrap first (will fail but continue)
         vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
+        wrappedToken.wrap(alice, 100e6, "");
 
         // Unwrap with failing hook
         uint256 fee = wrappedToken.quoteUnwrap(500_000);
 
         vm.prank(alice);
-        wrappedToken.unwrap{ value: fee }(alice, 50e6, abi.encode(uint128(500_000), alice));
+        wrappedToken.unwrap{ value: fee }(alice, 50e6, abi.encode(uint128(500_000), alice), "");
 
         // Expect hook failure event during gateway response
         vm.expectEmit(true, true, true, false);
@@ -605,7 +606,7 @@ contract WrappedERC20xDHooksTest is Test {
     function test_wrapUnwrap_roundTrip_noYield() public {
         // Wrap
         vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
+        wrappedToken.wrap(alice, 100e6, "");
 
         assertEq(wrappedToken.balanceOf(alice), 100e6);
         assertEq(underlying.balanceOf(alice), 900e6);
@@ -613,7 +614,7 @@ contract WrappedERC20xDHooksTest is Test {
         // Unwrap
         uint256 fee = wrappedToken.quoteUnwrap(500_000);
         vm.prank(alice);
-        wrappedToken.unwrap{ value: fee }(alice, 100e6, abi.encode(uint128(500_000), alice));
+        wrappedToken.unwrap{ value: fee }(alice, 100e6, abi.encode(uint128(500_000), alice), "");
 
         _simulateGatewayResponse(1, 0);
 
@@ -629,7 +630,7 @@ contract WrappedERC20xDHooksTest is Test {
 
         // Wrap
         vm.prank(alice);
-        wrappedToken.wrap(alice, 100e6);
+        wrappedToken.wrap(alice, 100e6, "");
 
         // Accrue 20% yield
         yieldHook.setYieldPercentage(2000);
@@ -638,13 +639,195 @@ contract WrappedERC20xDHooksTest is Test {
         // Unwrap all
         uint256 fee = wrappedToken.quoteUnwrap(500_000);
         vm.prank(alice);
-        wrappedToken.unwrap{ value: fee }(alice, 100e6, abi.encode(uint128(500_000), alice));
+        wrappedToken.unwrap{ value: fee }(alice, 100e6, abi.encode(uint128(500_000), alice), "");
 
         _simulateGatewayResponse(1, 0);
 
         // Should have original + yield
         assertEq(wrappedToken.balanceOf(alice), 0);
         assertEq(underlying.balanceOf(alice), 1000e6 - 100e6 + 120e6); // 20% yield on 100e6
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        CUSTOM HOOKDATA TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_wrap_withCustomHookData() public {
+        // Deploy custom hook
+        CustomHookWithData customHook = new CustomHookWithData(address(wrappedToken), address(underlying));
+        underlying.mint(address(customHook), 100_000e6);
+
+        vm.prank(owner);
+        wrappedToken.setHook(address(customHook));
+
+        // Prepare custom hook data
+        CustomHookWithData.WrapConfig memory config = CustomHookWithData.WrapConfig({
+            multiplier: 1100, // 110% - bonus tokens
+            recipient: bob,
+            metadata: abi.encode("test", uint256(123))
+        });
+        bytes memory hookData = abi.encode(config);
+
+        // Wrap with custom data
+        vm.prank(alice);
+        wrappedToken.wrap(alice, 100e6, hookData);
+
+        // Verify hook received and processed the data
+        assertEq(customHook.getLastWrapMultiplier(alice), 1100);
+        assertEq(customHook.getLastWrapRecipient(alice), bob);
+        assertEq(customHook.lastWrapMetadata(alice), abi.encode("test", uint256(123)));
+
+        // Verify adjusted amount was minted (110% of 100e6)
+        assertEq(wrappedToken.balanceOf(alice), 110e6);
+    }
+
+    function test_wrap_withEmptyHookData() public {
+        // Deploy custom hook
+        CustomHookWithData customHook = new CustomHookWithData(address(wrappedToken), address(underlying));
+        underlying.mint(address(customHook), 100_000e6);
+
+        vm.prank(owner);
+        wrappedToken.setHook(address(customHook));
+
+        // Wrap with empty hook data
+        vm.prank(alice);
+        wrappedToken.wrap(alice, 100e6, "");
+
+        // Verify normal amount was minted
+        assertEq(wrappedToken.balanceOf(alice), 100e6);
+
+        // Verify hook didn't store any config
+        assertEq(customHook.getLastWrapMultiplier(alice), 0);
+    }
+
+    function test_unwrap_withCustomHookData() public {
+        // Deploy custom hook
+        CustomHookWithData customHook = new CustomHookWithData(address(wrappedToken), address(underlying));
+        underlying.mint(address(customHook), 100_000e6);
+
+        vm.prank(owner);
+        wrappedToken.setHook(address(customHook));
+
+        // First wrap some tokens
+        vm.prank(alice);
+        wrappedToken.wrap(alice, 1000e6, "");
+
+        // Prepare custom unwrap hook data
+        CustomHookWithData.UnwrapConfig memory config = CustomHookWithData.UnwrapConfig({
+            feePercent: 200, // 2% fee
+            feeRecipient: bob,
+            applyBonus: false
+        });
+        bytes memory hookData = abi.encode(config);
+
+        // Get quote and unwrap with custom data
+        uint256 fee = wrappedToken.quoteTransfer(alice, 500_000);
+
+        vm.prank(alice);
+        wrappedToken.unwrap{ value: fee }(
+            alice,
+            100e6,
+            abi.encode(uint128(500_000), alice), // cross-chain data
+            hookData // custom hook data
+        );
+
+        // Simulate gateway response
+        _simulateGatewayResponse(1, 0);
+
+        // Verify hook received and processed the data
+        assertEq(customHook.getLastUnwrapFeePercent(alice), 200);
+        assertEq(customHook.getLastUnwrapFeeRecipient(alice), bob);
+        assertEq(customHook.getLastUnwrapBonus(alice), false);
+
+        // Verify amounts (100e6 - 2% fee = 98e6)
+        assertEq(wrappedToken.balanceOf(alice), 900e6); // 1000 - 100 unwrapped
+        assertEq(underlying.balanceOf(alice), 98e6); // 0 + 98 (after 2% fee)
+        assertEq(underlying.balanceOf(bob), 1000e6 + 2e6); // Initial + 2% fee
+    }
+
+    function test_unwrap_withBonusHookData() public {
+        // Deploy custom hook
+        CustomHookWithData customHook = new CustomHookWithData(address(wrappedToken), address(underlying));
+        underlying.mint(address(customHook), 100_000e6);
+
+        vm.prank(owner);
+        wrappedToken.setHook(address(customHook));
+
+        // First wrap some tokens
+        vm.prank(alice);
+        wrappedToken.wrap(alice, 1000e6, "");
+
+        // Prepare hook data with bonus enabled
+        CustomHookWithData.UnwrapConfig memory config = CustomHookWithData.UnwrapConfig({
+            feePercent: 0,
+            feeRecipient: address(0),
+            applyBonus: true // 10% bonus
+         });
+        bytes memory hookData = abi.encode(config);
+
+        // Unwrap with bonus
+        uint256 fee = wrappedToken.quoteTransfer(alice, 500_000);
+
+        vm.prank(alice);
+        wrappedToken.unwrap{ value: fee }(alice, 100e6, abi.encode(uint128(500_000), alice), hookData);
+
+        _simulateGatewayResponse(1, 0);
+
+        // Verify bonus was applied (100e6 * 1.1 = 110e6)
+        assertEq(wrappedToken.balanceOf(alice), 900e6);
+        assertEq(underlying.balanceOf(alice), 110e6); // 0 + 110 (with 10% bonus)
+    }
+
+    function test_hookData_complexStruct() public {
+        // Deploy custom hook
+        CustomHookWithData customHook = new CustomHookWithData(address(wrappedToken), address(underlying));
+        underlying.mint(address(customHook), 100_000e6);
+
+        vm.prank(owner);
+        wrappedToken.setHook(address(customHook));
+
+        // Test with complex nested struct
+        bytes memory metadata =
+            abi.encode(keccak256("COMPLEX_DATA"), block.timestamp, alice, uint256[](new uint256[](3)));
+
+        CustomHookWithData.WrapConfig memory config =
+            CustomHookWithData.WrapConfig({ multiplier: 1234, recipient: bob, metadata: metadata });
+        bytes memory hookData = abi.encode(config);
+
+        vm.prank(alice);
+        wrappedToken.wrap(alice, 100e6, hookData);
+
+        // Verify complex data was received correctly
+        assertEq(customHook.getLastWrapMultiplier(alice), 1234);
+        assertEq(customHook.lastWrapMetadata(alice), metadata);
+        assertEq(customHook.lastWrapRawData(alice), hookData);
+    }
+
+    function test_hookData_gracefulErrorHandling() public {
+        // Deploy custom hook
+        CustomHookWithData customHook = new CustomHookWithData(address(wrappedToken), address(underlying));
+        underlying.mint(address(customHook), 100_000e6);
+
+        vm.prank(owner);
+        wrappedToken.setHook(address(customHook));
+
+        // Test that when hook fails to decode, the wrap still continues
+        bytes memory shortData = hex"deadbeef"; // Too short to be a valid WrapConfig
+
+        // Expect the hook failure event
+        vm.expectEmit(true, true, true, false);
+        emit IBaseERC20xD.OnWrapHookFailure(address(customHook), alice, alice, 100e6, "");
+
+        // Should not revert - wrapped token handles hook failure gracefully
+        vm.prank(alice);
+        wrappedToken.wrap(alice, 100e6, shortData);
+
+        // Verify original amount was minted despite hook failure
+        assertEq(wrappedToken.balanceOf(alice), 100e6);
+
+        // Hook didn't store anything because it reverted
+        assertEq(customHook.lastWrapRawData(alice), "");
+        assertEq(customHook.getLastWrapMultiplier(alice), 0);
     }
 
     /*//////////////////////////////////////////////////////////////

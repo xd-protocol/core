@@ -63,7 +63,12 @@ contract YieldVaultHookMock is IERC20xDHook {
     }
 
     // Hook implementations
-    function onWrap(address from, address to, uint256 amount) external payable override returns (uint256) {
+    function onWrap(address from, address to, uint256 amount, bytes memory hookData)
+        external
+        payable
+        override
+        returns (uint256)
+    {
         require(msg.sender == wrappedToken, "Only wrapped token can call");
 
         if (isNative) {
@@ -83,7 +88,11 @@ contract YieldVaultHookMock is IERC20xDHook {
         return amount; // Return same amount for minting
     }
 
-    function onUnwrap(address from, address to, uint256 shares) external override returns (uint256) {
+    function onUnwrap(address from, address to, uint256 shares, bytes memory hookData)
+        external
+        override
+        returns (uint256)
+    {
         require(msg.sender == wrappedToken, "Only wrapped token can call");
         require(deposits[from] >= shares, "Insufficient deposits");
 

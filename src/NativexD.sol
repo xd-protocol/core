@@ -56,7 +56,7 @@ contract NativexD is BaseERC20xD, INativexD {
     receive() external payable virtual { }
 
     /// @inheritdoc INativexD
-    function wrap(address to) external payable virtual nonReentrant {
+    function wrap(address to, bytes memory hookData) external payable virtual nonReentrant {
         if (to == address(0)) revert InvalidAddress();
         if (msg.value == 0) revert InvalidAmount();
 
@@ -65,7 +65,7 @@ contract NativexD is BaseERC20xD, INativexD {
 
         if (_hook != address(0)) {
             // Call onWrap hook with native tokens attached to get actual amount to mint
-            try IERC20xDHook(_hook).onWrap{ value: msg.value }(msg.sender, to, msg.value) returns (
+            try IERC20xDHook(_hook).onWrap{ value: msg.value }(msg.sender, to, msg.value, hookData) returns (
                 uint256 _actualAmount
             ) {
                 actualAmount = _actualAmount;
@@ -83,7 +83,7 @@ contract NativexD is BaseERC20xD, INativexD {
     }
 
     /// @inheritdoc INativexD
-    function unwrap(address to, uint256 amount, bytes memory data)
+    function unwrap(address to, uint256 amount, bytes memory data, bytes memory hookData)
         external
         payable
         virtual
@@ -92,8 +92,8 @@ contract NativexD is BaseERC20xD, INativexD {
     {
         if (to == address(0)) revert InvalidAddress();
 
-        // Encode the recipient address with the callData for the burn operation
-        bytes memory callData = abi.encode(to);
+        // Encode the recipient address and hookData for the burn operation
+        bytes memory callData = abi.encode(to, hookData);
 
         // The actual burn and native transfer will happen in _executePendingTransfer after cross-chain check
         guid = _transfer(msg.sender, address(0), amount, callData, 0, data);
@@ -111,8 +111,8 @@ contract NativexD is BaseERC20xD, INativexD {
     function _executePendingTransfer(IBaseERC20xD.PendingTransfer memory pending) internal virtual override {
         // For burns (unwraps), handle the recipient from callData
         if (pending.to == address(0) && pending.callData.length > 0) {
-            // Decode the recipient from callData
-            address recipient = abi.decode(pending.callData, (address));
+            // Decode the recipient and hookData from callData
+            (address recipient, bytes memory hookData) = abi.decode(pending.callData, (address, bytes));
 
             // Perform the burn
             _transferFrom(pending.from, address(0), pending.amount, pending.data);
@@ -123,7 +123,7 @@ contract NativexD is BaseERC20xD, INativexD {
 
             if (_hook != address(0)) {
                 // Call onUnwrap hook to get actual amount of native tokens to return
-                try IERC20xDHook(_hook).onUnwrap(pending.from, recipient, pending.amount) returns (
+                try IERC20xDHook(_hook).onUnwrap(pending.from, recipient, pending.amount, hookData) returns (
                     uint256 _underlyingAmount
                 ) {
                     underlyingAmount = _underlyingAmount;

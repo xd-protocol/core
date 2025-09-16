@@ -86,7 +86,7 @@ contract NativexDHooksTest is Test {
         uint256 hookBalanceBefore = address(yieldHook).balance;
 
         vm.prank(alice);
-        nativeToken.wrap{ value: 100 ether }(alice);
+        nativeToken.wrap{ value: 100 ether }(alice, "");
 
         // Native tokens should go to contract first, then hook receives them
         assertEq(address(nativeToken).balance, contractBalanceBefore); // Contract forwards to hook
@@ -98,7 +98,7 @@ contract NativexDHooksTest is Test {
         nativeToken.setHook(address(yieldHook));
 
         vm.prank(alice);
-        nativeToken.wrap{ value: 100 ether }(alice);
+        nativeToken.wrap{ value: 100 ether }(alice, "");
 
         // Should mint the amount returned by hook
         assertEq(nativeToken.balanceOf(alice), 100 ether);
@@ -113,7 +113,7 @@ contract NativexDHooksTest is Test {
         emit OnWrapHookFailure(address(failingHook), alice, alice, 100 ether, "");
 
         vm.prank(alice);
-        nativeToken.wrap{ value: 100 ether }(alice);
+        nativeToken.wrap{ value: 100 ether }(alice, "");
 
         // Should still mint original amount despite hook failure
         assertEq(nativeToken.balanceOf(alice), 100 ether);
@@ -124,7 +124,7 @@ contract NativexDHooksTest is Test {
         uint256 contractBalanceBefore = address(nativeToken).balance;
 
         vm.prank(alice);
-        nativeToken.wrap{ value: 100 ether }(alice);
+        nativeToken.wrap{ value: 100 ether }(alice, "");
 
         // Native tokens should stay in contract
         assertEq(address(nativeToken).balance, contractBalanceBefore + 100 ether);
@@ -142,7 +142,7 @@ contract NativexDHooksTest is Test {
 
         // Alice wraps native tokens
         vm.prank(alice);
-        nativeToken.wrap{ value: 100 ether }(alice);
+        nativeToken.wrap{ value: 100 ether }(alice, "");
         assertEq(nativeToken.balanceOf(alice), 100 ether);
 
         uint256 aliceBalanceBefore = alice.balance;
@@ -151,7 +151,7 @@ contract NativexDHooksTest is Test {
         uint256 fee = nativeToken.quoteTransfer(alice, 500_000);
 
         vm.prank(alice);
-        nativeToken.unwrap{ value: fee }(alice, 50 ether, "");
+        nativeToken.unwrap{ value: fee }(alice, 50 ether, "", "");
 
         // Simulate gateway response - this is when the redemption happens
         _simulateGatewayResponse(1, 0);
@@ -167,7 +167,7 @@ contract NativexDHooksTest is Test {
         nativeToken.setHook(address(yieldHook));
 
         vm.prank(alice);
-        nativeToken.wrap{ value: 100 ether }(alice);
+        nativeToken.wrap{ value: 100 ether }(alice, "");
 
         // Simulate 10% yield accrual
         yieldHook.accrueYield();
@@ -178,7 +178,7 @@ contract NativexDHooksTest is Test {
         uint256 fee = nativeToken.quoteUnwrap(500_000);
 
         vm.prank(alice);
-        nativeToken.unwrap{ value: fee }(alice, 50 ether, abi.encode(uint128(500_000), alice));
+        nativeToken.unwrap{ value: fee }(alice, 50 ether, abi.encode(uint128(500_000), alice), "");
 
         // Expect event during gateway response
         vm.expectEmit(true, false, false, true);
@@ -197,7 +197,7 @@ contract NativexDHooksTest is Test {
 
         // Wrap first (will fail but continue)
         vm.prank(alice);
-        nativeToken.wrap{ value: 100 ether }(alice);
+        nativeToken.wrap{ value: 100 ether }(alice, "");
 
         uint256 aliceBalanceBefore = alice.balance;
 
@@ -205,7 +205,7 @@ contract NativexDHooksTest is Test {
         uint256 fee = nativeToken.quoteUnwrap(500_000);
 
         vm.prank(alice);
-        nativeToken.unwrap{ value: fee }(alice, 50 ether, abi.encode(uint128(500_000), alice));
+        nativeToken.unwrap{ value: fee }(alice, 50 ether, abi.encode(uint128(500_000), alice), "");
 
         // Expect hook failure event during gateway response
         vm.expectEmit(true, true, true, false);
@@ -230,7 +230,7 @@ contract NativexDHooksTest is Test {
 
         // Wrap
         vm.prank(alice);
-        nativeToken.wrap{ value: 100 ether }(alice);
+        nativeToken.wrap{ value: 100 ether }(alice, "");
 
         // Accrue 20% yield
         yieldHook.setYieldPercentage(2000);
@@ -239,7 +239,7 @@ contract NativexDHooksTest is Test {
         // Unwrap all
         uint256 fee = nativeToken.quoteUnwrap(500_000);
         vm.prank(alice);
-        nativeToken.unwrap{ value: fee }(alice, 100 ether, abi.encode(uint128(500_000), alice));
+        nativeToken.unwrap{ value: fee }(alice, 100 ether, abi.encode(uint128(500_000), alice), "");
 
         _simulateGatewayResponse(1, 0);
 
@@ -259,7 +259,7 @@ contract NativexDHooksTest is Test {
         uint256 hookBalanceBefore = address(yieldHook).balance;
 
         vm.prank(alice);
-        nativeToken.wrap{ value: 50 ether }(alice);
+        nativeToken.wrap{ value: 50 ether }(alice, "");
 
         // Hook should receive the native tokens
         assertEq(address(yieldHook).balance, hookBalanceBefore + 50 ether);
@@ -271,14 +271,14 @@ contract NativexDHooksTest is Test {
 
         // Wrap first
         vm.prank(alice);
-        nativeToken.wrap{ value: 100 ether }(alice);
+        nativeToken.wrap{ value: 100 ether }(alice, "");
 
         uint256 contractBalanceBefore = address(nativeToken).balance;
 
         // Unwrap
         uint256 fee = nativeToken.quoteUnwrap(500_000);
         vm.prank(alice);
-        nativeToken.unwrap{ value: fee }(alice, 100 ether, abi.encode(uint128(500_000), alice));
+        nativeToken.unwrap{ value: fee }(alice, 100 ether, abi.encode(uint128(500_000), alice), "");
 
         _simulateGatewayResponse(1, 0);
 

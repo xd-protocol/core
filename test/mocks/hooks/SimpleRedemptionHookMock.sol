@@ -38,11 +38,11 @@ contract SimpleRedemptionHookMock is IERC20xDHook {
     function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
     function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }
 
-    function onWrap(address, address, uint256 amount) external payable override returns (uint256) {
-        return amount; // No modification
+    function onWrap(address, address, uint256 amount, bytes memory) external payable override returns (uint256) {
+        return amount;
     }
 
-    function onUnwrap(address from, address, uint256 shares) external override returns (uint256) {
+    function onUnwrap(address from, address, uint256 shares, bytes memory) external override returns (uint256) {
         // Transfer underlying back to wrapped token contract
         ERC20(underlying).safeTransfer(wrappedToken, shares);
         return shares; // No yield

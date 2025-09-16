@@ -34,17 +34,22 @@ interface INativexD is IBaseERC20xD {
     /**
      * @notice Wraps native currency into xD tokens
      * @param to The recipient of the wrapped tokens
+     * @param hookData Custom data to pass to the onWrap hook
      */
-    function wrap(address to) external payable;
+    function wrap(address to, bytes memory hookData) external payable;
 
     /**
      * @notice Unwraps xD tokens back to native currency
      * @param to The recipient of the native currency
      * @param amount The amount of xD tokens to unwrap
      * @param data Encoded (uint128 gasLimit, address refundTo) parameters for cross-chain operations
+     * @param hookData Custom data to pass to the onUnwrap hook
      * @return guid The unique identifier for this unwrap operation
      */
-    function unwrap(address to, uint256 amount, bytes memory data) external payable returns (bytes32 guid);
+    function unwrap(address to, uint256 amount, bytes memory data, bytes memory hookData)
+        external
+        payable
+        returns (bytes32 guid);
 
     /**
      * @notice Fallback function to receive Ether

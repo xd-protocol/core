@@ -35,17 +35,22 @@ interface IWrappedERC20xD is IBaseERC20xD {
      * @notice Wraps underlying tokens into xD tokens
      * @param to The recipient of the wrapped tokens
      * @param amount The amount of underlying tokens to wrap
+     * @param hookData Custom data to pass to the onWrap hook
      */
-    function wrap(address to, uint256 amount) external payable;
+    function wrap(address to, uint256 amount, bytes memory hookData) external payable;
 
     /**
      * @notice Unwraps xD tokens back to underlying tokens
      * @param to The recipient of the underlying tokens
      * @param amount The amount of xD tokens to unwrap
      * @param data Encoded (uint128 gasLimit, address refundTo) parameters for cross-chain operations
+     * @param hookData Custom data to pass to the onUnwrap hook
      * @return guid The unique identifier for this unwrap operation
      */
-    function unwrap(address to, uint256 amount, bytes memory data) external payable returns (bytes32 guid);
+    function unwrap(address to, uint256 amount, bytes memory data, bytes memory hookData)
+        external
+        payable
+        returns (bytes32 guid);
 
     /**
      * @notice Fallback function to receive Ether
