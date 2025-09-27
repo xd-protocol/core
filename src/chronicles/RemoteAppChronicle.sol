@@ -5,7 +5,7 @@ import { IRemoteAppChronicle } from "../interfaces/IRemoteAppChronicle.sol";
 import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
 import { ILiquidityMatrixHook } from "../interfaces/ILiquidityMatrixHook.sol";
 import { SnapshotsLib } from "../libraries/SnapshotsLib.sol";
-import { ArrayLib } from "../libraries/ArrayLib.sol";
+import { TimestampArrayLib } from "../libraries/TimestampArrayLib.sol";
 import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
 
 /**
@@ -34,7 +34,7 @@ import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
  */
 contract RemoteAppChronicle is IRemoteAppChronicle {
     using SnapshotsLib for SnapshotsLib.Snapshots;
-    using ArrayLib for uint256[];
+    using TimestampArrayLib for TimestampArrayLib.TimestampArray;
 
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
@@ -63,9 +63,10 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
     /// @inheritdoc IRemoteAppChronicle
     mapping(uint64 timestamp => bool) public isDataSettled;
 
-    uint256[] internal _settledLiquidityTimestamps;
-    uint256[] internal _settledDataTimestamps;
-    uint256[] internal _finalizedTimestamps;
+    // Using TimestampArrayLib library for O(1) writes and O(log n) reads
+    TimestampArrayLib.TimestampArray internal _settledLiquidityTimestamps;
+    TimestampArrayLib.TimestampArray internal _settledDataTimestamps;
+    TimestampArrayLib.TimestampArray internal _finalizedTimestamps;
 
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
@@ -205,32 +206,38 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
 
     /// @inheritdoc IRemoteAppChronicle
     function getLastSettledLiquidityTimestamp() external view returns (uint64) {
-        return uint64(_settledLiquidityTimestamps.last());
+        // O(1) - return tracked maximum
+        return _settledLiquidityTimestamps.getLast();
     }
 
     /// @inheritdoc IRemoteAppChronicle
     function getSettledLiquidityTimestampAt(uint64 timestamp) external view returns (uint64) {
-        return uint64(_settledLiquidityTimestamps.findFloor(timestamp));
+        // O(log n) - binary search using sorted indices
+        return _settledLiquidityTimestamps.findFloor(timestamp);
     }
 
     /// @inheritdoc IRemoteAppChronicle
     function getLastSettledDataTimestamp() external view returns (uint64) {
-        return uint64(_settledDataTimestamps.last());
+        // O(1) - return tracked maximum
+        return _settledDataTimestamps.getLast();
     }
 
     /// @inheritdoc IRemoteAppChronicle
     function getSettledDataTimestampAt(uint64 timestamp) external view returns (uint64) {
-        return uint64(_settledDataTimestamps.findFloor(timestamp));
+        // O(log n) - binary search using sorted indices
+        return _settledDataTimestamps.findFloor(timestamp);
     }
 
     /// @inheritdoc IRemoteAppChronicle
     function getLastFinalizedTimestamp() external view returns (uint64) {
-        return uint64(_finalizedTimestamps.last());
+        // O(1) - return tracked maximum
+        return _finalizedTimestamps.getLast();
     }
 
     /// @inheritdoc IRemoteAppChronicle
     function getFinalizedTimestampAt(uint64 timestamp) external view returns (uint64) {
-        return uint64(_finalizedTimestamps.findFloor(timestamp));
+        // O(log n) - binary search using sorted indices
+        return _finalizedTimestamps.findFloor(timestamp);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -272,9 +279,12 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
 
         isLiquiditySettled[params.timestamp] = true;
 
-        _settledLiquidityTimestamps.push(params.timestamp);
-        if (params.timestamp > _finalizedTimestamps.last() && isDataSettled[params.timestamp]) {
-            _finalizedTimestamps.push(params.timestamp);
+        // O(1) append with automatic index maintenance and max tracking
+        _settledLiquidityTimestamps.add(params.timestamp);
+
+        // Handle finalization if data is also settled
+        if (isDataSettled[params.timestamp]) {
+            _finalizedTimestamps.add(params.timestamp);
         }
 
         int256 totalLiquidity;
@@ -349,9 +359,12 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
 
         isDataSettled[params.timestamp] = true;
 
-        _settledDataTimestamps.push(params.timestamp);
-        if (params.timestamp > _finalizedTimestamps.last() && isLiquiditySettled[params.timestamp]) {
-            _finalizedTimestamps.push(params.timestamp);
+        // O(1) append with automatic index maintenance and max tracking
+        _settledDataTimestamps.add(params.timestamp);
+
+        // Handle finalization if liquidity is also settled
+        if (isLiquiditySettled[params.timestamp]) {
+            _finalizedTimestamps.add(params.timestamp);
         }
 
         // Process each key-value pair

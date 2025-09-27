@@ -519,12 +519,11 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         assertTrue(remoteChronicle.isFinalized(uint64(t2)));
         assertTrue(remoteChronicle.isFinalized(uint64(t3)));
 
-        // Last settled data should still be t3 but due to a sorted set implementation detail,
-        // when settling out of order (t3, t2, t1), the last() returns t1 instead of t3
-        // This appears to be a bug in the sorted set or our understanding of it
-        // For now, we'll test the actual behavior
+        // With the updated TimestampArrayLib that tracks the maximum value,
+        // getLastSettledDataTimestamp() correctly returns the max timestamp (t3)
+        // even when data is settled out of order (t3, t2, t1)
         lastSettledDataTime = remoteChronicle.getLastSettledDataTimestamp();
-        assertEq(lastSettledDataTime, t1); // Should be t3, but returns t1
+        assertEq(lastSettledDataTime, t3); // Correctly returns t3 (the maximum)
 
         // Last finalized should still be t3
         lastFinalizedTime = remoteChronicle.getLastFinalizedTimestamp();

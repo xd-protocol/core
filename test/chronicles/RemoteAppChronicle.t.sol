@@ -6,6 +6,7 @@ import { RemoteAppChronicle } from "../../src/chronicles/RemoteAppChronicle.sol"
 import { IRemoteAppChronicle } from "../../src/interfaces/IRemoteAppChronicle.sol";
 import { ILiquidityMatrix } from "../../src/interfaces/ILiquidityMatrix.sol";
 import { ILiquidityMatrixHook } from "../../src/interfaces/ILiquidityMatrixHook.sol";
+import { SnapshotsLib } from "../../src/libraries/SnapshotsLib.sol";
 
 /**
  * @title RemoteAppChronicleTest
@@ -27,6 +28,7 @@ contract RemoteAppChronicleTest is Test {
     uint256 constant VERSION = 1;
     uint64 constant TIMESTAMP_1 = 1000;
     uint64 constant TIMESTAMP_2 = 2000;
+    uint64 constant TIMESTAMP_3 = 3000;
 
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
@@ -469,6 +471,971 @@ contract RemoteAppChronicleTest is Test {
     /*//////////////////////////////////////////////////////////////
                         VIEW FUNCTION TESTS
     //////////////////////////////////////////////////////////////*/
+
+    function test_getLastSettledLiquidityTimestamp_empty() public view {
+        // Should return 0 when no liquidity has been settled
+        assertEq(chronicle.getLastSettledLiquidityTimestamp(), 0);
+    }
+
+    function test_getLastSettledLiquidityTimestamp_singleSettlement() public {
+        // Settle liquidity at TIMESTAMP_1
+        _setupAndSettleLiquidity(TIMESTAMP_1);
+
+        // Should return TIMESTAMP_1
+        assertEq(chronicle.getLastSettledLiquidityTimestamp(), TIMESTAMP_1);
+    }
+
+    function test_getLastSettledLiquidityTimestamp_multipleSettlementsChronological() public {
+        // Settle liquidity at multiple timestamps in chronological order
+        _setupAndSettleLiquidity(TIMESTAMP_1);
+        _setupAndSettleLiquidity(TIMESTAMP_2);
+        _setupAndSettleLiquidity(TIMESTAMP_3);
+
+        // Should return the maximum timestamp (TIMESTAMP_3)
+        assertEq(chronicle.getLastSettledLiquidityTimestamp(), TIMESTAMP_3);
+    }
+
+    function test_getLastSettledLiquidityTimestamp_revertOnStaleTimestamp() public {
+        // First settle at a later timestamp
+        _setupAndSettleLiquidity(TIMESTAMP_2);
+
+        // Attempting to settle at an earlier timestamp should revert with StaleTimestamp
+        // This is a constraint of the underlying SnapshotsLib
+        _setupValidLiquiditySettlementForTimestamp(TIMESTAMP_1);
+
+        RemoteAppChronicle.SettleLiquidityParams memory params = RemoteAppChronicle.SettleLiquidityParams({
+            timestamp: TIMESTAMP_1,
+            accounts: new address[](1),
+            liquidity: new int256[](1),
+            liquidityRoot: keccak256("test_liquidity_root"),
+            proof: new bytes32[](0)
+        });
+        params.accounts[0] = makeAddr("alice");
+        params.liquidity[0] = 100;
+
+        vm.prank(settler);
+        vm.expectRevert(SnapshotsLib.StaleTimestamp.selector);
+        chronicle.settleLiquidity(params);
+
+        // The last timestamp should still be TIMESTAMP_2
+        assertEq(chronicle.getLastSettledLiquidityTimestamp(), TIMESTAMP_2);
+    }
+
+    function test_getLastSettledLiquidityTimestamp_doesNotChangeOnDataSettlement() public {
+        // Settle liquidity at TIMESTAMP_1
+        _setupAndSettleLiquidity(TIMESTAMP_1);
+        assertEq(chronicle.getLastSettledLiquidityTimestamp(), TIMESTAMP_1);
+
+        // Settle data at TIMESTAMP_2 (without liquidity)
+        _setupAndSettleData(TIMESTAMP_2);
+
+        // Should still return TIMESTAMP_1 (last liquidity settlement)
+        assertEq(chronicle.getLastSettledLiquidityTimestamp(), TIMESTAMP_1);
+    }
+
+    function test_getLastSettledLiquidityTimestamp_handlesGapInTimestamps() public {
+        // Settle at non-consecutive timestamps (must be in increasing order due to SnapshotsLib constraint)
+        uint64 timestamp1 = 1000;
+        uint64 timestamp2 = 5000;
+        uint64 timestamp3 = 10_000;
+
+        _setupAndSettleLiquidity(timestamp1);
+        _setupAndSettleLiquidity(timestamp2);
+        _setupAndSettleLiquidity(timestamp3);
+
+        // Should return the maximum timestamp
+        assertEq(chronicle.getLastSettledLiquidityTimestamp(), timestamp3);
+    }
+
+    function testFuzz_getLastSettledLiquidityTimestamp(uint64[] memory timestamps) public {
+        vm.assume(timestamps.length > 0 && timestamps.length <= 10);
+
+        // Sort timestamps to avoid StaleTimestamp errors from SnapshotsLib
+        // Use simple bubble sort for small arrays
+        for (uint256 i = 0; i < timestamps.length; i++) {
+            for (uint256 j = i + 1; j < timestamps.length; j++) {
+                if (timestamps[i] > timestamps[j]) {
+                    uint64 temp = timestamps[i];
+                    timestamps[i] = timestamps[j];
+                    timestamps[j] = temp;
+                }
+            }
+        }
+
+        uint64 maxTimestamp = 0;
+        uint64 lastSettled = 0;
+        for (uint256 i = 0; i < timestamps.length; i++) {
+            // Skip duplicates and timestamps that would cause StaleTimestamp
+            if (timestamps[i] <= lastSettled) {
+                continue;
+            }
+
+            _setupAndSettleLiquidity(timestamps[i]);
+            lastSettled = timestamps[i];
+            maxTimestamp = timestamps[i];
+        }
+
+        // Should always return the maximum settled timestamp
+        if (maxTimestamp > 0) {
+            assertEq(chronicle.getLastSettledLiquidityTimestamp(), maxTimestamp);
+        } else {
+            assertEq(chronicle.getLastSettledLiquidityTimestamp(), 0);
+        }
+    }
+
+    function test_getSettledLiquidityTimestampAt_empty() public view {
+        // Should return 0 when no liquidity has been settled
+        assertEq(chronicle.getSettledLiquidityTimestampAt(TIMESTAMP_1), 0);
+        assertEq(chronicle.getSettledLiquidityTimestampAt(0), 0);
+        assertEq(chronicle.getSettledLiquidityTimestampAt(type(uint64).max), 0);
+    }
+
+    function test_getSettledLiquidityTimestampAt_singleSettlement() public {
+        // Settle liquidity at TIMESTAMP_2
+        _setupAndSettleLiquidity(TIMESTAMP_2);
+
+        // Query before the settlement should return 0
+        assertEq(chronicle.getSettledLiquidityTimestampAt(TIMESTAMP_1), 0);
+
+        // Query at exact timestamp should return that timestamp
+        assertEq(chronicle.getSettledLiquidityTimestampAt(TIMESTAMP_2), TIMESTAMP_2);
+
+        // Query after the settlement should return TIMESTAMP_2
+        assertEq(chronicle.getSettledLiquidityTimestampAt(TIMESTAMP_3), TIMESTAMP_2);
+        assertEq(chronicle.getSettledLiquidityTimestampAt(type(uint64).max), TIMESTAMP_2);
+    }
+
+    function test_getSettledLiquidityTimestampAt_multipleSettlements() public {
+        // Settle at multiple timestamps
+        _setupAndSettleLiquidity(TIMESTAMP_1);
+        _setupAndSettleLiquidity(TIMESTAMP_2);
+        _setupAndSettleLiquidity(TIMESTAMP_3);
+
+        // Query before first settlement
+        assertEq(chronicle.getSettledLiquidityTimestampAt(500), 0);
+
+        // Query at exact timestamps
+        assertEq(chronicle.getSettledLiquidityTimestampAt(TIMESTAMP_1), TIMESTAMP_1);
+        assertEq(chronicle.getSettledLiquidityTimestampAt(TIMESTAMP_2), TIMESTAMP_2);
+        assertEq(chronicle.getSettledLiquidityTimestampAt(TIMESTAMP_3), TIMESTAMP_3);
+
+        // Query between timestamps
+        assertEq(chronicle.getSettledLiquidityTimestampAt(TIMESTAMP_1 + 100), TIMESTAMP_1);
+        assertEq(chronicle.getSettledLiquidityTimestampAt(TIMESTAMP_2 + 100), TIMESTAMP_2);
+
+        // Query after last timestamp
+        assertEq(chronicle.getSettledLiquidityTimestampAt(TIMESTAMP_3 + 1000), TIMESTAMP_3);
+    }
+
+    function test_getSettledLiquidityTimestampAt_withGaps() public {
+        // Settle with large gaps between timestamps
+        uint64 timestamp1 = 100;
+        uint64 timestamp2 = 10_000;
+        uint64 timestamp3 = 50_000;
+
+        _setupAndSettleLiquidity(timestamp1);
+        _setupAndSettleLiquidity(timestamp2);
+        _setupAndSettleLiquidity(timestamp3);
+
+        // Test various query points
+        assertEq(chronicle.getSettledLiquidityTimestampAt(50), 0);
+        assertEq(chronicle.getSettledLiquidityTimestampAt(100), timestamp1);
+        assertEq(chronicle.getSettledLiquidityTimestampAt(5000), timestamp1);
+        assertEq(chronicle.getSettledLiquidityTimestampAt(10_000), timestamp2);
+        assertEq(chronicle.getSettledLiquidityTimestampAt(30_000), timestamp2);
+        assertEq(chronicle.getSettledLiquidityTimestampAt(50_000), timestamp3);
+        assertEq(chronicle.getSettledLiquidityTimestampAt(100_000), timestamp3);
+    }
+
+    function test_getSettledLiquidityTimestampAt_boundaryConditions() public {
+        // Test with boundary values
+        uint64 minTimestamp = 1;
+        uint64 maxTimestamp = type(uint64).max - 1;
+
+        _setupAndSettleLiquidity(minTimestamp);
+        _setupAndSettleLiquidity(maxTimestamp);
+
+        // Query at 0 should return 0 (before first settlement)
+        assertEq(chronicle.getSettledLiquidityTimestampAt(0), 0);
+
+        // Query at minTimestamp should return minTimestamp
+        assertEq(chronicle.getSettledLiquidityTimestampAt(minTimestamp), minTimestamp);
+
+        // Query in the middle should return minTimestamp
+        assertEq(chronicle.getSettledLiquidityTimestampAt(type(uint64).max / 2), minTimestamp);
+
+        // Query at max should return maxTimestamp
+        assertEq(chronicle.getSettledLiquidityTimestampAt(type(uint64).max), maxTimestamp);
+    }
+
+    function test_getSettledLiquidityTimestampAt_manySettlements() public {
+        // Test with many settlements to verify O(log n) binary search
+        uint64[] memory timestamps = new uint64[](20);
+        for (uint256 i = 0; i < 20; i++) {
+            timestamps[i] = uint64(1000 * (i + 1));
+            _setupAndSettleLiquidity(timestamps[i]);
+        }
+
+        // Test binary search is working correctly
+        assertEq(chronicle.getSettledLiquidityTimestampAt(500), 0);
+        assertEq(chronicle.getSettledLiquidityTimestampAt(1500), timestamps[0]);
+        assertEq(chronicle.getSettledLiquidityTimestampAt(5500), timestamps[4]);
+        assertEq(chronicle.getSettledLiquidityTimestampAt(10_500), timestamps[9]);
+        assertEq(chronicle.getSettledLiquidityTimestampAt(15_500), timestamps[14]);
+        assertEq(chronicle.getSettledLiquidityTimestampAt(20_500), timestamps[19]);
+    }
+
+    function test_getSettledLiquidityTimestampAt_independentFromData() public {
+        // Settle liquidity at TIMESTAMP_1 and TIMESTAMP_3
+        _setupAndSettleLiquidity(TIMESTAMP_1);
+        _setupAndSettleLiquidity(TIMESTAMP_3);
+
+        // Settle data at TIMESTAMP_2 (without liquidity)
+        _setupAndSettleData(TIMESTAMP_2);
+
+        // Query at TIMESTAMP_2 should return TIMESTAMP_1 (previous liquidity settlement)
+        assertEq(chronicle.getSettledLiquidityTimestampAt(TIMESTAMP_2), TIMESTAMP_1);
+
+        // Query after TIMESTAMP_3 should still return TIMESTAMP_3
+        assertEq(chronicle.getSettledLiquidityTimestampAt(TIMESTAMP_3 + 100), TIMESTAMP_3);
+    }
+
+    function testFuzz_getSettledLiquidityTimestampAt(uint64[] memory settlements, uint64 queryTimestamp) public {
+        vm.assume(settlements.length > 0 && settlements.length <= 10);
+
+        // Sort settlements to avoid StaleTimestamp
+        for (uint256 i = 0; i < settlements.length; i++) {
+            for (uint256 j = i + 1; j < settlements.length; j++) {
+                if (settlements[i] > settlements[j]) {
+                    uint64 temp = settlements[i];
+                    settlements[i] = settlements[j];
+                    settlements[j] = temp;
+                }
+            }
+        }
+
+        // Settle unique timestamps
+        uint64 lastSettled = 0;
+        uint64[] memory actuallySettled = new uint64[](settlements.length);
+        uint256 settledCount = 0;
+
+        for (uint256 i = 0; i < settlements.length; i++) {
+            if (settlements[i] > lastSettled) {
+                _setupAndSettleLiquidity(settlements[i]);
+                actuallySettled[settledCount] = settlements[i];
+                settledCount++;
+                lastSettled = settlements[i];
+            }
+        }
+
+        // Find expected floor value
+        uint64 expectedFloor = 0;
+        for (uint256 i = 0; i < settledCount; i++) {
+            if (actuallySettled[i] <= queryTimestamp) {
+                expectedFloor = actuallySettled[i];
+            } else {
+                break;
+            }
+        }
+
+        assertEq(chronicle.getSettledLiquidityTimestampAt(queryTimestamp), expectedFloor);
+    }
+
+    function test_getLastSettledDataTimestamp_empty() public view {
+        // Should return 0 when no data has been settled
+        assertEq(chronicle.getLastSettledDataTimestamp(), 0);
+    }
+
+    function test_getLastSettledDataTimestamp_singleSettlement() public {
+        // Settle data at TIMESTAMP_1
+        _setupAndSettleData(TIMESTAMP_1);
+
+        // Should return TIMESTAMP_1
+        assertEq(chronicle.getLastSettledDataTimestamp(), TIMESTAMP_1);
+    }
+
+    function test_getLastSettledDataTimestamp_multipleSettlementsChronological() public {
+        // Settle data at multiple timestamps in chronological order
+        _setupAndSettleData(TIMESTAMP_1);
+        _setupAndSettleData(TIMESTAMP_2);
+        _setupAndSettleData(TIMESTAMP_3);
+
+        // Should return the maximum timestamp (TIMESTAMP_3)
+        assertEq(chronicle.getLastSettledDataTimestamp(), TIMESTAMP_3);
+    }
+
+    function test_getLastSettledDataTimestamp_doesNotChangeOnLiquiditySettlement() public {
+        // Settle data at TIMESTAMP_1
+        _setupAndSettleData(TIMESTAMP_1);
+        assertEq(chronicle.getLastSettledDataTimestamp(), TIMESTAMP_1);
+
+        // Settle liquidity at TIMESTAMP_2 (without data)
+        _setupAndSettleLiquidity(TIMESTAMP_2);
+
+        // Should still return TIMESTAMP_1 (last data settlement)
+        assertEq(chronicle.getLastSettledDataTimestamp(), TIMESTAMP_1);
+    }
+
+    function test_getLastSettledDataTimestamp_handlesGapInTimestamps() public {
+        // Settle at non-consecutive timestamps (must be in increasing order due to SnapshotsLib constraint)
+        uint64 timestamp1 = 1000;
+        uint64 timestamp2 = 5000;
+        uint64 timestamp3 = 10_000;
+
+        _setupAndSettleData(timestamp1);
+        _setupAndSettleData(timestamp2);
+        _setupAndSettleData(timestamp3);
+
+        // Should return the maximum timestamp
+        assertEq(chronicle.getLastSettledDataTimestamp(), timestamp3);
+    }
+
+    function test_getLastSettledDataTimestamp_withDifferentDataValues() public {
+        // Settle different data at different timestamps
+        bytes32[] memory keys1 = new bytes32[](1);
+        bytes[] memory values1 = new bytes[](1);
+        keys1[0] = keccak256("key1");
+        values1[0] = "value1";
+        _setupAndSettleDataWithKeysValues(TIMESTAMP_1, keys1, values1);
+
+        bytes32[] memory keys2 = new bytes32[](2);
+        bytes[] memory values2 = new bytes[](2);
+        keys2[0] = keccak256("key2");
+        keys2[1] = keccak256("key3");
+        values2[0] = "value2";
+        values2[1] = "value3";
+        _setupAndSettleDataWithKeysValues(TIMESTAMP_2, keys2, values2);
+
+        // Should return TIMESTAMP_2 regardless of data content
+        assertEq(chronicle.getLastSettledDataTimestamp(), TIMESTAMP_2);
+    }
+
+    function test_getLastSettledDataTimestamp_emptyDataSettlement() public {
+        // Settle with empty data arrays
+        bytes32[] memory emptyKeys = new bytes32[](0);
+        bytes[] memory emptyValues = new bytes[](0);
+
+        _setupAndSettleDataWithKeysValues(TIMESTAMP_1, emptyKeys, emptyValues);
+
+        // Should still track the timestamp even with empty data
+        assertEq(chronicle.getLastSettledDataTimestamp(), TIMESTAMP_1);
+    }
+
+    function test_getLastSettledDataTimestamp_revertOnStaleTimestampWithData() public {
+        // First settle at a later timestamp with actual data
+        bytes32[] memory keys = new bytes32[](1);
+        bytes[] memory values = new bytes[](1);
+        keys[0] = keccak256("key1");
+        values[0] = "value1";
+        _setupAndSettleDataWithKeysValues(TIMESTAMP_2, keys, values);
+
+        // Now try to settle the same key at an earlier timestamp
+        // This should revert because SnapshotsLib enforces chronological order per key
+        _setupValidDataSettlementForTimestamp(TIMESTAMP_1);
+
+        RemoteAppChronicle.SettleDataParams memory params = RemoteAppChronicle.SettleDataParams({
+            timestamp: TIMESTAMP_1,
+            keys: new bytes32[](1),
+            values: new bytes[](1),
+            dataRoot: keccak256("test_data_root"),
+            proof: new bytes32[](0)
+        });
+        params.keys[0] = keccak256("key1"); // Same key as before
+        params.values[0] = "different_value";
+
+        vm.prank(settler);
+        vm.expectRevert(SnapshotsLib.StaleTimestamp.selector);
+        chronicle.settleData(params);
+
+        // The last timestamp should still be TIMESTAMP_2
+        assertEq(chronicle.getLastSettledDataTimestamp(), TIMESTAMP_2);
+    }
+
+    function test_getLastSettledDataTimestamp_independentFromFinalization() public {
+        // Settle data at TIMESTAMP_1
+        _setupAndSettleData(TIMESTAMP_1);
+        assertEq(chronicle.getLastSettledDataTimestamp(), TIMESTAMP_1);
+        assertFalse(chronicle.isFinalized(TIMESTAMP_1));
+
+        // Settle liquidity at TIMESTAMP_1 to finalize
+        _setupAndSettleLiquidity(TIMESTAMP_1);
+        assertTrue(chronicle.isFinalized(TIMESTAMP_1));
+
+        // Last data timestamp should remain unchanged
+        assertEq(chronicle.getLastSettledDataTimestamp(), TIMESTAMP_1);
+
+        // Settle data at TIMESTAMP_2 without liquidity
+        _setupAndSettleData(TIMESTAMP_2);
+        assertFalse(chronicle.isFinalized(TIMESTAMP_2));
+
+        // Should now return TIMESTAMP_2
+        assertEq(chronicle.getLastSettledDataTimestamp(), TIMESTAMP_2);
+    }
+
+    function testFuzz_getLastSettledDataTimestamp(uint64[] memory timestamps) public {
+        vm.assume(timestamps.length > 0 && timestamps.length <= 10);
+
+        // Sort timestamps to avoid StaleTimestamp errors
+        for (uint256 i = 0; i < timestamps.length; i++) {
+            for (uint256 j = i + 1; j < timestamps.length; j++) {
+                if (timestamps[i] > timestamps[j]) {
+                    uint64 temp = timestamps[i];
+                    timestamps[i] = timestamps[j];
+                    timestamps[j] = temp;
+                }
+            }
+        }
+
+        uint64 maxTimestamp = 0;
+        uint64 lastSettled = 0;
+        for (uint256 i = 0; i < timestamps.length; i++) {
+            // Skip duplicates and timestamps that would cause StaleTimestamp
+            if (timestamps[i] <= lastSettled) {
+                continue;
+            }
+
+            _setupAndSettleData(timestamps[i]);
+            lastSettled = timestamps[i];
+            maxTimestamp = timestamps[i];
+        }
+
+        // Should always return the maximum settled timestamp
+        if (maxTimestamp > 0) {
+            assertEq(chronicle.getLastSettledDataTimestamp(), maxTimestamp);
+        } else {
+            assertEq(chronicle.getLastSettledDataTimestamp(), 0);
+        }
+    }
+
+    function test_getSettledDataTimestampAt_empty() public view {
+        // Should return 0 when no data has been settled
+        assertEq(chronicle.getSettledDataTimestampAt(TIMESTAMP_1), 0);
+        assertEq(chronicle.getSettledDataTimestampAt(0), 0);
+        assertEq(chronicle.getSettledDataTimestampAt(type(uint64).max), 0);
+    }
+
+    function test_getSettledDataTimestampAt_singleSettlement() public {
+        // Settle data at TIMESTAMP_2
+        _setupAndSettleData(TIMESTAMP_2);
+
+        // Query before the settlement should return 0
+        assertEq(chronicle.getSettledDataTimestampAt(TIMESTAMP_1), 0);
+
+        // Query at exact timestamp should return that timestamp
+        assertEq(chronicle.getSettledDataTimestampAt(TIMESTAMP_2), TIMESTAMP_2);
+
+        // Query after the settlement should return TIMESTAMP_2
+        assertEq(chronicle.getSettledDataTimestampAt(TIMESTAMP_3), TIMESTAMP_2);
+        assertEq(chronicle.getSettledDataTimestampAt(type(uint64).max), TIMESTAMP_2);
+    }
+
+    function test_getSettledDataTimestampAt_multipleSettlements() public {
+        // Settle at multiple timestamps
+        _setupAndSettleData(TIMESTAMP_1);
+        _setupAndSettleData(TIMESTAMP_2);
+        _setupAndSettleData(TIMESTAMP_3);
+
+        // Query before first settlement
+        assertEq(chronicle.getSettledDataTimestampAt(500), 0);
+
+        // Query at exact timestamps
+        assertEq(chronicle.getSettledDataTimestampAt(TIMESTAMP_1), TIMESTAMP_1);
+        assertEq(chronicle.getSettledDataTimestampAt(TIMESTAMP_2), TIMESTAMP_2);
+        assertEq(chronicle.getSettledDataTimestampAt(TIMESTAMP_3), TIMESTAMP_3);
+
+        // Query between timestamps
+        assertEq(chronicle.getSettledDataTimestampAt(TIMESTAMP_1 + 100), TIMESTAMP_1);
+        assertEq(chronicle.getSettledDataTimestampAt(TIMESTAMP_2 + 100), TIMESTAMP_2);
+
+        // Query after last timestamp
+        assertEq(chronicle.getSettledDataTimestampAt(TIMESTAMP_3 + 1000), TIMESTAMP_3);
+    }
+
+    function test_getSettledDataTimestampAt_withGaps() public {
+        // Settle with large gaps between timestamps
+        uint64 timestamp1 = 100;
+        uint64 timestamp2 = 10_000;
+        uint64 timestamp3 = 50_000;
+
+        _setupAndSettleData(timestamp1);
+        _setupAndSettleData(timestamp2);
+        _setupAndSettleData(timestamp3);
+
+        // Test various query points
+        assertEq(chronicle.getSettledDataTimestampAt(50), 0);
+        assertEq(chronicle.getSettledDataTimestampAt(100), timestamp1);
+        assertEq(chronicle.getSettledDataTimestampAt(5000), timestamp1);
+        assertEq(chronicle.getSettledDataTimestampAt(10_000), timestamp2);
+        assertEq(chronicle.getSettledDataTimestampAt(30_000), timestamp2);
+        assertEq(chronicle.getSettledDataTimestampAt(50_000), timestamp3);
+        assertEq(chronicle.getSettledDataTimestampAt(100_000), timestamp3);
+    }
+
+    function test_getSettledDataTimestampAt_boundaryConditions() public {
+        // Test with boundary values
+        uint64 minTimestamp = 1;
+        uint64 maxTimestamp = type(uint64).max - 1;
+
+        _setupAndSettleData(minTimestamp);
+        _setupAndSettleData(maxTimestamp);
+
+        // Query at 0 should return 0 (before first settlement)
+        assertEq(chronicle.getSettledDataTimestampAt(0), 0);
+
+        // Query at minTimestamp should return minTimestamp
+        assertEq(chronicle.getSettledDataTimestampAt(minTimestamp), minTimestamp);
+
+        // Query in the middle should return minTimestamp
+        assertEq(chronicle.getSettledDataTimestampAt(type(uint64).max / 2), minTimestamp);
+
+        // Query at max should return maxTimestamp
+        assertEq(chronicle.getSettledDataTimestampAt(type(uint64).max), maxTimestamp);
+    }
+
+    function test_getSettledDataTimestampAt_manySettlements() public {
+        // Test with many settlements to verify O(log n) binary search
+        uint64[] memory timestamps = new uint64[](20);
+        for (uint256 i = 0; i < 20; i++) {
+            timestamps[i] = uint64(1000 * (i + 1));
+            _setupAndSettleData(timestamps[i]);
+        }
+
+        // Test binary search is working correctly
+        assertEq(chronicle.getSettledDataTimestampAt(500), 0);
+        assertEq(chronicle.getSettledDataTimestampAt(1500), timestamps[0]);
+        assertEq(chronicle.getSettledDataTimestampAt(5500), timestamps[4]);
+        assertEq(chronicle.getSettledDataTimestampAt(10_500), timestamps[9]);
+        assertEq(chronicle.getSettledDataTimestampAt(15_500), timestamps[14]);
+        assertEq(chronicle.getSettledDataTimestampAt(20_500), timestamps[19]);
+    }
+
+    function test_getSettledDataTimestampAt_independentFromLiquidity() public {
+        // Settle data at TIMESTAMP_1 and TIMESTAMP_3
+        _setupAndSettleData(TIMESTAMP_1);
+        _setupAndSettleData(TIMESTAMP_3);
+
+        // Settle liquidity at TIMESTAMP_2 (without data)
+        _setupAndSettleLiquidity(TIMESTAMP_2);
+
+        // Query at TIMESTAMP_2 should return TIMESTAMP_1 (previous data settlement)
+        assertEq(chronicle.getSettledDataTimestampAt(TIMESTAMP_2), TIMESTAMP_1);
+
+        // Query after TIMESTAMP_3 should still return TIMESTAMP_3
+        assertEq(chronicle.getSettledDataTimestampAt(TIMESTAMP_3 + 100), TIMESTAMP_3);
+    }
+
+    function test_getSettledDataTimestampAt_withDifferentDataContent() public {
+        // Settle different data content at different timestamps
+        bytes32[] memory keys1 = new bytes32[](1);
+        bytes[] memory values1 = new bytes[](1);
+        keys1[0] = keccak256("config");
+        values1[0] = "initial_config";
+        _setupAndSettleDataWithKeysValues(TIMESTAMP_1, keys1, values1);
+
+        bytes32[] memory keys2 = new bytes32[](2);
+        bytes[] memory values2 = new bytes[](2);
+        keys2[0] = keccak256("metadata");
+        keys2[1] = keccak256("settings");
+        values2[0] = "metadata_v1";
+        values2[1] = abi.encode(100, true);
+        _setupAndSettleDataWithKeysValues(TIMESTAMP_2, keys2, values2);
+
+        bytes32[] memory keys3 = new bytes32[](0);
+        bytes[] memory values3 = new bytes[](0);
+        _setupAndSettleDataWithKeysValues(TIMESTAMP_3, keys3, values3);
+
+        // All timestamps should be queryable regardless of data content
+        assertEq(chronicle.getSettledDataTimestampAt(TIMESTAMP_1), TIMESTAMP_1);
+        assertEq(chronicle.getSettledDataTimestampAt(TIMESTAMP_2), TIMESTAMP_2);
+        assertEq(chronicle.getSettledDataTimestampAt(TIMESTAMP_3), TIMESTAMP_3);
+
+        // Query between timestamps
+        assertEq(chronicle.getSettledDataTimestampAt(TIMESTAMP_1 + 500), TIMESTAMP_1);
+        assertEq(chronicle.getSettledDataTimestampAt(TIMESTAMP_2 + 500), TIMESTAMP_2);
+    }
+
+    function testFuzz_getSettledDataTimestampAt(uint64[] memory settlements, uint64 queryTimestamp) public {
+        vm.assume(settlements.length > 0 && settlements.length <= 10);
+
+        // Sort settlements to avoid StaleTimestamp
+        for (uint256 i = 0; i < settlements.length; i++) {
+            for (uint256 j = i + 1; j < settlements.length; j++) {
+                if (settlements[i] > settlements[j]) {
+                    uint64 temp = settlements[i];
+                    settlements[i] = settlements[j];
+                    settlements[j] = temp;
+                }
+            }
+        }
+
+        // Settle unique timestamps
+        uint64 lastSettled = 0;
+        uint64[] memory actuallySettled = new uint64[](settlements.length);
+        uint256 settledCount = 0;
+
+        for (uint256 i = 0; i < settlements.length; i++) {
+            if (settlements[i] > lastSettled) {
+                _setupAndSettleData(settlements[i]);
+                actuallySettled[settledCount] = settlements[i];
+                settledCount++;
+                lastSettled = settlements[i];
+            }
+        }
+
+        // Find expected floor value
+        uint64 expectedFloor = 0;
+        for (uint256 i = 0; i < settledCount; i++) {
+            if (actuallySettled[i] <= queryTimestamp) {
+                expectedFloor = actuallySettled[i];
+            } else {
+                break;
+            }
+        }
+
+        assertEq(chronicle.getSettledDataTimestampAt(queryTimestamp), expectedFloor);
+    }
+
+    function test_getLastFinalizedTimestamp_empty() public view {
+        // Should return 0 when nothing has been finalized
+        assertEq(chronicle.getLastFinalizedTimestamp(), 0);
+    }
+
+    function test_getLastFinalizedTimestamp_onlyLiquiditySettled() public {
+        // Settle only liquidity at TIMESTAMP_1
+        _setupAndSettleLiquidity(TIMESTAMP_1);
+
+        // Should return 0 because data is not settled
+        assertFalse(chronicle.isFinalized(TIMESTAMP_1));
+        assertEq(chronicle.getLastFinalizedTimestamp(), 0);
+    }
+
+    function test_getLastFinalizedTimestamp_onlyDataSettled() public {
+        // Settle only data at TIMESTAMP_1
+        _setupAndSettleData(TIMESTAMP_1);
+
+        // Should return 0 because liquidity is not settled
+        assertFalse(chronicle.isFinalized(TIMESTAMP_1));
+        assertEq(chronicle.getLastFinalizedTimestamp(), 0);
+    }
+
+    function test_getLastFinalizedTimestamp_bothSettledSameTimestamp() public {
+        // Settle both liquidity and data at TIMESTAMP_1
+        _setupAndSettleLiquidity(TIMESTAMP_1);
+        _setupAndSettleData(TIMESTAMP_1);
+
+        // Should return TIMESTAMP_1 as it's finalized
+        assertTrue(chronicle.isFinalized(TIMESTAMP_1));
+        assertEq(chronicle.getLastFinalizedTimestamp(), TIMESTAMP_1);
+    }
+
+    function test_getLastFinalizedTimestamp_liquidityThenData() public {
+        // Settle liquidity first
+        _setupAndSettleLiquidity(TIMESTAMP_1);
+        assertEq(chronicle.getLastFinalizedTimestamp(), 0);
+
+        // Then settle data - should trigger finalization
+        _setupAndSettleData(TIMESTAMP_1);
+        assertTrue(chronicle.isFinalized(TIMESTAMP_1));
+        assertEq(chronicle.getLastFinalizedTimestamp(), TIMESTAMP_1);
+    }
+
+    function test_getLastFinalizedTimestamp_dataThenLiquidity() public {
+        // Settle data first
+        _setupAndSettleData(TIMESTAMP_1);
+        assertEq(chronicle.getLastFinalizedTimestamp(), 0);
+
+        // Then settle liquidity - should trigger finalization
+        _setupAndSettleLiquidity(TIMESTAMP_1);
+        assertTrue(chronicle.isFinalized(TIMESTAMP_1));
+        assertEq(chronicle.getLastFinalizedTimestamp(), TIMESTAMP_1);
+    }
+
+    function test_getLastFinalizedTimestamp_multipleFinalizations() public {
+        // Finalize TIMESTAMP_1
+        _setupAndSettleLiquidity(TIMESTAMP_1);
+        _setupAndSettleData(TIMESTAMP_1);
+        assertEq(chronicle.getLastFinalizedTimestamp(), TIMESTAMP_1);
+
+        // Finalize TIMESTAMP_2
+        _setupAndSettleLiquidity(TIMESTAMP_2);
+        _setupAndSettleData(TIMESTAMP_2);
+        assertEq(chronicle.getLastFinalizedTimestamp(), TIMESTAMP_2);
+
+        // Finalize TIMESTAMP_3
+        _setupAndSettleLiquidity(TIMESTAMP_3);
+        _setupAndSettleData(TIMESTAMP_3);
+        assertEq(chronicle.getLastFinalizedTimestamp(), TIMESTAMP_3);
+    }
+
+    function test_getLastFinalizedTimestamp_partialSettlements() public {
+        // Finalize TIMESTAMP_1
+        _setupAndSettleLiquidity(TIMESTAMP_1);
+        _setupAndSettleData(TIMESTAMP_1);
+        assertEq(chronicle.getLastFinalizedTimestamp(), TIMESTAMP_1);
+
+        // Only settle liquidity at TIMESTAMP_2
+        _setupAndSettleLiquidity(TIMESTAMP_2);
+        assertEq(chronicle.getLastFinalizedTimestamp(), TIMESTAMP_1); // Still TIMESTAMP_1
+
+        // Complete TIMESTAMP_2 by settling data (must be done before TIMESTAMP_3)
+        _setupAndSettleData(TIMESTAMP_2);
+        assertEq(chronicle.getLastFinalizedTimestamp(), TIMESTAMP_2); // Now TIMESTAMP_2
+
+        // Settle liquidity at TIMESTAMP_3
+        _setupAndSettleLiquidity(TIMESTAMP_3);
+        assertEq(chronicle.getLastFinalizedTimestamp(), TIMESTAMP_2); // Still TIMESTAMP_2
+
+        // Complete TIMESTAMP_3 by settling data
+        _setupAndSettleData(TIMESTAMP_3);
+        assertEq(chronicle.getLastFinalizedTimestamp(), TIMESTAMP_3); // Now TIMESTAMP_3
+    }
+
+    function test_getLastFinalizedTimestamp_withGaps() public {
+        uint64 timestamp1 = 1000;
+        uint64 timestamp2 = 5000;
+        uint64 timestamp3 = 10_000;
+
+        // Finalize timestamp1
+        _setupAndSettleLiquidity(timestamp1);
+        _setupAndSettleData(timestamp1);
+        assertEq(chronicle.getLastFinalizedTimestamp(), timestamp1);
+
+        // Finalize timestamp2
+        _setupAndSettleLiquidity(timestamp2);
+        _setupAndSettleData(timestamp2);
+        assertEq(chronicle.getLastFinalizedTimestamp(), timestamp2);
+
+        // Finalize timestamp3 (with gap from timestamp2)
+        _setupAndSettleLiquidity(timestamp3);
+        _setupAndSettleData(timestamp3);
+        assertEq(chronicle.getLastFinalizedTimestamp(), timestamp3);
+
+        // Verify all three are finalized
+        assertTrue(chronicle.isFinalized(timestamp1));
+        assertTrue(chronicle.isFinalized(timestamp2));
+        assertTrue(chronicle.isFinalized(timestamp3));
+    }
+
+    function test_getLastFinalizedTimestamp_emptyDataStillFinalizes() public {
+        // Settle liquidity with actual data
+        _setupAndSettleLiquidity(TIMESTAMP_1);
+
+        // Settle data with empty arrays
+        bytes32[] memory emptyKeys = new bytes32[](0);
+        bytes[] memory emptyValues = new bytes[](0);
+        _setupAndSettleDataWithKeysValues(TIMESTAMP_1, emptyKeys, emptyValues);
+
+        // Should still be finalized
+        assertTrue(chronicle.isFinalized(TIMESTAMP_1));
+        assertEq(chronicle.getLastFinalizedTimestamp(), TIMESTAMP_1);
+    }
+
+    function test_getLastFinalizedTimestamp_differentDataContent() public {
+        // Finalize with different data content at each timestamp
+        _setupAndSettleLiquidity(TIMESTAMP_1);
+        bytes32[] memory keys1 = new bytes32[](1);
+        bytes[] memory values1 = new bytes[](1);
+        keys1[0] = keccak256("key1");
+        values1[0] = "value1";
+        _setupAndSettleDataWithKeysValues(TIMESTAMP_1, keys1, values1);
+        assertEq(chronicle.getLastFinalizedTimestamp(), TIMESTAMP_1);
+
+        _setupAndSettleLiquidity(TIMESTAMP_2);
+        bytes32[] memory keys2 = new bytes32[](2);
+        bytes[] memory values2 = new bytes[](2);
+        keys2[0] = keccak256("key2");
+        keys2[1] = keccak256("key3");
+        values2[0] = "value2";
+        values2[1] = abi.encode(123, true);
+        _setupAndSettleDataWithKeysValues(TIMESTAMP_2, keys2, values2);
+        assertEq(chronicle.getLastFinalizedTimestamp(), TIMESTAMP_2);
+    }
+
+    function testFuzz_getLastFinalizedTimestamp(uint64[] memory timestamps) public {
+        vm.assume(timestamps.length > 0 && timestamps.length <= 10);
+
+        // Sort timestamps to avoid StaleTimestamp errors
+        for (uint256 i = 0; i < timestamps.length; i++) {
+            for (uint256 j = i + 1; j < timestamps.length; j++) {
+                if (timestamps[i] > timestamps[j]) {
+                    uint64 temp = timestamps[i];
+                    timestamps[i] = timestamps[j];
+                    timestamps[j] = temp;
+                }
+            }
+        }
+
+        uint64 maxFinalized = 0;
+        uint64 lastSettled = 0;
+
+        for (uint256 i = 0; i < timestamps.length; i++) {
+            // Skip duplicates
+            if (timestamps[i] <= lastSettled) {
+                continue;
+            }
+
+            // Randomly decide whether to finalize this timestamp
+            bool shouldFinalize = uint256(keccak256(abi.encode(timestamps[i]))) % 2 == 0;
+
+            if (shouldFinalize) {
+                _setupAndSettleLiquidity(timestamps[i]);
+                _setupAndSettleData(timestamps[i]);
+                maxFinalized = timestamps[i];
+            } else {
+                // Only settle one or the other
+                if (uint256(keccak256(abi.encode(timestamps[i], "liquidity"))) % 2 == 0) {
+                    _setupAndSettleLiquidity(timestamps[i]);
+                } else {
+                    _setupAndSettleData(timestamps[i]);
+                }
+            }
+
+            lastSettled = timestamps[i];
+        }
+
+        assertEq(chronicle.getLastFinalizedTimestamp(), maxFinalized);
+    }
+
+    function test_getFinalizedTimestampAt_empty() public view {
+        // Should return 0 when nothing has been finalized
+        assertEq(chronicle.getFinalizedTimestampAt(TIMESTAMP_1), 0);
+        assertEq(chronicle.getFinalizedTimestampAt(0), 0);
+        assertEq(chronicle.getFinalizedTimestampAt(type(uint64).max), 0);
+    }
+
+    function test_getFinalizedTimestampAt_singleFinalization() public {
+        // Finalize at TIMESTAMP_2
+        _setupAndSettleLiquidity(TIMESTAMP_2);
+        _setupAndSettleData(TIMESTAMP_2);
+
+        // Query before the finalization should return 0
+        assertEq(chronicle.getFinalizedTimestampAt(TIMESTAMP_1), 0);
+
+        // Query at exact timestamp returns TIMESTAMP_2
+        assertEq(chronicle.getFinalizedTimestampAt(TIMESTAMP_2), TIMESTAMP_2);
+
+        // Query after returns TIMESTAMP_2 as the floor
+        assertEq(chronicle.getFinalizedTimestampAt(TIMESTAMP_3), TIMESTAMP_2);
+        assertEq(chronicle.getFinalizedTimestampAt(type(uint64).max), TIMESTAMP_2);
+    }
+
+    function test_getFinalizedTimestampAt_multipleFinalizations() public {
+        // Finalize at three timestamps
+        _setupAndSettleLiquidity(TIMESTAMP_1);
+        _setupAndSettleData(TIMESTAMP_1);
+        _setupAndSettleLiquidity(TIMESTAMP_2);
+        _setupAndSettleData(TIMESTAMP_2);
+        _setupAndSettleLiquidity(TIMESTAMP_3);
+        _setupAndSettleData(TIMESTAMP_3);
+
+        // Before first
+        assertEq(chronicle.getFinalizedTimestampAt(500), 0);
+
+        // Exact
+        assertEq(chronicle.getFinalizedTimestampAt(TIMESTAMP_1), TIMESTAMP_1);
+        assertEq(chronicle.getFinalizedTimestampAt(TIMESTAMP_2), TIMESTAMP_2);
+        assertEq(chronicle.getFinalizedTimestampAt(TIMESTAMP_3), TIMESTAMP_3);
+
+        // Between
+        assertEq(chronicle.getFinalizedTimestampAt(TIMESTAMP_1 + 100), TIMESTAMP_1);
+        assertEq(chronicle.getFinalizedTimestampAt(TIMESTAMP_2 + 100), TIMESTAMP_2);
+
+        // After last
+        assertEq(chronicle.getFinalizedTimestampAt(TIMESTAMP_3 + 1000), TIMESTAMP_3);
+    }
+
+    function test_getFinalizedTimestampAt_withGaps() public {
+        uint64 t1 = 1000;
+        uint64 t2 = 10_000;
+        uint64 t3 = 50_000;
+
+        // Finalize with large gaps
+        _setupAndSettleLiquidity(t1);
+        _setupAndSettleData(t1);
+        _setupAndSettleLiquidity(t2);
+        _setupAndSettleData(t2);
+        _setupAndSettleLiquidity(t3);
+        _setupAndSettleData(t3);
+
+        // Queries
+        assertEq(chronicle.getFinalizedTimestampAt(500), 0);
+        assertEq(chronicle.getFinalizedTimestampAt(1000), t1);
+        assertEq(chronicle.getFinalizedTimestampAt(5000), t1);
+        assertEq(chronicle.getFinalizedTimestampAt(10_000), t2);
+        assertEq(chronicle.getFinalizedTimestampAt(30_000), t2);
+        assertEq(chronicle.getFinalizedTimestampAt(50_000), t3);
+        assertEq(chronicle.getFinalizedTimestampAt(100_000), t3);
+    }
+
+    function test_getFinalizedTimestampAt_ignoresPartialSettlements() public {
+        // Finalize at TIMESTAMP_1
+        _setupAndSettleLiquidity(TIMESTAMP_1);
+        _setupAndSettleData(TIMESTAMP_1);
+
+        // Partial at TIMESTAMP_2 and TIMESTAMP_3
+        _setupAndSettleLiquidity(TIMESTAMP_2);
+        // Use distinct keys per timestamp to respect per-key chronological constraint
+        {
+            bytes32[] memory keys3 = new bytes32[](1);
+            bytes[] memory values3 = new bytes[](1);
+            keys3[0] = keccak256("k3");
+            values3[0] = "v3";
+            _setupAndSettleDataWithKeysValues(TIMESTAMP_3, keys3, values3);
+        }
+
+        // At TIMESTAMP_2, floor should still be TIMESTAMP_1
+        assertEq(chronicle.getFinalizedTimestampAt(TIMESTAMP_2), TIMESTAMP_1);
+        // Between TIMESTAMP_2 and TIMESTAMP_3 still TIMESTAMP_1
+        assertEq(chronicle.getFinalizedTimestampAt((TIMESTAMP_2 + TIMESTAMP_3) / 2), TIMESTAMP_1);
+
+        // Complete TIMESTAMP_2 finalization (use a different key to avoid stale)
+        {
+            bytes32[] memory keys2 = new bytes32[](1);
+            bytes[] memory values2 = new bytes[](1);
+            keys2[0] = keccak256("k2");
+            values2[0] = "v2";
+            _setupAndSettleDataWithKeysValues(TIMESTAMP_2, keys2, values2);
+        }
+        assertEq(chronicle.getFinalizedTimestampAt(TIMESTAMP_2), TIMESTAMP_2);
+
+        // Complete TIMESTAMP_3 finalization
+        _setupAndSettleLiquidity(TIMESTAMP_3);
+        assertEq(chronicle.getFinalizedTimestampAt(TIMESTAMP_3), TIMESTAMP_3);
+    }
+
+    function testFuzz_getFinalizedTimestampAt(uint64[] memory ts, uint64 q) public {
+        vm.assume(ts.length > 0 && ts.length <= 10);
+        // Sort to respect chronological constraint
+        for (uint256 i = 0; i < ts.length; i++) {
+            for (uint256 j = i + 1; j < ts.length; j++) {
+                if (ts[i] > ts[j]) {
+                    uint64 tmp = ts[i];
+                    ts[i] = ts[j];
+                    ts[j] = tmp;
+                }
+            }
+        }
+
+        uint64 last = 0;
+        uint64[] memory finals = new uint64[](ts.length);
+        uint256 n = 0;
+        for (uint256 i = 0; i < ts.length; i++) {
+            if (ts[i] <= last) continue; // skip duplicates
+            _setupAndSettleLiquidity(ts[i]);
+            _setupAndSettleData(ts[i]);
+            finals[n++] = ts[i];
+            last = ts[i];
+        }
+
+        // Compute expected floor
+        uint64 expected = 0;
+        for (uint256 i = 0; i < n; i++) {
+            if (finals[i] <= q) expected = finals[i];
+            else break;
+        }
+
+        assertEq(chronicle.getFinalizedTimestampAt(q), expected);
+    }
 
     function test_getTotalLiquidityAt_multipleTimestamps() public {
         // Settle different amounts at different timestamps
