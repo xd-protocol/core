@@ -347,6 +347,7 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
                 timestamp: uint64(t1),
                 accounts: accounts,
                 liquidity: liquidity,
+                totalLiquidity: 100e18,
                 liquidityRoot: appLiqRoot1,
                 proof: proof
             })
@@ -424,6 +425,7 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
                 timestamp: uint64(t2),
                 accounts: accounts,
                 liquidity: liquidity,
+                totalLiquidity: 200e18,
                 liquidityRoot: appLiqRoot2,
                 proof: proof
             })
@@ -482,6 +484,7 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
                 timestamp: uint64(t3),
                 accounts: accounts,
                 liquidity: liquidity,
+                totalLiquidity: 300e18,
                 liquidityRoot: appLiqRoot3,
                 proof: proof
             })

@@ -393,6 +393,13 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
 
         // Get the RemoteAppChronicle and settle liquidity
         address chronicle = localMatrix.getCurrentRemoteAppChronicle(app, chainUID);
+
+        // Calculate total liquidity
+        int256 totalLiquidity = 0;
+        for (uint256 i = 0; i < liquidity.length; i++) {
+            totalLiquidity += liquidity[i];
+        }
+
         if (expectedError.length > 0) {
             vm.expectRevert(expectedError);
         }
@@ -401,6 +408,7 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
                 timestamp: timestamp,
                 accounts: accounts,
                 liquidity: liquidity,
+                totalLiquidity: totalLiquidity,
                 liquidityRoot: appLiquidityRoot,
                 proof: proof
             })

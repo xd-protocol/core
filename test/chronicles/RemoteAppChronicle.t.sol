@@ -146,13 +146,20 @@ contract RemoteAppChronicleTest is Test {
             abi.encode(expectedTopRoot)
         );
 
+        // Calculate total liquidity for test
+        int256 totalLiq = 0;
+        for (uint256 i = 0; i < liquidity.length; i++) {
+            totalLiq += liquidity[i];
+        }
+
         RemoteAppChronicle.SettleLiquidityParams memory params = RemoteAppChronicle.SettleLiquidityParams({
             timestamp: TIMESTAMP_1,
             accounts: accounts,
             liquidity: liquidity,
+            totalLiquidity: totalLiq,
             liquidityRoot: liquidityRoot,
-            proof: new bytes32[](0) // Empty proof for simplicity
-         });
+            proof: new bytes32[](0)
+        });
 
         // For this test, we'll create a scenario where the liquidityRoot equals the topLiquidityRoot
         // making the Merkle proof verification trivial (empty proof, root equals value)
@@ -179,6 +186,7 @@ contract RemoteAppChronicleTest is Test {
             timestamp: TIMESTAMP_1,
             accounts: new address[](0),
             liquidity: new int256[](0),
+            totalLiquidity: 0,
             liquidityRoot: bytes32(0),
             proof: new bytes32[](0)
         });
@@ -196,6 +204,7 @@ contract RemoteAppChronicleTest is Test {
             timestamp: TIMESTAMP_1,
             accounts: new address[](1),
             liquidity: new int256[](1),
+            totalLiquidity: 100,
             liquidityRoot: keccak256("test_liquidity_root"),
             proof: new bytes32[](0)
         });
@@ -223,6 +232,7 @@ contract RemoteAppChronicleTest is Test {
             timestamp: TIMESTAMP_1,
             accounts: new address[](0),
             liquidity: new int256[](0),
+            totalLiquidity: 0,
             liquidityRoot: keccak256("test_liquidity_root"),
             proof: new bytes32[](0)
         });
@@ -251,6 +261,7 @@ contract RemoteAppChronicleTest is Test {
             timestamp: TIMESTAMP_1,
             accounts: new address[](0),
             liquidity: new int256[](0),
+            totalLiquidity: 0,
             liquidityRoot: keccak256("test_liquidity_root"),
             proof: new bytes32[](0)
         });
@@ -283,6 +294,7 @@ contract RemoteAppChronicleTest is Test {
             timestamp: TIMESTAMP_1,
             accounts: accounts,
             liquidity: liquidity,
+            totalLiquidity: liquidityAmount,
             liquidityRoot: keccak256("test_liquidity_root"),
             proof: new bytes32[](0)
         });
@@ -315,6 +327,7 @@ contract RemoteAppChronicleTest is Test {
             timestamp: TIMESTAMP_1,
             accounts: accounts,
             liquidity: liquidity,
+            totalLiquidity: 1000,
             liquidityRoot: keccak256("test_liquidity_root"),
             proof: new bytes32[](0)
         });
@@ -322,9 +335,10 @@ contract RemoteAppChronicleTest is Test {
         vm.prank(settler);
         chronicle.settleLiquidity(params);
 
-        // Unmapped account should be skipped
+        // Unmapped account should be skipped for individual balance
         assertEq(chronicle.getLiquidityAt(unmappedAccount, TIMESTAMP_1), 0);
-        assertEq(chronicle.getTotalLiquidityAt(TIMESTAMP_1), 0);
+        // But total liquidity is still set to settler's provided value
+        assertEq(chronicle.getTotalLiquidityAt(TIMESTAMP_1), 1000);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -507,6 +521,7 @@ contract RemoteAppChronicleTest is Test {
             timestamp: TIMESTAMP_1,
             accounts: new address[](1),
             liquidity: new int256[](1),
+            totalLiquidity: 100,
             liquidityRoot: keccak256("test_liquidity_root"),
             proof: new bytes32[](0)
         });
@@ -1550,17 +1565,19 @@ contract RemoteAppChronicleTest is Test {
         address alice = makeAddr("alice");
         int256 liquidityAmount = 1000;
 
+        // Setup valid liquidity settlement for the test
+        _setupValidLiquiditySettlementForTimestamp(TIMESTAMP_1);
+
         address[] memory accounts = new address[](1);
         int256[] memory liquidity = new int256[](1);
         accounts[0] = alice;
         liquidity[0] = liquidityAmount;
 
-        _setupValidLiquiditySettlementForTimestamp(TIMESTAMP_1);
-
         RemoteAppChronicle.SettleLiquidityParams memory params = RemoteAppChronicle.SettleLiquidityParams({
             timestamp: TIMESTAMP_1,
             accounts: accounts,
             liquidity: liquidity,
+            totalLiquidity: liquidityAmount,
             liquidityRoot: keccak256("test_liquidity_root"),
             proof: new bytes32[](0)
         });
@@ -1650,6 +1667,7 @@ contract RemoteAppChronicleTest is Test {
             timestamp: TIMESTAMP_1,
             accounts: new address[](0),
             liquidity: new int256[](0),
+            totalLiquidity: 0,
             liquidityRoot: keccak256("test_liquidity_root"),
             proof: new bytes32[](0)
         });
@@ -1753,6 +1771,149 @@ contract RemoteAppChronicleTest is Test {
     }
 
     /*//////////////////////////////////////////////////////////////
+                SETTLER-PROVIDED TOTAL LIQUIDITY TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Test that totalLiquidity value from settler is directly used
+     */
+    function test_settlerProvidedTotalLiquidity_isUsedDirectly() public {
+        address alice = makeAddr("alice");
+        address bob = makeAddr("bob");
+
+        // First settlement
+        address[] memory accounts = new address[](2);
+        int256[] memory liquidity = new int256[](2);
+        accounts[0] = alice;
+        accounts[1] = bob;
+        liquidity[0] = 100e18;
+        liquidity[1] = 200e18;
+
+        // Note: Total liquidity 500e18 is MORE than sum of accounts (300e18)
+        // This simulates a situation where there are other accounts not included
+        // in this settlement but whose values are known by the settler
+        _setupValidLiquiditySettlementForTimestamp(1000);
+        _settleLiquidityWithTotal(1000, accounts, liquidity, 500e18);
+
+        // Verify total matches settler's value
+        assertEq(chronicle.getTotalLiquidityAt(1000), 500e18, "Total should match settler provided value");
+
+        // Second settlement: Update only Alice
+        accounts = new address[](1);
+        liquidity = new int256[](1);
+        accounts[0] = alice;
+        liquidity[0] = 150e18;
+
+        // Total is now 550e18 (including all accounts known to settler)
+        _setupValidLiquiditySettlementForTimestamp(2000);
+        _settleLiquidityWithTotal(2000, accounts, liquidity, 550e18);
+
+        // Individual balances are tracked correctly
+        assertEq(chronicle.getLiquidityAt(alice, 2000), 150e18, "Alice's balance updated");
+        assertEq(chronicle.getLiquidityAt(bob, 2000), 200e18, "Bob's balance unchanged");
+
+        // But total matches settler's value which includes all accounts
+        assertEq(chronicle.getTotalLiquidityAt(2000), 550e18, "Total matches settler's complete view");
+    }
+
+    /**
+     * @notice Test that hooks receive the settler-provided total liquidity
+     */
+    function test_settlerProvidedTotalLiquidity_hooksReceiveTotal() public {
+        // Deploy a mock hook contract
+        MockHookForTotalLiquidity hook = new MockHookForTotalLiquidity();
+
+        // Make the app actually be our hook contract
+        address hookApp = address(hook);
+
+        // Update mock to use hook for the new app address
+        vm.mockCall(
+            liquidityMatrix,
+            abi.encodeWithSelector(ILiquidityMatrix.getAppSetting.selector, hookApp),
+            abi.encode(true, false, true, settler) // useHook = true
+        );
+
+        // Mock LiquidityMatrix.getRemoteApp for the new app address
+        vm.mockCall(
+            liquidityMatrix,
+            abi.encodeWithSelector(ILiquidityMatrix.getRemoteApp.selector, hookApp, CHAIN_UID),
+            abi.encode(hookApp, uint256(0))
+        );
+
+        RemoteAppChronicle hookChronicle = new RemoteAppChronicle(liquidityMatrix, hookApp, CHAIN_UID, VERSION);
+
+        address alice = makeAddr("alice");
+
+        // Settle with one account but higher total
+        address[] memory accounts = new address[](1);
+        int256[] memory liquidity = new int256[](1);
+        accounts[0] = alice;
+        liquidity[0] = 100e18;
+
+        // Total includes value of other accounts not in this settlement
+        int256 providedTotal = 500e18;
+
+        bytes32 liquidityRoot = keccak256("test_liquidity_root");
+        bytes32 expectedTopRoot = keccak256(abi.encodePacked(bytes32(uint256(uint160(hookApp))), liquidityRoot));
+
+        vm.mockCall(
+            liquidityMatrix,
+            abi.encodeWithSignature(
+                "getRemoteLiquidityRootAt(bytes32,uint256,uint64)", CHAIN_UID, VERSION, uint64(1000)
+            ),
+            abi.encode(expectedTopRoot)
+        );
+
+        RemoteAppChronicle.SettleLiquidityParams memory params = RemoteAppChronicle.SettleLiquidityParams({
+            timestamp: 1000,
+            accounts: accounts,
+            liquidity: liquidity,
+            totalLiquidity: providedTotal,
+            liquidityRoot: liquidityRoot,
+            proof: new bytes32[](0)
+        });
+
+        vm.prank(settler);
+        hookChronicle.settleLiquidity(params);
+
+        // Verify hook got the total from settler
+        assertEq(hook.lastTotalLiquidity(), providedTotal, "Hook received settler-provided total");
+    }
+
+    /**
+     * @notice Test that empty account lists work with non-zero total liquidity
+     */
+    function test_settlerProvidedTotalLiquidity_emptyAccountList() public {
+        // Settlement with no accounts but non-zero total
+        address[] memory accounts = new address[](0);
+        int256[] memory liquidity = new int256[](0);
+
+        // This could happen if settler knows the total but isn't updating any accounts
+        _setupValidLiquiditySettlementForTimestamp(1000);
+        _settleLiquidityWithTotal(1000, accounts, liquidity, 1000e18);
+
+        assertEq(chronicle.getTotalLiquidityAt(1000), 1000e18, "Total set despite no accounts");
+    }
+
+    /**
+     * @notice Test negative total liquidity handling
+     */
+    function test_settlerProvidedTotalLiquidity_negative() public {
+        address alice = makeAddr("alice");
+
+        address[] memory accounts = new address[](1);
+        int256[] memory liquidity = new int256[](1);
+        accounts[0] = alice;
+        liquidity[0] = -100e18;
+
+        // Total can be more negative than sum of accounts
+        _setupValidLiquiditySettlementForTimestamp(1000);
+        _settleLiquidityWithTotal(1000, accounts, liquidity, -500e18);
+
+        assertEq(chronicle.getTotalLiquidityAt(1000), -500e18, "Negative total stored correctly");
+    }
+
+    /*//////////////////////////////////////////////////////////////
                         INTERNAL HELPER FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
@@ -1813,10 +1974,17 @@ contract RemoteAppChronicleTest is Test {
     ) internal {
         _setupValidLiquiditySettlementForTimestamp(timestamp);
 
+        // Calculate total liquidity
+        int256 totalLiq = 0;
+        for (uint256 i = 0; i < liquidity.length; i++) {
+            totalLiq += liquidity[i];
+        }
+
         RemoteAppChronicle.SettleLiquidityParams memory params = RemoteAppChronicle.SettleLiquidityParams({
             timestamp: timestamp,
             accounts: accounts,
             liquidity: liquidity,
+            totalLiquidity: totalLiq,
             liquidityRoot: keccak256("test_liquidity_root"), // Match the helper function
             proof: new bytes32[](0)
         });
@@ -1850,4 +2018,38 @@ contract RemoteAppChronicleTest is Test {
         vm.prank(settler);
         chronicle.settleData(params);
     }
+
+    function _settleLiquidityWithTotal(
+        uint64 timestamp,
+        address[] memory accounts,
+        int256[] memory liquidity,
+        int256 totalLiquidity
+    ) internal {
+        RemoteAppChronicle.SettleLiquidityParams memory params = RemoteAppChronicle.SettleLiquidityParams({
+            timestamp: timestamp,
+            accounts: accounts,
+            liquidity: liquidity,
+            totalLiquidity: totalLiquidity,
+            liquidityRoot: keccak256("test_liquidity_root"),
+            proof: new bytes32[](0)
+        });
+
+        vm.prank(settler);
+        chronicle.settleLiquidity(params);
+    }
+}
+
+// Mock hook contract to verify hook receives correct total liquidity
+contract MockHookForTotalLiquidity is ILiquidityMatrixHook {
+    int256 public lastTotalLiquidity;
+
+    function onSettleLiquidity(bytes32, uint256, uint64, address) external override { }
+
+    function onMapAccounts(bytes32, address, address) external override { }
+
+    function onSettleTotalLiquidity(bytes32, uint256, uint64 timestamp) external override {
+        lastTotalLiquidity = RemoteAppChronicle(msg.sender).getTotalLiquidityAt(timestamp);
+    }
+
+    function onSettleData(bytes32, uint256, uint64, bytes32) external override { }
 }

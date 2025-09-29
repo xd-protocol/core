@@ -52,12 +52,20 @@ contract SettlerMock {
         // For testing, compute the app's liquidity root from the accounts and liquidity values
         bytes32 liquidityRoot = _computeAppLiquidityRoot(accounts, liquidity);
 
+        // Calculate total liquidity
+        int256 totalLiquidity = 0;
+        for (uint256 i = 0; i < liquidity.length; i++) {
+            totalLiquidity += liquidity[i];
+        }
+
         // Get the current RemoteAppChronicle for this app and chainUID
         address chronicle = ILiquidityMatrix(liquidityMatrix).getCurrentRemoteAppChronicle(app, chainUID);
 
         // Call settleLiquidity on the RemoteAppChronicle with Merkle proof
         RemoteAppChronicle(chronicle).settleLiquidity(
-            RemoteAppChronicle.SettleLiquidityParams(uint64(timestamp), accounts, liquidity, liquidityRoot, proof)
+            RemoteAppChronicle.SettleLiquidityParams(
+                uint64(timestamp), accounts, liquidity, totalLiquidity, liquidityRoot, proof
+            )
         );
     }
 

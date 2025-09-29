@@ -1471,11 +1471,18 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         bytes32[] memory proof = MerkleTreeLib.getProof(appKeys, appRoots, 0);
 
+        // Calculate total liquidity
+        int256 totalLiquidity = 0;
+        for (uint256 i = 0; i < liquidity.length; i++) {
+            totalLiquidity += liquidity[i];
+        }
+
         RemoteAppChronicle(chronicle).settleLiquidity(
             RemoteAppChronicle.SettleLiquidityParams({
                 timestamp: uint64(block.timestamp),
                 accounts: accounts,
                 liquidity: liquidity,
+                totalLiquidity: totalLiquidity,
                 liquidityRoot: appLiquidityRoot,
                 proof: proof
             })

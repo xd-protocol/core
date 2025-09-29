@@ -119,6 +119,7 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
      * @param timestamp The timestamp of the remote state being settled
      * @param accounts Array of account addresses
      * @param liquidity Array of liquidity values corresponding to accounts
+     * @param totalLiquidity The total liquidity across all accounts on the remote chain
      * @param liquidityRoot The root of this app's liquidity tree on the remote chain
      * @param proof Merkle proof that the app's root is in the remote top tree
      */
@@ -126,6 +127,7 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
         uint64 timestamp;
         address[] accounts;
         int256[] liquidity;
+        int256 totalLiquidity;
         bytes32 liquidityRoot;
         bytes32[] proof;
     }
@@ -287,7 +289,6 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
             _finalizedTimestamps.add(params.timestamp);
         }
 
-        int256 totalLiquidity;
         // Process each account's liquidity update
         for (uint256 i; i < params.accounts.length; ++i) {
             (address account, int256 liquidity) = (params.accounts[i], params.liquidity[i]);
@@ -299,11 +300,8 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
                 _account = account;
             }
 
-            // Update liquidity snapshot and track total change
-            SnapshotsLib.Snapshots storage snapshots = _liquidity[_account];
-            totalLiquidity -= _liquidity[_account].getAsInt();
-            snapshots.setAsInt(liquidity, params.timestamp);
-            totalLiquidity += liquidity;
+            // Update liquidity snapshot
+            _liquidity[_account].setAsInt(liquidity, params.timestamp);
 
             // Trigger hook if enabled, catching any failures
             if (useHook) {
@@ -314,11 +312,12 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
             }
         }
 
-        _totalLiquidity.setAsInt(totalLiquidity, params.timestamp);
+        // Use the total liquidity provided by the settler
+        _totalLiquidity.setAsInt(params.totalLiquidity, params.timestamp);
         if (useHook) {
             try ILiquidityMatrixHook(app).onSettleTotalLiquidity(chainUID, version, params.timestamp) { }
             catch (bytes memory reason) {
-                emit OnSettleTotalLiquidityFailure(params.timestamp, totalLiquidity, reason);
+                emit OnSettleTotalLiquidityFailure(params.timestamp, params.totalLiquidity, reason);
             }
         }
 
