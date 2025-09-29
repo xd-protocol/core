@@ -6,7 +6,6 @@ import { RemoteAppChronicle } from "../../src/chronicles/RemoteAppChronicle.sol"
 import { IRemoteAppChronicle } from "../../src/interfaces/IRemoteAppChronicle.sol";
 import { ILiquidityMatrix } from "../../src/interfaces/ILiquidityMatrix.sol";
 import { ILiquidityMatrixHook } from "../../src/interfaces/ILiquidityMatrixHook.sol";
-import { SnapshotsLib } from "../../src/libraries/SnapshotsLib.sol";
 
 /**
  * @title RemoteAppChronicleTest
@@ -509,12 +508,12 @@ contract RemoteAppChronicleTest is Test {
         assertEq(chronicle.getLastSettledLiquidityTimestamp(), TIMESTAMP_3);
     }
 
-    function test_getLastSettledLiquidityTimestamp_revertOnStaleTimestamp() public {
+    function test_getLastSettledLiquidityTimestamp_revertOnChronologicalOrder() public {
         // First settle at a later timestamp
         _setupAndSettleLiquidity(TIMESTAMP_2);
 
-        // Attempting to settle at an earlier timestamp should revert with StaleTimestamp
-        // This is a constraint of the underlying SnapshotsLib
+        // Attempting to settle at an earlier timestamp should revert
+        // RemoteAppChronicle now enforces chronological order
         _setupValidLiquiditySettlementForTimestamp(TIMESTAMP_1);
 
         RemoteAppChronicle.SettleLiquidityParams memory params = RemoteAppChronicle.SettleLiquidityParams({
@@ -529,7 +528,7 @@ contract RemoteAppChronicleTest is Test {
         params.liquidity[0] = 100;
 
         vm.prank(settler);
-        vm.expectRevert(SnapshotsLib.StaleTimestamp.selector);
+        vm.expectRevert(IRemoteAppChronicle.StaleTimestamp.selector);
         chronicle.settleLiquidity(params);
 
         // The last timestamp should still be TIMESTAMP_2
@@ -836,7 +835,7 @@ contract RemoteAppChronicleTest is Test {
         assertEq(chronicle.getLastSettledDataTimestamp(), TIMESTAMP_1);
     }
 
-    function test_getLastSettledDataTimestamp_revertOnStaleTimestampWithData() public {
+    function test_getLastSettledDataTimestamp_revertOnChronologicalOrder() public {
         // First settle at a later timestamp with actual data
         bytes32[] memory keys = new bytes32[](1);
         bytes[] memory values = new bytes[](1);
@@ -844,8 +843,8 @@ contract RemoteAppChronicleTest is Test {
         values[0] = "value1";
         _setupAndSettleDataWithKeysValues(TIMESTAMP_2, keys, values);
 
-        // Now try to settle the same key at an earlier timestamp
-        // This should revert because SnapshotsLib enforces chronological order per key
+        // Now try to settle at an earlier timestamp
+        // RemoteAppChronicle enforces chronological order
         _setupValidDataSettlementForTimestamp(TIMESTAMP_1);
 
         RemoteAppChronicle.SettleDataParams memory params = RemoteAppChronicle.SettleDataParams({
@@ -859,7 +858,7 @@ contract RemoteAppChronicleTest is Test {
         params.values[0] = "different_value";
 
         vm.prank(settler);
-        vm.expectRevert(SnapshotsLib.StaleTimestamp.selector);
+        vm.expectRevert(IRemoteAppChronicle.StaleTimestamp.selector);
         chronicle.settleData(params);
 
         // The last timestamp should still be TIMESTAMP_2
@@ -1387,31 +1386,21 @@ contract RemoteAppChronicleTest is Test {
         _setupAndSettleLiquidity(TIMESTAMP_1);
         _setupAndSettleData(TIMESTAMP_1);
 
-        // Partial at TIMESTAMP_2 and TIMESTAMP_3
+        // Partial at TIMESTAMP_2 (liquidity only)
         _setupAndSettleLiquidity(TIMESTAMP_2);
-        // Use distinct keys per timestamp to respect per-key chronological constraint
-        {
-            bytes32[] memory keys3 = new bytes32[](1);
-            bytes[] memory values3 = new bytes[](1);
-            keys3[0] = keccak256("k3");
-            values3[0] = "v3";
-            _setupAndSettleDataWithKeysValues(TIMESTAMP_3, keys3, values3);
-        }
 
-        // At TIMESTAMP_2, floor should still be TIMESTAMP_1
+        // At TIMESTAMP_2, floor should still be TIMESTAMP_1 (not finalized)
         assertEq(chronicle.getFinalizedTimestampAt(TIMESTAMP_2), TIMESTAMP_1);
-        // Between TIMESTAMP_2 and TIMESTAMP_3 still TIMESTAMP_1
-        assertEq(chronicle.getFinalizedTimestampAt((TIMESTAMP_2 + TIMESTAMP_3) / 2), TIMESTAMP_1);
 
-        // Complete TIMESTAMP_2 finalization (use a different key to avoid stale)
-        {
-            bytes32[] memory keys2 = new bytes32[](1);
-            bytes[] memory values2 = new bytes[](1);
-            keys2[0] = keccak256("k2");
-            values2[0] = "v2";
-            _setupAndSettleDataWithKeysValues(TIMESTAMP_2, keys2, values2);
-        }
+        // Complete TIMESTAMP_2 finalization
+        _setupAndSettleData(TIMESTAMP_2);
         assertEq(chronicle.getFinalizedTimestampAt(TIMESTAMP_2), TIMESTAMP_2);
+
+        // Partial at TIMESTAMP_3 (data only)
+        _setupAndSettleData(TIMESTAMP_3);
+
+        // At TIMESTAMP_3, floor should be TIMESTAMP_2 (not finalized)
+        assertEq(chronicle.getFinalizedTimestampAt(TIMESTAMP_3), TIMESTAMP_2);
 
         // Complete TIMESTAMP_3 finalization
         _setupAndSettleLiquidity(TIMESTAMP_3);

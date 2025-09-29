@@ -46,6 +46,11 @@ interface IRemoteAppChronicle {
 
     error RemoteAppNotSet();
 
+    /**
+     * @notice Thrown when attempting to settle with a timestamp that is not greater than the last settled
+     */
+    error StaleTimestamp();
+
     /*//////////////////////////////////////////////////////////////
                             VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/

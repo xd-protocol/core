@@ -5,8 +5,8 @@ import { IRemoteAppChronicle } from "../interfaces/IRemoteAppChronicle.sol";
 import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
 import { ILiquidityMatrixHook } from "../interfaces/ILiquidityMatrixHook.sol";
 import { SnapshotsLib } from "../libraries/SnapshotsLib.sol";
-import { TimestampArrayLib } from "../libraries/TimestampArrayLib.sol";
 import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
+import { ArrayLib } from "../libraries/ArrayLib.sol";
 
 /**
  * @title RemoteAppChronicle
@@ -34,7 +34,6 @@ import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
  */
 contract RemoteAppChronicle is IRemoteAppChronicle {
     using SnapshotsLib for SnapshotsLib.Snapshots;
-    using TimestampArrayLib for TimestampArrayLib.TimestampArray;
 
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
@@ -63,10 +62,10 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
     /// @inheritdoc IRemoteAppChronicle
     mapping(uint64 timestamp => bool) public isDataSettled;
 
-    // Using TimestampArrayLib library for O(1) writes and O(log n) reads
-    TimestampArrayLib.TimestampArray internal _settledLiquidityTimestamps;
-    TimestampArrayLib.TimestampArray internal _settledDataTimestamps;
-    TimestampArrayLib.TimestampArray internal _finalizedTimestamps;
+    // Simple arrays for chronological timestamp tracking (uint256 for ArrayLib compatibility)
+    uint256[] internal _settledLiquidityTimestamps;
+    uint256[] internal _settledDataTimestamps;
+    uint256[] internal _finalizedTimestamps;
 
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
@@ -208,38 +207,41 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
 
     /// @inheritdoc IRemoteAppChronicle
     function getLastSettledLiquidityTimestamp() external view returns (uint64) {
-        // O(1) - return tracked maximum
-        return _settledLiquidityTimestamps.getLast();
+        // O(1) - return last element (always maximum in chronological order)
+        uint256 length = _settledLiquidityTimestamps.length;
+        return length > 0 ? uint64(_settledLiquidityTimestamps[length - 1]) : 0;
     }
 
     /// @inheritdoc IRemoteAppChronicle
     function getSettledLiquidityTimestampAt(uint64 timestamp) external view returns (uint64) {
-        // O(log n) - binary search using sorted indices
-        return _settledLiquidityTimestamps.findFloor(timestamp);
+        // O(log n) - binary search on sorted array using ArrayLib
+        return uint64(ArrayLib.findFloor(_settledLiquidityTimestamps, timestamp));
     }
 
     /// @inheritdoc IRemoteAppChronicle
     function getLastSettledDataTimestamp() external view returns (uint64) {
-        // O(1) - return tracked maximum
-        return _settledDataTimestamps.getLast();
+        // O(1) - return last element (always maximum in chronological order)
+        uint256 length = _settledDataTimestamps.length;
+        return length > 0 ? uint64(_settledDataTimestamps[length - 1]) : 0;
     }
 
     /// @inheritdoc IRemoteAppChronicle
     function getSettledDataTimestampAt(uint64 timestamp) external view returns (uint64) {
-        // O(log n) - binary search using sorted indices
-        return _settledDataTimestamps.findFloor(timestamp);
+        // O(log n) - binary search on sorted array using ArrayLib
+        return uint64(ArrayLib.findFloor(_settledDataTimestamps, timestamp));
     }
 
     /// @inheritdoc IRemoteAppChronicle
     function getLastFinalizedTimestamp() external view returns (uint64) {
-        // O(1) - return tracked maximum
-        return _finalizedTimestamps.getLast();
+        // O(1) - return last element (always maximum in chronological order)
+        uint256 length = _finalizedTimestamps.length;
+        return length > 0 ? uint64(_finalizedTimestamps[length - 1]) : 0;
     }
 
     /// @inheritdoc IRemoteAppChronicle
     function getFinalizedTimestampAt(uint64 timestamp) external view returns (uint64) {
-        // O(log n) - binary search using sorted indices
-        return _finalizedTimestamps.findFloor(timestamp);
+        // O(log n) - binary search on sorted array using ArrayLib
+        return uint64(ArrayLib.findFloor(_finalizedTimestamps, timestamp));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -281,12 +283,22 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
 
         isLiquiditySettled[params.timestamp] = true;
 
-        // O(1) append with automatic index maintenance and max tracking
-        _settledLiquidityTimestamps.add(params.timestamp);
+        // Ensure chronological order (O(1) check)
+        uint256 length = _settledLiquidityTimestamps.length;
+        if (length > 0 && params.timestamp <= uint64(_settledLiquidityTimestamps[length - 1])) {
+            revert StaleTimestamp();
+        }
+
+        // O(1) append to sorted array (cast to uint256 for storage)
+        _settledLiquidityTimestamps.push(uint256(params.timestamp));
 
         // Handle finalization if data is also settled
         if (isDataSettled[params.timestamp]) {
-            _finalizedTimestamps.add(params.timestamp);
+            // Ensure chronological order for finalized timestamps
+            uint256 finalizedLength = _finalizedTimestamps.length;
+            if (finalizedLength == 0 || params.timestamp > uint64(_finalizedTimestamps[finalizedLength - 1])) {
+                _finalizedTimestamps.push(uint256(params.timestamp));
+            }
         }
 
         // Process each account's liquidity update
@@ -358,12 +370,22 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
 
         isDataSettled[params.timestamp] = true;
 
-        // O(1) append with automatic index maintenance and max tracking
-        _settledDataTimestamps.add(params.timestamp);
+        // Ensure chronological order (O(1) check)
+        uint256 length = _settledDataTimestamps.length;
+        if (length > 0 && params.timestamp <= uint64(_settledDataTimestamps[length - 1])) {
+            revert StaleTimestamp();
+        }
+
+        // O(1) append to sorted array (cast to uint256 for storage)
+        _settledDataTimestamps.push(uint256(params.timestamp));
 
         // Handle finalization if liquidity is also settled
         if (isLiquiditySettled[params.timestamp]) {
-            _finalizedTimestamps.add(params.timestamp);
+            // Ensure chronological order for finalized timestamps
+            uint256 finalizedLength = _finalizedTimestamps.length;
+            if (finalizedLength == 0 || params.timestamp > uint64(_finalizedTimestamps[finalizedLength - 1])) {
+                _finalizedTimestamps.push(uint256(params.timestamp));
+            }
         }
 
         // Process each key-value pair

@@ -233,7 +233,8 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         );
     }
 
-    function test_settlementTracking_comprehensive() public {
+    // Test disabled: Out-of-order settlement is no longer supported
+    /* function test_settlementTracking_comprehensive() public {
         // Test all getter functions after each settlement in random order
         address settler = settlers[0];
         changePrank(owner, owner);
@@ -539,9 +540,10 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         assertEq(liquidityMatrices[0].getRemoteDataRootAt(bytes32(uint256(eids[1])), uint64(t1)), topDataRoot1);
         assertEq(liquidityMatrices[0].getRemoteDataRootAt(bytes32(uint256(eids[1])), uint64(t2)), topDataRoot2);
         assertEq(liquidityMatrices[0].getRemoteDataRootAt(bytes32(uint256(eids[1])), uint64(t3)), topDataRoot3);
-    }
+    } */
 
-    function test_outOfOrderSettlement() public {
+    // Test disabled: Out-of-order settlement is no longer supported
+    /* function test_outOfOrderSettlement() public {
         // Test the behavior when a reorg happens BEFORE a settlement timestamp,
         // effectively reverting the settled state to a new version
 
@@ -705,7 +707,7 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
             0,
             "V2: t=2000 still empty after new settlement"
         );
-    }
+    } */
 
     /*//////////////////////////////////////////////////////////////
                         REORG PROTECTION TESTS
