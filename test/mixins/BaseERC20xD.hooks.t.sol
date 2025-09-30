@@ -99,18 +99,6 @@ contract BaseERC20xDHooksTest is Test {
     address settler = makeAddr("settler");
 
     event SetHook(address indexed oldHook, address indexed newHook);
-    event OnInitiateTransferHookFailure(
-        address indexed hook, address indexed from, address indexed to, uint256 amount, uint256 value, bytes reason
-    );
-    event OnReadGlobalAvailabilityHookFailure(
-        address indexed hook, address indexed account, int256 globalAvailability, bytes reason
-    );
-    event BeforeTransferHookFailure(
-        address indexed hook, address indexed from, address indexed to, uint256 amount, bytes reason
-    );
-    event AfterTransferHookFailure(
-        address indexed hook, address indexed from, address indexed to, uint256 amount, bytes reason
-    );
     event OnMapAccountsHookFailure(
         address indexed hook, bytes32 indexed chainUID, address remoteAccount, address localAccount, bytes reason
     );
@@ -269,28 +257,15 @@ contract BaseERC20xDHooksTest is Test {
 
     // Note: Multiple hooks test removed since we now support only single hook
 
-    function test_onInitiateTransfer_revertDoesNotBlockTransfer() public {
+    function test_onInitiateTransfer_revertBlocksTransfer() public {
         // Set reverting hook
         hook1.setShouldRevertOnInitiate(true);
         vm.prank(owner);
         token.setHook(address(hook1));
 
-        // Expect failure event
-        vm.expectEmit(true, true, true, false);
-        emit OnInitiateTransferHookFailure(
-            address(hook1),
-            alice,
-            bob,
-            10e18,
-            0,
-            abi.encodeWithSignature("Error(string)", "HookMock: Intentional revert")
-        );
-
-        // Transfer should still succeed
-        vm.expectEmit(true, true, false, true);
-        emit InitiateTransfer(alice, bob, 10e18, 0, 1);
-
+        // Transfer should revert now that hooks are mandatory
         vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("Error(string)", "HookMock: Intentional revert"));
         token.transfer{ value: 0.1 ether }(bob, 10e18, "");
     }
 
@@ -320,7 +295,7 @@ contract BaseERC20xDHooksTest is Test {
 
     // Note: Multiple hooks test removed since we now support only single hook
 
-    function test_onReadGlobalAvailability_revertDoesNotBlockTransfer() public {
+    function test_onReadGlobalAvailability_revertBlocksTransfer() public {
         // Set reverting hook
         hook1.setShouldRevertOnGlobalAvailability(true);
         vm.prank(owner);
@@ -330,13 +305,8 @@ contract BaseERC20xDHooksTest is Test {
         vm.prank(alice);
         token.transfer{ value: 0.1 ether }(bob, 10e18, "");
 
-        // Expect failure event
-        vm.expectEmit(true, true, false, false);
-        emit OnReadGlobalAvailabilityHookFailure(
-            address(hook1), alice, 50e18, abi.encodeWithSignature("Error(string)", "HookMock: Intentional revert")
-        );
-
-        // Transfer should still execute
+        // Transfer should revert on callback
+        vm.expectRevert(abi.encodeWithSignature("Error(string)", "HookMock: Intentional revert"));
         token.testOnReadGlobalAvailability(1, 50e18);
     }
 
@@ -382,28 +352,15 @@ contract BaseERC20xDHooksTest is Test {
 
     // Note: Multiple hooks test removed since we now support only single hook
 
-    function test_beforeTransfer_revertDoesNotBlockTransfer() public {
+    function test_beforeTransfer_revertBlocksTransfer() public {
         // Set reverting hook
         hook1.setShouldRevertBeforeTransfer(true);
         vm.prank(owner);
         token.setHook(address(hook1));
 
-        // Get initial balances
-        int256 aliceBalBefore = token.localBalanceOf(alice);
-        int256 bobBalBefore = token.localBalanceOf(bob);
-
-        // Expect failure event
-        vm.expectEmit(true, true, true, false);
-        emit BeforeTransferHookFailure(
-            address(hook1), alice, bob, 10e18, abi.encodeWithSignature("Error(string)", "HookMock: Intentional revert")
-        );
-
-        // Transfer should still succeed
+        // Transfer should revert
+        vm.expectRevert(abi.encodeWithSignature("Error(string)", "HookMock: Intentional revert"));
         token.testTransferFrom(alice, bob, 10e18);
-
-        // Verify transfer completed
-        assertEq(token.localBalanceOf(alice), aliceBalBefore - 10e18);
-        assertEq(token.localBalanceOf(bob), bobBalBefore + 10e18);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -449,28 +406,15 @@ contract BaseERC20xDHooksTest is Test {
 
     // Note: Multiple hooks test removed since we now support only single hook
 
-    function test_afterTransfer_revertDoesNotBlockTransfer() public {
+    function test_afterTransfer_revertBlocksTransfer() public {
         // Set reverting hook
         hook1.setShouldRevertAfterTransfer(true);
         vm.prank(owner);
         token.setHook(address(hook1));
 
-        // Get initial balances
-        int256 aliceBalBefore = token.localBalanceOf(alice);
-        int256 bobBalBefore = token.localBalanceOf(bob);
-
-        // Expect failure event
-        vm.expectEmit(true, true, true, false);
-        emit AfterTransferHookFailure(
-            address(hook1), alice, bob, 10e18, abi.encodeWithSignature("Error(string)", "HookMock: Intentional revert")
-        );
-
-        // Transfer should still succeed
+        // Transfer should revert
+        vm.expectRevert(abi.encodeWithSignature("Error(string)", "HookMock: Intentional revert"));
         token.testTransferFrom(alice, bob, 10e18);
-
-        // Verify transfer completed
-        assertEq(token.localBalanceOf(alice), aliceBalBefore - 10e18);
-        assertEq(token.localBalanceOf(bob), bobBalBefore + 10e18);
     }
 
     /*//////////////////////////////////////////////////////////////

@@ -80,12 +80,7 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
             ERC20(underlying).approve(_hook, amount);
 
             // Call onWrap hook - hook should pull tokens using transferFrom
-            try IERC20xDHook(_hook).onWrap(msg.sender, to, amount, hookData) returns (uint256 _actualAmount) {
-                actualAmount = _actualAmount;
-            } catch (bytes memory reason) {
-                emit OnWrapHookFailure(_hook, msg.sender, to, amount, reason);
-                // Continue with original amount if hook fails
-            }
+            actualAmount = IERC20xDHook(_hook).onWrap(msg.sender, to, amount, hookData);
 
             // Clear any remaining allowance
             ERC20(underlying).approve(_hook, 0);
@@ -139,15 +134,8 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
 
             if (_hook != address(0)) {
                 // Call onUnwrap hook to get actual amount of underlying to return
-                try IERC20xDHook(_hook).onUnwrap(pending.from, recipient, pending.amount, hookData) returns (
-                    uint256 _underlyingAmount
-                ) {
-                    underlyingAmount = _underlyingAmount;
-                    // Hook should have transferred the underlying tokens to this contract
-                } catch (bytes memory reason) {
-                    emit OnUnwrapHookFailure(_hook, pending.from, recipient, pending.amount, reason);
-                    // Continue with original amount if hook fails
-                }
+                // Hook should have transferred the underlying tokens to this contract
+                underlyingAmount = IERC20xDHook(_hook).onUnwrap(pending.from, recipient, pending.amount, hookData);
             }
 
             // Transfer underlying tokens to the recipient

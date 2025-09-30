@@ -111,18 +111,9 @@ contract WrappedERC20xDHooksTest is Test {
     address constant bob = address(0x3);
     address constant settler = address(0x4);
 
-    event AfterTransferHookFailure(
-        address indexed hook, address indexed from, address indexed to, uint256 amount, bytes reason
-    );
     event Redeemed(address indexed recipient, uint256 amount);
     event Wrap(address indexed to, uint256 amount);
     event Unwrap(address indexed to, uint256 shares, uint256 assets);
-    event OnWrapHookFailure(
-        address indexed hook, address indexed from, address indexed to, uint256 amount, bytes reason
-    );
-    event OnUnwrapHookFailure(
-        address indexed hook, address indexed from, address indexed to, uint256 shares, bytes reason
-    );
 
     function setUp() public {
         // Deploy mocks
@@ -240,19 +231,14 @@ contract WrappedERC20xDHooksTest is Test {
         wrappedToken.wrap(alice, 100e6, "");
     }
 
-    function test_wrap_withHookFailure_continuesWithOriginalAmount() public {
+    function test_wrap_withHookFailure_revertsNow() public {
         vm.prank(owner);
         wrappedToken.setHook(address(failingHook));
 
-        // Expect failure event
-        vm.expectEmit(true, true, true, false);
-        emit OnWrapHookFailure(address(failingHook), alice, alice, 100e6, "");
-
+        // Hook is now mandatory, so it should revert
         vm.prank(alice);
+        vm.expectRevert();
         wrappedToken.wrap(alice, 100e6, "");
-
-        // Should still mint original amount despite hook failure
-        assertEq(wrappedToken.balanceOf(alice), 100e6);
     }
 
     function test_wrap_withoutHook_worksNormally() public {
@@ -321,31 +307,15 @@ contract WrappedERC20xDHooksTest is Test {
                      FAILING HOOK TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_unwrapWithFailingHook_stillBurnsTokens() public {
+    function test_unwrapWithFailingHook_revertsOnWrap() public {
         // Set failing hook
         vm.prank(owner);
         wrappedToken.setHook(address(failingHook));
 
-        // Alice wraps tokens
+        // Alice tries to wrap - hook fails and reverts
         vm.prank(alice);
+        vm.expectRevert();
         wrappedToken.wrap(alice, 100e6, "");
-
-        // Alice unwraps - hook fails but tokens still burn
-        uint256 fee = wrappedToken.quoteTransfer(alice, 500_000);
-
-        vm.prank(alice);
-        wrappedToken.unwrap{ value: fee }(alice, 50e6, "", "");
-
-        // Simulate gateway response - hook failure happens here
-        vm.expectEmit(true, true, true, false);
-        emit AfterTransferHookFailure(address(failingHook), alice, address(0), 50e6, "");
-
-        _simulateGatewayResponse(1, 0);
-
-        // Verify: Tokens burned and underlying still returned (contract does it, not hook)
-        assertEq(wrappedToken.balanceOf(alice), 50e6);
-        // Underlying returned even though hook failed (fix applied)
-        assertEq(underlying.balanceOf(alice), 950e6);
     }
 
     // Note: Multiple hooks test removed since we now support only single hook
@@ -574,29 +544,15 @@ contract WrappedERC20xDHooksTest is Test {
         _simulateGatewayResponse(1, 0);
     }
 
-    function test_unwrap_withHookFailure_returnsOriginalAmount() public {
+    function test_unwrap_withHookFailure_revertsOnWrap() public {
         // Setup with failing hook
         vm.prank(owner);
         wrappedToken.setHook(address(failingHook));
 
-        // Wrap first (will fail but continue)
+        // Cannot wrap with failing hook (mandatory now)
         vm.prank(alice);
+        vm.expectRevert();
         wrappedToken.wrap(alice, 100e6, "");
-
-        // Unwrap with failing hook
-        uint256 fee = wrappedToken.quoteUnwrap(500_000);
-
-        vm.prank(alice);
-        wrappedToken.unwrap{ value: fee }(alice, 50e6, abi.encode(uint128(500_000), alice), "");
-
-        // Expect hook failure event during gateway response
-        vm.expectEmit(true, true, true, false);
-        emit OnUnwrapHookFailure(address(failingHook), alice, alice, 50e6, "");
-
-        _simulateGatewayResponse(1, 0);
-
-        // Should still return original amount despite hook failure
-        assertEq(underlying.balanceOf(alice), 1000e6 - 100e6 + 50e6);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -803,7 +759,7 @@ contract WrappedERC20xDHooksTest is Test {
         assertEq(customHook.lastWrapRawData(alice), hookData);
     }
 
-    function test_hookData_gracefulErrorHandling() public {
+    function test_hookData_invalidDataReverts() public {
         // Deploy custom hook
         CustomHookWithData customHook = new CustomHookWithData(address(wrappedToken), address(underlying));
         underlying.mint(address(customHook), 100_000e6);
@@ -811,23 +767,13 @@ contract WrappedERC20xDHooksTest is Test {
         vm.prank(owner);
         wrappedToken.setHook(address(customHook));
 
-        // Test that when hook fails to decode, the wrap still continues
+        // Test that when hook fails to decode, the wrap reverts (hooks are mandatory now)
         bytes memory shortData = hex"deadbeef"; // Too short to be a valid WrapConfig
 
-        // Expect the hook failure event
-        vm.expectEmit(true, true, true, false);
-        emit IBaseERC20xD.OnWrapHookFailure(address(customHook), alice, alice, 100e6, "");
-
-        // Should not revert - wrapped token handles hook failure gracefully
+        // Should revert - hooks are mandatory
         vm.prank(alice);
+        vm.expectRevert();
         wrappedToken.wrap(alice, 100e6, shortData);
-
-        // Verify original amount was minted despite hook failure
-        assertEq(wrappedToken.balanceOf(alice), 100e6);
-
-        // Hook didn't store anything because it reverted
-        assertEq(customHook.lastWrapRawData(alice), "");
-        assertEq(customHook.getLastWrapMultiplier(alice), 0);
     }
 
     /*//////////////////////////////////////////////////////////////

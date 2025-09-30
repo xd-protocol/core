@@ -60,18 +60,6 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
     );
     event CancelPendingTransfer(uint256 indexed nonce);
     event SetHook(address indexed oldHook, address indexed newHook);
-    event OnInitiateTransferHookFailure(
-        address indexed hook, address indexed from, address indexed to, uint256 amount, uint256 value, bytes reason
-    );
-    event OnReadGlobalAvailabilityHookFailure(
-        address indexed hook, address indexed account, int256 globalAvailability, bytes reason
-    );
-    event BeforeTransferHookFailure(
-        address indexed hook, address indexed from, address indexed to, uint256 amount, bytes reason
-    );
-    event AfterTransferHookFailure(
-        address indexed hook, address indexed from, address indexed to, uint256 amount, bytes reason
-    );
     event OnMapAccountsHookFailure(
         address indexed hook, bytes32 indexed chainUID, address remoteAccount, address localAccount, bytes reason
     );
@@ -88,12 +76,6 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
     );
     event OnSettleDataHookFailure(
         address indexed hook, bytes32 indexed chainUID, uint64 timestamp, bytes32 indexed key, bytes value, bytes reason
-    );
-    event OnWrapHookFailure(
-        address indexed hook, address indexed from, address indexed to, uint256 amount, bytes reason
-    );
-    event OnUnwrapHookFailure(
-        address indexed hook, address indexed from, address indexed to, uint256 shares, bytes reason
     );
 
     /*//////////////////////////////////////////////////////////////

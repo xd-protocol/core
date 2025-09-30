@@ -30,12 +30,6 @@ contract NativexDHooksTest is Test {
 
     event Wrap(address indexed to, uint256 amount);
     event Unwrap(address indexed to, uint256 shares, uint256 assets);
-    event OnWrapHookFailure(
-        address indexed hook, address indexed from, address indexed to, uint256 amount, bytes reason
-    );
-    event OnUnwrapHookFailure(
-        address indexed hook, address indexed from, address indexed to, uint256 shares, bytes reason
-    );
 
     function setUp() public {
         // Deploy mocks
@@ -104,19 +98,15 @@ contract NativexDHooksTest is Test {
         assertEq(nativeToken.balanceOf(alice), 100 ether);
     }
 
-    function test_wrap_withHookFailure_continuesWithOriginalAmount() public {
+    function test_wrap_withHookFailure_revertsTransaction() public {
         vm.prank(owner);
         nativeToken.setHook(address(failingHook));
 
-        // Expect failure event
-        vm.expectEmit(true, true, true, false);
-        emit OnWrapHookFailure(address(failingHook), alice, alice, 100 ether, "");
+        // Expect the transaction to revert
+        vm.expectRevert("Wrap disabled");
 
         vm.prank(alice);
         nativeToken.wrap{ value: 100 ether }(alice, "");
-
-        // Should still mint original amount despite hook failure
-        assertEq(nativeToken.balanceOf(alice), 100 ether);
     }
 
     function test_wrap_withoutHook_worksNormally() public {
@@ -190,31 +180,15 @@ contract NativexDHooksTest is Test {
         assertEq(alice.balance, aliceBalanceBefore - fee + 55 ether); // Initial - fee + unwrapped with yield
     }
 
-    function test_unwrap_withHookFailure_returnsOriginalAmount() public {
+    function test_unwrap_withHookFailure_revertsTransaction() public {
         // Setup with failing hook
         vm.prank(owner);
         nativeToken.setHook(address(failingHook));
 
-        // Wrap first (will fail but continue)
+        // Wrap should fail with this hook
+        vm.expectRevert("Wrap disabled");
         vm.prank(alice);
         nativeToken.wrap{ value: 100 ether }(alice, "");
-
-        uint256 aliceBalanceBefore = alice.balance;
-
-        // Unwrap with failing hook
-        uint256 fee = nativeToken.quoteUnwrap(500_000);
-
-        vm.prank(alice);
-        nativeToken.unwrap{ value: fee }(alice, 50 ether, abi.encode(uint128(500_000), alice), "");
-
-        // Expect hook failure event during gateway response
-        vm.expectEmit(true, true, true, false);
-        emit OnUnwrapHookFailure(address(failingHook), alice, alice, 50 ether, "");
-
-        _simulateGatewayResponse(1, 0);
-
-        // Should still return original amount despite hook failure
-        assertEq(alice.balance, aliceBalanceBefore - fee + 50 ether);
     }
 
     /*//////////////////////////////////////////////////////////////

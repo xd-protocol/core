@@ -318,10 +318,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
 
         address _hook = hook;
         if (_hook != address(0)) {
-            try IERC20xDHook(_hook).onInitiateTransfer(from, to, amount, callData, value, data) { }
-            catch (bytes memory reason) {
-                emit OnInitiateTransferHookFailure(_hook, from, to, amount, value, reason);
-            }
+            IERC20xDHook(_hook).onInitiateTransfer(from, to, amount, callData, value, data);
         }
 
         emit InitiateTransfer(from, to, amount, value, nonce);
@@ -419,10 +416,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
 
         address _hook = hook;
         if (_hook != address(0)) {
-            try IERC20xDHook(_hook).onReadGlobalAvailability(from, globalAvailability) { }
-            catch (bytes memory reason) {
-                emit OnReadGlobalAvailabilityHookFailure(_hook, from, globalAvailability, reason);
-            }
+            IERC20xDHook(_hook).onReadGlobalAvailability(from, globalAvailability);
         }
 
         _executePendingTransfer(pending);
@@ -538,10 +532,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     function _transferFrom(address from, address to, uint256 amount, bytes memory data) internal virtual {
         address _hook = hook;
         if (_hook != address(0)) {
-            try IERC20xDHook(_hook).beforeTransfer(from, to, amount, data) { }
-            catch (bytes memory reason) {
-                emit BeforeTransferHookFailure(_hook, from, to, amount, reason);
-            }
+            IERC20xDHook(_hook).beforeTransfer(from, to, amount, data);
         }
 
         if (from != to) {
@@ -561,10 +552,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         }
 
         if (_hook != address(0)) {
-            try IERC20xDHook(_hook).afterTransfer(from, to, amount, data) { }
-            catch (bytes memory reason) {
-                emit AfterTransferHookFailure(_hook, from, to, amount, reason);
-            }
+            IERC20xDHook(_hook).afterTransfer(from, to, amount, data);
         }
 
         emit Transfer(from, to, amount);

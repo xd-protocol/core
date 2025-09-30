@@ -65,14 +65,7 @@ contract NativexD is BaseERC20xD, INativexD {
 
         if (_hook != address(0)) {
             // Call onWrap hook with native tokens attached to get actual amount to mint
-            try IERC20xDHook(_hook).onWrap{ value: msg.value }(msg.sender, to, msg.value, hookData) returns (
-                uint256 _actualAmount
-            ) {
-                actualAmount = _actualAmount;
-            } catch (bytes memory reason) {
-                emit OnWrapHookFailure(_hook, msg.sender, to, msg.value, reason);
-                // Continue with original amount if hook fails
-            }
+            actualAmount = IERC20xDHook(_hook).onWrap{ value: msg.value }(msg.sender, to, msg.value, hookData);
         }
         // If no hook, native tokens stay in this contract
 
@@ -123,15 +116,8 @@ contract NativexD is BaseERC20xD, INativexD {
 
             if (_hook != address(0)) {
                 // Call onUnwrap hook to get actual amount of native tokens to return
-                try IERC20xDHook(_hook).onUnwrap(pending.from, recipient, pending.amount, hookData) returns (
-                    uint256 _underlyingAmount
-                ) {
-                    underlyingAmount = _underlyingAmount;
-                    // Hook should have transferred the native tokens to this contract
-                } catch (bytes memory reason) {
-                    emit OnUnwrapHookFailure(_hook, pending.from, recipient, pending.amount, reason);
-                    // Continue with original amount if hook fails
-                }
+                // Hook should have transferred the native tokens to this contract
+                underlyingAmount = IERC20xDHook(_hook).onUnwrap(pending.from, recipient, pending.amount, hookData);
             }
 
             // Send native tokens to the recipient
