@@ -61,7 +61,7 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
     event CancelPendingTransfer(uint256 indexed nonce);
     event SetHook(address indexed oldHook, address indexed newHook);
     event OnMapAccountsHookFailure(
-        address indexed hook, bytes32 indexed chainUID, address remoteAccount, address localAccount, bytes reason
+        address indexed hook, bytes32 indexed chainUID, address[] remoteAccounts, address[] localAccounts, bytes reason
     );
     event OnSettleLiquidityHookFailure(
         address indexed hook,

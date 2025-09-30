@@ -134,7 +134,7 @@ contract CustomHookWithData is IERC20xDHook {
     function beforeTransfer(address, address, uint256, bytes memory) external override { }
     function onInitiateTransfer(address, address, uint256, bytes memory, uint256, bytes memory) external override { }
     function onReadGlobalAvailability(address, int256) external override { }
-    function onMapAccounts(bytes32, address, address) external override { }
+    function onMapAccounts(bytes32, address[] memory, address[] memory) external override { }
     function onSettleLiquidity(bytes32, uint256, address, int256) external override { }
     function onSettleTotalLiquidity(bytes32, uint256, int256) external override { }
     function onSettleData(bytes32, uint256, bytes32, bytes memory) external override { }

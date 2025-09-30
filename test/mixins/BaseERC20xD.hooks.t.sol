@@ -59,7 +59,7 @@ contract OrderTrackingHook is IERC20xDHook {
         onReadGlobalAvailabilityCallOrder = tracker.incrementAndGet();
     }
 
-    function onMapAccounts(bytes32, address, address) external override {
+    function onMapAccounts(bytes32, address[] memory, address[] memory) external override {
         onMapAccountsCallOrder = tracker.incrementAndGet();
     }
 
@@ -100,7 +100,7 @@ contract BaseERC20xDHooksTest is Test {
 
     event SetHook(address indexed oldHook, address indexed newHook);
     event OnMapAccountsHookFailure(
-        address indexed hook, bytes32 indexed chainUID, address remoteAccount, address localAccount, bytes reason
+        address indexed hook, bytes32 indexed chainUID, address[] remoteAccounts, address[] localAccounts, bytes reason
     );
     event OnSettleLiquidityHookFailure(
         address indexed hook,
@@ -507,19 +507,27 @@ contract BaseERC20xDHooksTest is Test {
 
         // Call onMapAccounts as LiquidityMatrix
         bytes32 chainUID = bytes32(uint256(1));
-        address remoteAccount = makeAddr("remote");
-        address localAccount = alice;
+        address[] memory remoteAccounts = new address[](2);
+        address[] memory localAccounts = new address[](2);
+        remoteAccounts[0] = makeAddr("remote1");
+        remoteAccounts[1] = makeAddr("remote2");
+        localAccounts[0] = alice;
+        localAccounts[1] = bob;
 
         vm.prank(address(liquidityMatrix));
-        token.onMapAccounts(chainUID, remoteAccount, localAccount);
+        token.onMapAccounts(chainUID, remoteAccounts, localAccounts);
 
         // Verify hook was called
         assertEq(hook1.getMapAccountsCallCount(), 1);
-        (bytes32 hookChainUID, address hookRemote, address hookLocal,) = hook1.mapAccountsCalls(0);
+        (bytes32 hookChainUID, address[] memory hookRemotes, address[] memory hookLocals,) = hook1.getMapAccountsCall(0);
 
         assertEq(hookChainUID, chainUID);
-        assertEq(hookRemote, remoteAccount);
-        assertEq(hookLocal, localAccount);
+        assertEq(hookRemotes.length, 2);
+        assertEq(hookLocals.length, 2);
+        assertEq(hookRemotes[0], remoteAccounts[0]);
+        assertEq(hookRemotes[1], remoteAccounts[1]);
+        assertEq(hookLocals[0], localAccounts[0]);
+        assertEq(hookLocals[1], localAccounts[1]);
     }
 
     // Note: Multiple hooks test removed since we now support only single hook
@@ -530,26 +538,37 @@ contract BaseERC20xDHooksTest is Test {
         vm.prank(owner);
         token.setHook(address(hook1));
 
+        bytes32 chainUID = bytes32(uint256(1));
+        address[] memory remoteAccounts = new address[](1);
+        address[] memory localAccounts = new address[](1);
+        remoteAccounts[0] = makeAddr("remote");
+        localAccounts[0] = alice;
+
         // Expect failure event
         vm.expectEmit(true, true, false, false);
         emit OnMapAccountsHookFailure(
             address(hook1),
-            bytes32(uint256(1)),
-            makeAddr("remote"),
-            alice,
+            chainUID,
+            remoteAccounts,
+            localAccounts,
             abi.encodeWithSignature("Error(string)", "HookMock: Intentional revert")
         );
 
         // Call should still succeed
         vm.prank(address(liquidityMatrix));
-        token.onMapAccounts(bytes32(uint256(1)), makeAddr("remote"), alice);
+        token.onMapAccounts(chainUID, remoteAccounts, localAccounts);
     }
 
     function test_onMapAccounts_revertNonLiquidityMatrix() public {
         // Try to call from non-LiquidityMatrix address
+        address[] memory remoteAccounts = new address[](1);
+        address[] memory localAccounts = new address[](1);
+        remoteAccounts[0] = makeAddr("remote");
+        localAccounts[0] = alice;
+
         vm.prank(alice);
         vm.expectRevert(IBaseERC20xD.Forbidden.selector);
-        token.onMapAccounts(bytes32(uint256(1)), makeAddr("remote"), alice);
+        token.onMapAccounts(bytes32(uint256(1)), remoteAccounts, localAccounts);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -739,7 +758,11 @@ contract BaseERC20xDHooksTest is Test {
         vm.startPrank(address(liquidityMatrix));
 
         // 1. Map accounts (might be called when accounts are mapped)
-        token.onMapAccounts(bytes32(uint256(30_000)), makeAddr("remote1"), alice);
+        address[] memory remoteAccounts = new address[](1);
+        address[] memory localAccounts = new address[](1);
+        remoteAccounts[0] = makeAddr("remote1");
+        localAccounts[0] = alice;
+        token.onMapAccounts(bytes32(uint256(30_000)), remoteAccounts, localAccounts);
         assertEq(hook1.getMapAccountsCallCount(), 1);
 
         // 2. Settle individual liquidity

@@ -52,7 +52,7 @@ contract OrderTrackingHookMock is IERC20xDHook {
         onReadGlobalAvailabilityCallOrder = tracker.incrementAndGet();
     }
 
-    function onMapAccounts(bytes32, address, address) external override {
+    function onMapAccounts(bytes32, address[] memory, address[] memory) external override {
         onMapAccountsCallOrder = tracker.incrementAndGet();
     }
 

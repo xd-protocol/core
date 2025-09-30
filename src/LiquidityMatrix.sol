@@ -1039,18 +1039,29 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         if (!_appStates[_localApp].registered) revert AppNotRegistered();
 
         bool[] memory shouldMap = new bool[](_remotes.length);
-        if (ILiquidityMatrixAccountMapper(_localApp).shouldMapAccounts.selector == bytes4(0)) {
-            for (uint256 i; i < _remotes.length; ++i) {
+        uint256 mappedCount = 0;
+
+        // Check if the app implements the shouldMapAccounts function
+        // If not, default to mapping all accounts
+        // Also count how many will be mapped
+        for (uint256 i; i < _remotes.length; ++i) {
+            try ILiquidityMatrixAccountMapper(_localApp).shouldMapAccounts(_fromChainUID, _remotes[i], _locals[i])
+            returns (bool should) {
+                shouldMap[i] = should;
+                if (should) mappedCount++;
+            } catch {
+                // App doesn't implement shouldMapAccounts or it reverted - default to true
                 shouldMap[i] = true;
-            }
-        } else {
-            for (uint256 i; i < _remotes.length; ++i) {
-                shouldMap[i] =
-                    ILiquidityMatrixAccountMapper(_localApp).shouldMapAccounts(_fromChainUID, _remotes[i], _locals[i]);
+                mappedCount++;
             }
         }
 
         RemoteAppState storage state = _remoteAppStates[_localApp][_fromChainUID];
+
+        // Allocate arrays with exact size needed
+        address[] memory mappedRemotes = new address[](mappedCount);
+        address[] memory mappedLocals = new address[](mappedCount);
+        uint256 arrayIndex = 0;
 
         for (uint256 i; i < _remotes.length; ++i) {
             if (!shouldMap[i]) continue;
@@ -1066,6 +1077,17 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
             state.localAccountMapped[local] = true;
 
             emit MapRemoteAccount(_localApp, _fromChainUID, remote, local);
+
+            // Add to arrays
+            mappedRemotes[arrayIndex] = remote;
+            mappedLocals[arrayIndex] = local;
+            arrayIndex++;
+        }
+
+        // Notify the app about all successful mappings at once if hooks are enabled
+        // Since we revert on any error, the arrays are already correctly sized
+        if (_appStates[_localApp].useHook && mappedCount > 0) {
+            ILiquidityMatrixHook(_localApp).onMapAccounts(_fromChainUID, mappedRemotes, mappedLocals);
         }
     }
 

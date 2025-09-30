@@ -16,10 +16,11 @@ interface ILiquidityMatrixHook {
      * @notice Called when remote accounts are successfully mapped to local accounts
      * @dev Allows apps to perform additional logic when account mappings are established
      * @param chainUID The unique identifier of the remote chain
-     * @param remoteAccount The account address on the remote chain
-     * @param localAccount The mapped local account address
+     * @param remoteAccounts Array of account addresses on the remote chain that were mapped
+     * @param localAccounts Array of corresponding local account addresses
      */
-    function onMapAccounts(bytes32 chainUID, address remoteAccount, address localAccount) external;
+    function onMapAccounts(bytes32 chainUID, address[] memory remoteAccounts, address[] memory localAccounts)
+        external;
 
     /**
      * @notice Called when liquidity for a specific account is settled from a remote chain

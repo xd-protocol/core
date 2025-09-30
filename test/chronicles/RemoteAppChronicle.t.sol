@@ -2034,7 +2034,7 @@ contract MockHookForTotalLiquidity is ILiquidityMatrixHook {
 
     function onSettleLiquidity(bytes32, uint256, uint64, address) external override { }
 
-    function onMapAccounts(bytes32, address, address) external override { }
+    function onMapAccounts(bytes32, address[] memory, address[] memory) external override { }
 
     function onSettleTotalLiquidity(bytes32, uint256, uint64 timestamp) external override {
         lastTotalLiquidity = RemoteAppChronicle(msg.sender).getTotalLiquidityAt(timestamp);

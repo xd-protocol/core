@@ -566,19 +566,23 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @notice Called when remote accounts are successfully mapped to local accounts
      * @dev Allows apps to perform additional logic when account mappings are established
      * @param chainUID The chain unique identifier of the remote chain
-     * @param remoteAccount The account address on the remote chain
-     * @param localAccount The mapped local account address
+     * @param remoteAccounts Array of account addresses on the remote chain that were mapped
+     * @param localAccounts Array of corresponding local account addresses
      */
-    function onMapAccounts(bytes32 chainUID, address remoteAccount, address localAccount) external virtual override {
+    function onMapAccounts(bytes32 chainUID, address[] memory remoteAccounts, address[] memory localAccounts)
+        external
+        virtual
+        override
+    {
         // Only allow calls from the LiquidityMatrix contract
         if (msg.sender != liquidityMatrix) revert Forbidden();
 
         // Call onMapAccounts on the registered hook
         address _hook = hook;
         if (_hook != address(0)) {
-            try IERC20xDHook(_hook).onMapAccounts(chainUID, remoteAccount, localAccount) { }
+            try IERC20xDHook(_hook).onMapAccounts(chainUID, remoteAccounts, localAccounts) { }
             catch (bytes memory reason) {
-                emit OnMapAccountsHookFailure(_hook, chainUID, remoteAccount, localAccount, reason);
+                emit OnMapAccountsHookFailure(_hook, chainUID, remoteAccounts, localAccounts, reason);
             }
         }
     }

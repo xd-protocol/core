@@ -29,8 +29,8 @@ contract HookMock is IERC20xDHook {
 
     struct MapAccountsCall {
         bytes32 chainUID;
-        address remoteAccount;
-        address localAccount;
+        address[] remoteAccounts;
+        address[] localAccounts;
         uint256 timestamp;
     }
 
@@ -74,7 +74,7 @@ contract HookMock is IERC20xDHook {
     GlobalAvailabilityCall[] public globalAvailabilityCalls;
     TransferCall[] public beforeTransferCalls;
     TransferCall[] public afterTransferCalls;
-    MapAccountsCall[] public mapAccountsCalls;
+    MapAccountsCall[] internal mapAccountsCalls;
     SettleLiquidityCall[] public settleLiquidityCalls;
     SettleTotalLiquidityCall[] public settleTotalLiquidityCalls;
     SettleDataCall[] public settleDataCalls;
@@ -145,15 +145,18 @@ contract HookMock is IERC20xDHook {
         afterTransferCalls.push(TransferCall({ from: from, to: to, amount: amount, timestamp: block.timestamp }));
     }
 
-    function onMapAccounts(bytes32 chainUID, address remoteAccount, address localAccount) external override {
+    function onMapAccounts(bytes32 chainUID, address[] memory remoteAccounts, address[] memory localAccounts)
+        external
+        override
+    {
         if (shouldRevertOnMapAccounts) {
             revert(revertReason);
         }
         mapAccountsCalls.push(
             MapAccountsCall({
                 chainUID: chainUID,
-                remoteAccount: remoteAccount,
-                localAccount: localAccount,
+                remoteAccounts: remoteAccounts,
+                localAccounts: localAccounts,
                 timestamp: block.timestamp
             })
         );
@@ -206,6 +209,15 @@ contract HookMock is IERC20xDHook {
 
     function getMapAccountsCallCount() external view returns (uint256) {
         return mapAccountsCalls.length;
+    }
+
+    function getMapAccountsCall(uint256 index)
+        external
+        view
+        returns (bytes32, address[] memory, address[] memory, uint256)
+    {
+        MapAccountsCall memory call = mapAccountsCalls[index];
+        return (call.chainUID, call.remoteAccounts, call.localAccounts, call.timestamp);
     }
 
     function getSettleLiquidityCallCount() external view returns (uint256) {

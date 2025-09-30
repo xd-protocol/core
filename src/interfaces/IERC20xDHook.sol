@@ -60,10 +60,11 @@ interface IERC20xDHook {
      * @notice Called when remote accounts are mapped to local accounts
      * @dev This function should not revert as it could block account mapping
      * @param chainUID The remote chain identifier
-     * @param remoteAccount The account address on the remote chain
-     * @param localAccount The mapped local account address
+     * @param remoteAccounts Array of account addresses on the remote chain that were mapped
+     * @param localAccounts Array of corresponding local account addresses
      */
-    function onMapAccounts(bytes32 chainUID, address remoteAccount, address localAccount) external;
+    function onMapAccounts(bytes32 chainUID, address[] memory remoteAccounts, address[] memory localAccounts)
+        external;
 
     /**
      * @notice Called when liquidity for a specific account is settled from a remote chain

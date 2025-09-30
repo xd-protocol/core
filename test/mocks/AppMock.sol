@@ -34,8 +34,10 @@ contract AppMock is IAppMock {
         shouldMapAccounts[chainUID][remote][local] = shouldMap;
     }
 
-    function onMapAccounts(bytes32 chainUID, address remoteAccount, address localAccount) external {
-        // Empty
+    function onMapAccounts(bytes32 chainUID, address[] memory remoteAccounts, address[] memory localAccounts)
+        external
+    {
+        // Empty - just implementing the interface
     }
 
     function onSettleLiquidity(bytes32 chainUID, uint256, /* version */ uint64 timestamp, address account) external {
