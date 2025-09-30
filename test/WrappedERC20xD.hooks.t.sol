@@ -129,10 +129,14 @@ contract WrappedERC20xDHooksTest is Test {
             address(underlying), "Wrapped USDC", "wUSDC", 6, address(liquidityMatrix), address(gateway), owner, settler
         );
 
-        // Set read target for local chain (chain ID 1 from gateway mock)
-        vm.prank(owner);
-        // gateway.registerReader(address(wrappedToken)); // Mock gateway doesn't have this
-        wrappedToken.updateReadTarget(bytes32(uint256(1)), bytes32(uint256(uint160(address(wrappedToken)))));
+        // Configure read chains and targets for local chain
+        vm.startPrank(owner);
+        bytes32[] memory readChains = new bytes32[](1);
+        address[] memory targets = new address[](1);
+        readChains[0] = bytes32(uint256(1));
+        targets[0] = address(wrappedToken);
+        wrappedToken.configureReadChains(readChains, targets);
+        vm.stopPrank();
 
         // Deploy hooks
         redemptionHook = new SimpleRedemptionHookMock(address(wrappedToken), address(underlying));

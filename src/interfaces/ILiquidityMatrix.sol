@@ -23,6 +23,7 @@ interface ILiquidityMatrix {
     error InvalidCmd();
     error InvalidLengths();
     error InvalidSettler();
+    error InvalidTarget();
     error InvalidTimestamp();
     error InvalidVersion();
     error Forbidden();
@@ -78,8 +79,10 @@ interface ILiquidityMatrix {
 
     event UpdateGateway(address indexed gateway);
     event UpdateSyncer(address indexed syncer);
+    event UpdateReadTarget(bytes32 indexed chainUID, bytes32 indexed target);
     event Sync(address indexed caller);
     event AddVersion(uint256 indexed version, uint64 indexed timestamp);
+    event ReadChainsConfigured(bytes32[] chainUIDs);
     event UpdateLocalAppChronicleDeployer(address indexed deployer);
     event UpdateRemoteAppChronicleDeployer(address indexed deployer);
 
@@ -847,12 +850,12 @@ interface ILiquidityMatrix {
     function updateSyncer(address _syncer) external;
 
     /**
-     * @notice Updates the read target for a specific chain
-     * @dev Updates where to read from on the remote chain
-     * @param chainUID The chain unique identifier
-     * @param target The target address on the remote chain
+     * @notice Configures which chains to read from and their target addresses for sync operations
+     * @dev Only callable by owner. These chains must be configured in the gateway.
+     * @param chainUIDs Array of chain UIDs to read from
+     * @param targets Array of target addresses for each chain
      */
-    function updateReadTarget(bytes32 chainUID, bytes32 target) external;
+    function configureReadChains(bytes32[] memory chainUIDs, address[] memory targets) external;
 
     /**
      * @notice Initiates a sync operation to fetch roots from all configured chains

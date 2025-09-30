@@ -109,19 +109,25 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
             for (uint256 k; k < configEids.length; k++) {
                 chainUIDs[k] = bytes32(uint256(configEids[k]));
             }
-            gateways[i].configChains(chainUIDs, configConfirmations);
+            gateways[i].configureChains(chainUIDs, configConfirmations);
 
             // Set read targets for LiquidityMatrix to read each other
+            bytes32[] memory readChainUIDs = new bytes32[](CHAINS - 1);
+            address[] memory readTargets = new address[](CHAINS - 1);
+            uint256 readCount;
             for (uint32 j; j < CHAINS; ++j) {
                 if (i != j) {
-                    changePrank(owner, owner);
-                    liquidityMatrices[i].updateReadTarget(
-                        bytes32(uint256(eids[j])), bytes32(uint256(uint160(address(liquidityMatrices[j]))))
-                    );
                     changePrank(apps[i], apps[i]);
                     liquidityMatrices[i].updateRemoteApp(bytes32(uint256(eids[j])), address(apps[j]), 0);
+                    readChainUIDs[readCount] = bytes32(uint256(eids[j]));
+                    readTargets[readCount] = address(liquidityMatrices[j]);
+                    readCount++;
                 }
             }
+            // Configure read chains and targets for LiquidityMatrix
+            changePrank(owner, owner);
+            liquidityMatrices[i].configureReadChains(readChainUIDs, readTargets);
+            changePrank(apps[i], apps[i]);
             initialize(storages[i]);
         }
 

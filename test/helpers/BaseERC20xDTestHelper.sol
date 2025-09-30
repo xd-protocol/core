@@ -118,31 +118,46 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             for (uint256 k; k < configEids.length; k++) {
                 chainUIDs[k] = bytes32(uint256(configEids[k]));
             }
-            gateways[i].configChains(chainUIDs, configConfirmations);
+            gateways[i].configureChains(chainUIDs, configConfirmations);
 
             // Register ERC20xD with gateway
             gateways[i].registerApp(address(erc20s[i]));
         }
 
-        // Set read targets for LiquidityMatrices (they need to read each other)
+        // Configure read chains and targets for LiquidityMatrices (they need to read each other)
         for (uint32 i; i < CHAINS; ++i) {
+            bytes32[] memory readChainUIDs = new bytes32[](CHAINS - 1);
+            address[] memory readTargets = new address[](CHAINS - 1);
+            uint256 readCount;
             for (uint32 j; j < CHAINS; ++j) {
                 if (i != j) {
-                    liquidityMatrices[i].updateReadTarget(
-                        bytes32(uint256(eids[j])), bytes32(uint256(uint160(address(liquidityMatrices[j]))))
-                    );
                     erc20s[i].updateRemoteApp(bytes32(uint256(eids[j])), address(erc20s[j]), 0);
+                    readChainUIDs[readCount] = bytes32(uint256(eids[j]));
+                    readTargets[readCount] = address(liquidityMatrices[j]);
+                    readCount++;
                 }
             }
+            // Configure read chains and targets for LiquidityMatrix
+            changePrank(owner, owner);
+            liquidityMatrices[i].configureReadChains(readChainUIDs, readTargets);
         }
 
-        // Set read targets for ERC20xD contracts
+        // Configure read chains and targets for ERC20xD contracts
         for (uint32 i; i < CHAINS; ++i) {
+            // Configure which chains this ERC20xD will read from
+            bytes32[] memory readChainUIDs = new bytes32[](CHAINS - 1);
+            address[] memory readTargets = new address[](CHAINS - 1);
+            uint256 readCount;
             for (uint32 j; j < CHAINS; ++j) {
                 if (i != j) {
-                    erc20s[i].updateReadTarget(bytes32(uint256(eids[j])), bytes32(uint256(uint160(address(erc20s[j])))));
+                    readChainUIDs[readCount] = bytes32(uint256(eids[j]));
+                    readTargets[readCount] = address(erc20s[j]);
+                    readCount++;
                 }
             }
+            // Configure read chains and targets for the ERC20xD token
+            changePrank(owner, owner);
+            erc20s[i].configureReadChains(readChainUIDs, readTargets);
         }
 
         // Create RemoteAppChronicles for cross-chain functionality

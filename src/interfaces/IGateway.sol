@@ -8,7 +8,6 @@ interface IGateway {
 
     event RegisterApp(address indexed app, uint16 indexed cmdLabel);
     event UpdateTransferDelay(uint32 indexed eid, uint64 delay);
-    event UpdateReadTarget(address indexed app, uint32 indexed eid, bytes32 indexed target);
     event MessageSent(uint32 indexed eid, bytes32 indexed guid, bytes message);
 
     /*//////////////////////////////////////////////////////////////
@@ -25,6 +24,7 @@ interface IGateway {
     error InvalidCmdLabel();
     error InvalidRequests();
     error DuplicateTargetEid();
+    error InvalidChainUIDs();
 
     /*//////////////////////////////////////////////////////////////
                             VIEW FUNCTIONS
@@ -41,7 +41,7 @@ interface IGateway {
      * @param chainUIDs Array of chain UIDs to configure
      * @param confirmations Array of confirmation requirements for each chain
      */
-    function configChains(bytes32[] memory chainUIDs, uint16[] memory confirmations) external;
+    function configureChains(bytes32[] memory chainUIDs, uint16[] memory confirmations) external;
 
     /**
      * @notice Returns the number of configured chains
@@ -79,45 +79,50 @@ interface IGateway {
     /**
      * @notice Quotes the messaging fee for a cross-chain read request
      * @param app The application requesting the read
+     * @param chainUIDs Array of chain UIDs to read from (must be in gateway's configured list)
+     * @param targets Array of target addresses on remote chains (must match chainUIDs length)
      * @param callData The function call data to execute on remote chains
      * @param returnDataSize Expected size of return data per chain
      * @param gasLimit Gas limit for the operation
      * @return fee The estimated messaging fee
      */
-    function quoteRead(address app, bytes memory callData, uint32 returnDataSize, uint128 gasLimit)
-        external
-        view
-        returns (uint256 fee);
-
-    /**
-     * @notice Updates the read target address for a specific chain
-     * @param chainUID The chain unique identifier
-     * @param target The target address on the remote chain
-     */
-    function updateReadTarget(bytes32 chainUID, bytes32 target) external;
+    function quoteRead(
+        address app,
+        bytes32[] memory chainUIDs,
+        address[] memory targets,
+        bytes memory callData,
+        uint32 returnDataSize,
+        uint128 gasLimit
+    ) external view returns (uint256 fee);
 
     /**
      * @notice Executes a cross-chain read operation
+     * @param chainUIDs Array of chain UIDs to read from (must be in gateway's configured list)
+     * @param targets Array of target addresses on remote chains (must match chainUIDs length)
      * @param callData The function call data to execute on remote chains
      * @param extra Additional data for the operation
      * @param returnDataSize Expected size of return data per chain
      * @param data Encoded (uint128 gasLimit, address refundTo) parameters
      * @return guid The unique identifier for this read operation
      */
-    function read(bytes memory callData, bytes memory extra, uint32 returnDataSize, bytes memory data)
-        external
-        payable
-        returns (bytes32 guid);
+    function read(
+        bytes32[] memory chainUIDs,
+        address[] memory targets,
+        bytes memory callData,
+        bytes memory extra,
+        uint32 returnDataSize,
+        bytes memory data
+    ) external payable returns (bytes32 guid);
 
     /**
      * @notice Quotes the messaging fee for sending a message to a specific chain
      * @param chainUID The destination chain unique identifier
-     * @param app The application sending the message
+     * @param target The target address on the remote chain
      * @param message The message to send
      * @param gasLimit Gas limit for the operation
      * @return fee The estimated messaging fee
      */
-    function quoteSendMessage(bytes32 chainUID, address app, bytes memory message, uint128 gasLimit)
+    function quoteSendMessage(bytes32 chainUID, address target, bytes memory message, uint128 gasLimit)
         external
         view
         returns (uint256 fee);
@@ -125,11 +130,12 @@ interface IGateway {
     /**
      * @notice Sends a message to a specific chain
      * @param chainUID The destination chain unique identifier
+     * @param target The target address on the remote chain
      * @param message The message to send
      * @param data Encoded (uint128 gasLimit, address refundTo) parameters
      * @return guid The unique identifier for this message
      */
-    function sendMessage(bytes32 chainUID, bytes memory message, bytes memory data)
+    function sendMessage(bytes32 chainUID, address target, bytes memory message, bytes memory data)
         external
         payable
         returns (bytes32 guid);

@@ -12,6 +12,14 @@ interface IGatewayApp {
         address target;
     }
 
+    /**
+     * @notice Maps ChainUIDs to target addresses for cross-chain communication
+     * @dev Returns an empty array if app has no read targets configured
+     * @return chainUIDs The chain UIDs the app reads from
+     * @return targets The target address on each chain
+     */
+    function getReadTargets() external view returns (bytes32[] memory chainUIDs, address[] memory targets);
+
     /*//////////////////////////////////////////////////////////////
                             VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/

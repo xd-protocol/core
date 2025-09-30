@@ -39,11 +39,6 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
                                 TYPES
     //////////////////////////////////////////////////////////////*/
 
-    struct AppState {
-        uint16 cmdLabel;
-        mapping(uint32 eid => bytes32) targets;
-    }
-
     struct ReadRequest {
         address app;
         bytes extra;
@@ -60,7 +55,7 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     uint32[] internal _targetEids;
     mapping(uint32 => uint16) internal _chainConfigConfirmations;
 
-    mapping(address app => AppState) public appStates;
+    mapping(address app => uint16 cmdLabel) public appCmdLabels;
     mapping(uint16 cmdLabel => address app) public getApp;
     mapping(uint32 eid => uint64) public transferDelays;
 
@@ -72,7 +67,7 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     //////////////////////////////////////////////////////////////*/
 
     modifier onlyApp() {
-        if (appStates[msg.sender].cmdLabel == 0) revert Forbidden();
+        if (appCmdLabels[msg.sender] == 0) revert Forbidden();
         _;
     }
 
@@ -123,19 +118,26 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     }
 
     /// @inheritdoc IGateway
-    function quoteRead(address app, bytes memory callData, uint32 returnDataSize, uint128 gasLimit)
-        public
-        view
-        returns (uint256 fee)
-    {
-        (bytes32[] memory chainUIDs,) = chainConfigs();
+    function quoteRead(
+        address app,
+        bytes32[] memory chainUIDs,
+        address[] memory targets,
+        bytes memory callData,
+        uint32 returnDataSize,
+        uint128 gasLimit
+    ) public view returns (uint256 fee) {
+        // Validate inputs
+        if (chainUIDs.length != targets.length) revert InvalidLengths();
+        _validateChainUIDs(chainUIDs);
+
         uint32[] memory eids = new uint32[](chainUIDs.length);
         for (uint256 i; i < chainUIDs.length; i++) {
             eids[i] = uint32(uint256(chainUIDs[i]));
+            if (targets[i] == address(0)) revert InvalidTarget();
         }
         MessagingFee memory _fee = _quote(
             READ_CHANNEL,
-            _getCmd(app, callData),
+            _getCmd(app, chainUIDs, targets, callData),
             OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, uint32(returnDataSize * eids.length), 0),
             false
         );
@@ -168,14 +170,14 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     function registerApp(address app) external onlyOwner {
         uint16 cmdLabel = _lastCmdLabel + 1;
         _lastCmdLabel = cmdLabel;
-        appStates[app].cmdLabel = cmdLabel;
+        appCmdLabels[app] = cmdLabel;
         getApp[cmdLabel] = app;
 
         emit RegisterApp(app, cmdLabel);
     }
 
     /// @inheritdoc IGateway
-    function configChains(bytes32[] memory chainUIDs, uint16[] memory confirmations) external onlyOwner {
+    function configureChains(bytes32[] memory chainUIDs, uint16[] memory confirmations) external onlyOwner {
         if (chainUIDs.length != confirmations.length) revert InvalidLengths();
 
         // Clear existing configuration mappings
@@ -216,35 +218,33 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     }
 
     /// @inheritdoc IGateway
-    function updateReadTarget(bytes32 chainUID, bytes32 target) external onlyApp {
-        if (uint256(chainUID) >= type(uint32).max) revert InvalidChainUID();
-
-        uint32 eid = uint32(uint256(chainUID));
-        appStates[msg.sender].targets[eid] = target;
-
-        emit UpdateReadTarget(msg.sender, eid, target);
-    }
 
     /// @inheritdoc IGateway
-    function read(bytes memory callData, bytes memory extra, uint32 returnDataSize, bytes memory data)
-        external
-        payable
-        onlyApp
-        returns (bytes32 guid)
-    {
+    function read(
+        bytes32[] memory chainUIDs,
+        address[] memory targets,
+        bytes memory callData,
+        bytes memory extra,
+        uint32 returnDataSize,
+        bytes memory data
+    ) external payable onlyApp returns (bytes32 guid) {
+        // Validate inputs
+        if (chainUIDs.length != targets.length) revert InvalidLengths();
+        _validateChainUIDs(chainUIDs);
+
         if (data.length < 64) revert InvalidLzReadOptions();
         (uint128 gasLimit, address refundTo) = abi.decode(data, (uint128, address));
-        (bytes32[] memory chainUIDs,) = chainConfigs();
         uint32[] memory eids = new uint32[](chainUIDs.length);
         for (uint256 i; i < chainUIDs.length; i++) {
             eids[i] = uint32(uint256(chainUIDs[i]));
+            if (targets[i] == address(0)) revert InvalidTarget();
         }
         // directly use endpoint.send() to bypass _payNative() check in _lzSend()
         MessagingReceipt memory receipt = endpoint.send{ value: msg.value }(
             MessagingParams(
                 READ_CHANNEL,
                 _getPeerOrRevert(READ_CHANNEL),
-                _getCmd(msg.sender, callData),
+                _getCmd(msg.sender, chainUIDs, targets, callData),
                 OptionsBuilder.newOptions().addExecutorLzReadOption(gasLimit, uint32(returnDataSize * eids.length), 0),
                 false
             ),
@@ -255,15 +255,14 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     }
 
     /// @inheritdoc IGateway
-    function quoteSendMessage(bytes32 chainUID, address app, bytes memory message, uint128 gasLimit)
+    function quoteSendMessage(bytes32 chainUID, address target, bytes memory message, uint128 gasLimit)
         public
         view
         returns (uint256 fee)
     {
         if (uint256(chainUID) >= type(uint32).max) revert InvalidChainUID();
-        uint32 eid = uint32(uint256(chainUID));
-        address target = AddressCast.toAddress(appStates[app].targets[eid]);
         if (target == address(0)) revert InvalidTarget();
+        uint32 eid = uint32(uint256(chainUID));
         MessagingFee memory _fee = _quote(
             eid, abi.encode(target, message), OptionsBuilder.newOptions().addExecutorLzReceiveOption(gasLimit, 0), false
         );
@@ -271,16 +270,15 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     }
 
     /// @inheritdoc IGateway
-    function sendMessage(bytes32 chainUID, bytes memory message, bytes memory data)
+    function sendMessage(bytes32 chainUID, address target, bytes memory message, bytes memory data)
         external
         payable
         onlyApp
         returns (bytes32 guid)
     {
         if (uint256(chainUID) >= type(uint32).max) revert InvalidChainUID();
-        uint32 eid = uint32(uint256(chainUID));
-        address target = AddressCast.toAddress(appStates[msg.sender].targets[eid]);
         if (target == address(0)) revert InvalidTarget();
+        uint32 eid = uint32(uint256(chainUID));
         (uint128 gasLimit, address refundTo) = abi.decode(data, (uint128, address));
         MessagingReceipt memory receipt = _lzSend(
             eid,
@@ -327,25 +325,35 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     /**
      * @notice Generates LayerZero command for cross-chain read operation
      * @param app The application requesting the read
+     * @param chainUIDs The specific chains to read from
      * @param callData The function call data to execute on remote chains
      * @return The encoded LayerZero command
-     * @dev Creates EVMCallRequestV1 structs for each configured chain with proper delays and confirmations
+     * @dev Creates EVMCallRequestV1 structs for specified chains with proper delays and confirmations
      */
-    function _getCmd(address app, bytes memory callData) internal view returns (bytes memory) {
-        AppState storage state = appStates[app];
-        if (state.cmdLabel == 0) revert InvalidApp();
+    function _getCmd(address app, bytes32[] memory chainUIDs, address[] memory targets, bytes memory callData)
+        internal
+        view
+        returns (bytes memory)
+    {
+        uint16 cmdLabel = appCmdLabels[app];
+        if (cmdLabel == 0) revert InvalidApp();
+        if (chainUIDs.length != targets.length) revert InvalidLengths();
 
-        (bytes32[] memory _chainUIDs, uint16[] memory _confirmations) = chainConfigs();
-        uint32[] memory _eids = new uint32[](_chainUIDs.length);
-        for (uint256 i; i < _chainUIDs.length; i++) {
-            _eids[i] = uint32(uint256(_chainUIDs[i]));
+        uint32[] memory _eids = new uint32[](chainUIDs.length);
+        uint16[] memory _confirmations = new uint16[](chainUIDs.length);
+
+        // Convert chainUIDs to eids and get confirmations
+        for (uint256 i; i < chainUIDs.length; i++) {
+            _eids[i] = uint32(uint256(chainUIDs[i]));
+            _confirmations[i] = _chainConfigConfirmations[_eids[i]];
         }
+
         EVMCallRequestV1[] memory requests = new EVMCallRequestV1[](_eids.length);
 
         uint64 timestamp = uint64(block.timestamp);
         for (uint256 i; i < _eids.length; i++) {
             uint32 eid = _eids[i];
-            address target = AddressCast.toAddress(state.targets[eid]);
+            address target = targets[i];
             if (target == address(0)) revert InvalidTarget();
             requests[i] = EVMCallRequestV1({
                 appRequestLabel: uint16(i + 1),
@@ -358,7 +366,29 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
             });
         }
 
-        return ReadCodecV1.encode(state.cmdLabel, requests, _computeSettings());
+        return ReadCodecV1.encode(cmdLabel, requests, _computeSettings());
+    }
+
+    /**
+     * @notice Validates that all provided chain UIDs are configured in the gateway
+     * @param chainUIDs Array of chain UIDs to validate
+     * @dev Reverts if any chain UID is not in the configured _targetEids array
+     */
+    function _validateChainUIDs(bytes32[] memory chainUIDs) internal view {
+        for (uint256 i; i < chainUIDs.length; i++) {
+            uint32 eid = uint32(uint256(chainUIDs[i]));
+            // Check if this chain is in the configured target eids
+            bool found = false;
+            for (uint256 j; j < _targetEids.length; j++) {
+                if (_targetEids[j] == eid) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                revert InvalidChainUIDs();
+            }
+        }
     }
 
     /**

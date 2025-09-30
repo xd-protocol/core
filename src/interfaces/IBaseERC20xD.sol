@@ -47,6 +47,9 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
     error NotComposing();
     error UnauthorizedComposeSpender();
     error UnauthorizedComposeSource();
+    error NoChainsConfigured();
+    error InvalidTarget();
+    error InvalidLengths();
 
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
@@ -77,6 +80,8 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
     event OnSettleDataHookFailure(
         address indexed hook, bytes32 indexed chainUID, uint64 timestamp, bytes32 indexed key, bytes value, bytes reason
     );
+    event ReadChainsConfigured(bytes32[] chainUIDs);
+    event UpdateReadTarget(bytes32 indexed chainUID, bytes32 indexed target);
 
     /*//////////////////////////////////////////////////////////////
                             VIEW FUNCTIONS
@@ -167,13 +172,6 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
     function updateWalletFactory(address newWalletFactory) external;
 
     /**
-     * @notice Updates the read target address for a specific chain
-     * @param chainUID The chain unique identifier
-     * @param target The target address on the remote chain
-     */
-    function updateReadTarget(bytes32 chainUID, bytes32 target) external;
-
-    /**
      * @notice Updates whether to sync only mapped accounts
      * @param syncMappedAccountsOnly True to sync only mapped accounts
      */
@@ -252,4 +250,12 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
      * @dev Only callable by the user who initiated the transfer
      */
     function cancelPendingTransfer() external;
+
+    /**
+     * @notice Configure which chains to read from and their target addresses for cross-chain operations
+     * @param chainUIDs Array of chain UIDs to read from
+     * @param targets Array of target addresses for each chain
+     * @dev Only callable by owner
+     */
+    function configureReadChains(bytes32[] memory chainUIDs, address[] memory targets) external;
 }

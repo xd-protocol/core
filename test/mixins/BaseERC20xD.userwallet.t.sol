@@ -120,8 +120,16 @@ contract BaseERC20xDUserWalletTest is Test {
         defiProtocol = new MockDeFiProtocol();
 
         // Setup token for testing
-        vm.prank(owner);
+        vm.startPrank(owner);
         token.mint(alice, 1000 ether);
+
+        // Configure read chains and targets for the token
+        bytes32[] memory readChains = new bytes32[](1);
+        address[] memory targets = new address[](1);
+        readChains[0] = bytes32(uint256(1)); // Just use a dummy chain ID
+        targets[0] = address(token);
+        token.configureReadChains(readChains, targets);
+        vm.stopPrank();
 
         // Setup gateway
         // gateway.registerApp(address(token)); // Not available in mock
@@ -328,8 +336,16 @@ contract BaseERC20xDUserWalletTest is Test {
         // Note: walletFactory is not set (defaults to address(0))
 
         // Setup
-        vm.prank(owner);
+        vm.startPrank(owner);
         legacyToken.mint(alice, 1000 ether);
+
+        // Configure read chains and targets for the legacy token
+        bytes32[] memory readChains = new bytes32[](1);
+        address[] memory targets = new address[](1);
+        readChains[0] = bytes32(uint256(1)); // Just use a dummy chain ID
+        targets[0] = address(legacyToken);
+        legacyToken.configureReadChains(readChains, targets);
+        vm.stopPrank();
         // gateway.registerApp(address(legacyToken)); // Not available in mock
 
         // Prepare compose call

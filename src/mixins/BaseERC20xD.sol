@@ -76,6 +76,11 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     // Hook storage - single hook instead of array
     address public hook;
 
+    // Chains to read from for cross-chain operations
+    bytes32[] public readChainUIDs;
+    // Target addresses for each read chain
+    mapping(bytes32 => address) internal _readTargets;
+
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
@@ -158,10 +163,37 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         return ILiquidityMatrix(liquidityMatrix).getLocalLiquidity(address(this), account);
     }
 
+    /**
+     * @notice Gets the configured read targets
+     * @return chainUIDs Array of configured chain UIDs
+     * @return targets Array of target addresses for each chain
+     */
+    function getReadTargets() external view returns (bytes32[] memory chainUIDs, address[] memory targets) {
+        chainUIDs = readChainUIDs;
+        targets = new address[](chainUIDs.length);
+        for (uint256 i; i < chainUIDs.length; i++) {
+            targets[i] = _readTargets[chainUIDs[i]];
+        }
+    }
+
     /// @inheritdoc IBaseERC20xD
     function quoteTransfer(address from, uint128 gasLimit) public view returns (uint256 fee) {
+        if (readChainUIDs.length == 0) revert NoChainsConfigured();
+
+        // Build targets array
+        address[] memory targets = new address[](readChainUIDs.length);
+        for (uint256 i; i < readChainUIDs.length; i++) {
+            targets[i] = _readTargets[readChainUIDs[i]];
+            if (targets[i] == address(0)) revert InvalidTarget();
+        }
+
         return IGateway(gateway).quoteRead(
-            address(this), abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from), 256, gasLimit
+            address(this),
+            readChainUIDs,
+            targets,
+            abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from),
+            256,
+            gasLimit
         );
     }
 
@@ -213,11 +245,6 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     }
 
     /// @inheritdoc IBaseERC20xD
-    function updateReadTarget(bytes32 chainUID, bytes32 target) external onlyOwner {
-        IGateway(gateway).updateReadTarget(chainUID, target);
-    }
-
-    /// @inheritdoc IBaseERC20xD
     function updateSyncMappedAccountsOnly(bool syncMappedAccountsOnly) external onlyOwner {
         ILiquidityMatrix(liquidityMatrix).updateSyncMappedAccountsOnly(syncMappedAccountsOnly);
     }
@@ -248,6 +275,25 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     /// @inheritdoc IBaseERC20xD
     function getHook() external view returns (address) {
         return hook;
+    }
+
+    /// @inheritdoc IBaseERC20xD
+    function configureReadChains(bytes32[] memory chainUIDs, address[] memory targets) external onlyOwner {
+        if (chainUIDs.length != targets.length) revert InvalidLengths();
+
+        // Clear existing configuration
+        for (uint256 i; i < readChainUIDs.length; i++) {
+            delete _readTargets[readChainUIDs[i]];
+        }
+
+        // Set new configuration
+        readChainUIDs = chainUIDs;
+        for (uint256 i; i < chainUIDs.length; i++) {
+            _readTargets[chainUIDs[i]] = targets[i];
+            emit UpdateReadTarget(chainUIDs[i], bytes32(uint256(uint160(targets[i]))));
+        }
+
+        emit ReadChainsConfigured(chainUIDs);
     }
 
     /**
@@ -300,6 +346,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         uint256 value,
         bytes memory data
     ) internal virtual returns (bytes32 guid) {
+        if (readChainUIDs.length == 0) revert NoChainsConfigured();
         if (amount == 0) revert InvalidAmount();
         if (amount > uint256(type(int256).max)) revert Overflow();
         if (amount > balanceOf(from)) revert InsufficientBalance();
@@ -312,8 +359,20 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         _pendingTransfers.push(PendingTransfer(true, from, to, amount, callData, value, data));
         _pendingNonce[from] = nonce;
 
+        // Build targets array
+        address[] memory targets = new address[](readChainUIDs.length);
+        for (uint256 i; i < readChainUIDs.length; i++) {
+            targets[i] = _readTargets[readChainUIDs[i]];
+            if (targets[i] == address(0)) revert InvalidTarget();
+        }
+
         guid = IGateway(gateway).read{ value: msg.value - value }(
-            abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from), abi.encode(nonce), 256, data
+            readChainUIDs,
+            targets,
+            abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from),
+            abi.encode(nonce),
+            256,
+            data
         );
 
         address _hook = hook;

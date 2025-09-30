@@ -55,4 +55,15 @@ contract GatewayAppMock is IGatewayApp {
     function setReduceReturnData(bytes memory data) external {
         reduceReturnData = data;
     }
+
+    // New IGatewayApp functions for target management
+    function configureReadTargets(bytes32[] memory, address[] memory) external {
+        // Mock implementation - does nothing
+    }
+
+    function getReadTargets() external pure returns (bytes32[] memory chainUIDs, address[] memory targets) {
+        // Return empty arrays for mock
+        chainUIDs = new bytes32[](0);
+        targets = new address[](0);
+    }
 }

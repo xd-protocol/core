@@ -133,9 +133,14 @@ contract BaseERC20xDHooksTest is Test {
         // Deploy token
         token = new ERC20xDMock("Test", "TEST", 18, address(liquidityMatrix), address(gateway), owner, settler);
 
-        // Set read target for cross-chain
-        vm.prank(owner);
-        token.updateReadTarget(bytes32(uint256(1)), bytes32(uint256(uint160(address(token)))));
+        // Configure read chains and targets for cross-chain
+        vm.startPrank(owner);
+        bytes32[] memory readChains = new bytes32[](1);
+        address[] memory targets = new address[](1);
+        readChains[0] = bytes32(uint256(1));
+        targets[0] = address(token);
+        token.configureReadChains(readChains, targets);
+        vm.stopPrank();
 
         // Deploy mock hooks
         hook1 = new HookMock();

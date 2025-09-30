@@ -198,6 +198,11 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     IGateway public gateway;
     /// @inheritdoc ILiquidityMatrix
     address public syncer;
+
+    // Chains to read from for sync operations
+    bytes32[] public readChainUIDs;
+    // Target addresses for each read chain
+    mapping(bytes32 => address) internal _readTargets;
     // Rate limiting: timestamp of last sync request
     mapping(uint256 version => uint64) internal _lastSyncRequestTimestamp;
     /// @inheritdoc ILiquidityMatrix
@@ -278,6 +283,19 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
             }
         }
         return 1;
+    }
+
+    /**
+     * @notice Gets the configured read targets
+     * @return chainUIDs Array of configured chain UIDs
+     * @return targets Array of target addresses for each chain
+     */
+    function getReadTargets() external view returns (bytes32[] memory chainUIDs, address[] memory targets) {
+        chainUIDs = readChainUIDs;
+        targets = new address[](chainUIDs.length);
+        for (uint256 i; i < chainUIDs.length; i++) {
+            targets[i] = _readTargets[chainUIDs[i]];
+        }
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -398,8 +416,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         // Encode message
         bytes memory message = abi.encode(MAP_REMOTE_ACCOUNTS, localAccount, remoteApp, remotes, locals);
 
+        // Get target address for this chain
+        address target = _readTargets[chainUID];
+        if (target == address(0)) revert InvalidTarget();
+
         // Quote the fee from gateway
-        return gateway.quoteSendMessage(chainUID, address(this), message, gasLimit);
+        return gateway.quoteSendMessage(chainUID, target, message, gasLimit);
     }
 
     /// @inheritdoc ILiquidityMatrix
@@ -1000,8 +1022,22 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     }
 
     /// @inheritdoc ILiquidityMatrix
-    function updateReadTarget(bytes32 chainUID, bytes32 target) external onlyOwner {
-        gateway.updateReadTarget(chainUID, target);
+    function configureReadChains(bytes32[] memory chainUIDs, address[] memory targets) external onlyOwner {
+        if (chainUIDs.length != targets.length) revert InvalidLengths();
+
+        // Clear existing configuration
+        for (uint256 i; i < readChainUIDs.length; i++) {
+            delete _readTargets[readChainUIDs[i]];
+        }
+
+        // Set new configuration
+        readChainUIDs = chainUIDs;
+        for (uint256 i; i < chainUIDs.length; i++) {
+            _readTargets[chainUIDs[i]] = targets[i];
+            emit UpdateReadTarget(chainUIDs[i], bytes32(uint256(uint160(targets[i]))));
+        }
+
+        emit ReadChainsConfigured(chainUIDs);
     }
 
     /// @inheritdoc ILiquidityMatrix
@@ -1108,8 +1144,15 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         // Store command type in extra for callback
         bytes memory extra = abi.encode(CMD_SYNC);
 
-        // Use gateway.read() for the sync operation
-        guid = gateway.read{ value: msg.value }(callData, extra, 256 * 3, data);
+        // Build targets array for configured chains
+        address[] memory targets = new address[](readChainUIDs.length);
+        for (uint256 i; i < readChainUIDs.length; i++) {
+            targets[i] = _readTargets[readChainUIDs[i]];
+            if (targets[i] == address(0)) revert InvalidTarget();
+        }
+
+        // Use gateway.read() for the sync operation with configured chains and targets
+        guid = gateway.read{ value: msg.value }(readChainUIDs, targets, callData, extra, 256 * 4, data);
 
         emit Sync(msg.sender);
 
@@ -1119,7 +1162,16 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /// @inheritdoc ILiquidityMatrix
     function quoteSync(uint128 gasLimit) external view returns (uint256 fee) {
         bytes memory callData = abi.encodeWithSelector(ILiquidityMatrix.getTopRoots.selector);
-        return gateway.quoteRead(address(this), callData, 256 * 3, gasLimit);
+
+        // Build targets array for configured chains
+        address[] memory targets = new address[](readChainUIDs.length);
+        for (uint256 i; i < readChainUIDs.length; i++) {
+            targets[i] = _readTargets[readChainUIDs[i]];
+            if (targets[i] == address(0)) revert InvalidTarget();
+        }
+
+        // Use configured chains and targets for sync
+        return gateway.quoteRead(address(this), readChainUIDs, targets, callData, 256 * 4, gasLimit);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -1230,9 +1282,13 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
             if (local == address(0) || remote == address(0)) revert InvalidAddress();
         }
 
+        // Get target address for this chain
+        address target = _readTargets[chainUID];
+        if (target == address(0)) revert InvalidTarget();
+
         // Send cross-chain message via gateway
         bytes memory message = abi.encode(MAP_REMOTE_ACCOUNTS, msg.sender, remoteApp, remotes, locals);
-        guid = gateway.sendMessage{ value: msg.value }(chainUID, message, data);
+        guid = gateway.sendMessage{ value: msg.value }(chainUID, target, message, data);
 
         emit RequestMapRemoteAccounts(msg.sender, chainUID, remoteApp, remotes, locals);
     }

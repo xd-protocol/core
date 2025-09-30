@@ -156,22 +156,32 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         token.updateGateway(makeAddr("newGateway"));
     }
 
-    function test_updateReadTarget() public {
+    function test_configureReadChains() public {
         BaseERC20xD token = erc20s[0];
-        bytes32 chainIdentifier = bytes32(uint256(999));
-        bytes32 target = bytes32(uint256(uint160(makeAddr("target"))));
+        bytes32[] memory chainUIDs = new bytes32[](2);
+        address[] memory targets = new address[](2);
+
+        chainUIDs[0] = bytes32(uint256(999));
+        chainUIDs[1] = bytes32(uint256(1000));
+        targets[0] = makeAddr("target1");
+        targets[1] = makeAddr("target2");
 
         vm.prank(owner);
-        token.updateReadTarget(chainIdentifier, target);
+        token.configureReadChains(chainUIDs, targets);
         // Test passes if no revert
     }
 
-    function test_updateReadTarget_revertNonOwner() public {
+    function test_configureReadChains_revertNonOwner() public {
         BaseERC20xD token = erc20s[0];
+        bytes32[] memory chainUIDs = new bytes32[](1);
+        address[] memory targets = new address[](1);
+
+        chainUIDs[0] = bytes32(uint256(999));
+        targets[0] = address(0);
 
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
-        token.updateReadTarget(bytes32(uint256(999)), bytes32(0));
+        token.configureReadChains(chainUIDs, targets);
     }
 
     /*//////////////////////////////////////////////////////////////

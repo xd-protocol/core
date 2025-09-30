@@ -42,9 +42,14 @@ contract NativexDHooksTest is Test {
         // Deploy native token wrapper
         nativeToken = new NativexD("Native xD", "NxD", 18, address(liquidityMatrix), address(gateway), owner, settler);
 
-        // Set read target for local chain (chain ID 1 from gateway mock)
-        vm.prank(owner);
-        nativeToken.updateReadTarget(bytes32(uint256(1)), bytes32(uint256(uint160(address(nativeToken)))));
+        // Configure read chains and targets for local chain
+        vm.startPrank(owner);
+        bytes32[] memory readChains = new bytes32[](1);
+        address[] memory targets = new address[](1);
+        readChains[0] = bytes32(uint256(1));
+        targets[0] = address(nativeToken);
+        nativeToken.configureReadChains(readChains, targets);
+        vm.stopPrank();
 
         // Deploy hooks
         yieldHook = new YieldVaultHookMock(address(nativeToken), address(0)); // address(0) for native
