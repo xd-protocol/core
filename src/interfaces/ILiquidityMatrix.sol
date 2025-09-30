@@ -252,13 +252,8 @@ interface ILiquidityMatrix {
      */
     function remoteAppChronicleDeployer() external view returns (address);
 
-    /**
-     * @notice Returns the chain configurations from the gateway
-     * @dev Delegates to gateway.chainConfigs()
-     * @return chainUIDs Array of chain unique identifiers
-     * @return confirmations Array of confirmation requirements for each chain
-     */
-    function chainConfigs() external view returns (bytes32[] memory chainUIDs, uint16[] memory confirmations);
+    // Note: chainConfigs() has been removed. Each component should manage its own chain configuration.
+    // Use configureReadChains() to set chains and getReadTargets() to retrieve them.
 
     /**
      * @notice Quotes the fee for mapping remote accounts

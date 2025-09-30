@@ -395,14 +395,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
                         REMOTE VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @inheritdoc ILiquidityMatrix
-    function chainConfigs() public view returns (bytes32[] memory chainUIDs, uint16[] memory confirmations) {
-        if (address(gateway) == address(0)) {
-            // Return empty arrays if gateway not set
-            return (new bytes32[](0), new uint16[](0));
-        }
-        return gateway.chainConfigs();
-    }
+    // Note: This function has been removed as LiquidityMatrix should manage its own chain configuration
+    // Use getReadTargets() instead to get the configured chains
 
     /// @inheritdoc ILiquidityMatrix
     function quoteRequestMapRemoteAccounts(
@@ -674,9 +668,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /// @inheritdoc ILiquidityMatrix
     function getAggregatedSettledTotalLiquidity(address app) external view returns (int256 liquidity) {
-        if (address(gateway) == address(0)) return _getCurrentLocalAppChronicleOrRevert(app).getTotalLiquidity();
-        (bytes32[] memory chainUIDs,) = gateway.chainConfigs();
-        return getAggregatedSettledTotalLiquidity(app, chainUIDs);
+        // Use internally managed chains, not gateway's chains
+        if (readChainUIDs.length == 0) {
+            // If no chains configured, just return local total
+            return _getCurrentLocalAppChronicleOrRevert(app).getTotalLiquidity();
+        }
+        return getAggregatedSettledTotalLiquidity(app, readChainUIDs);
     }
 
     /// @inheritdoc ILiquidityMatrix
@@ -697,9 +694,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /// @inheritdoc ILiquidityMatrix
     function getAggregatedFinalizedTotalLiquidity(address app) external view returns (int256 liquidity) {
-        if (address(gateway) == address(0)) return _getCurrentLocalAppChronicleOrRevert(app).getTotalLiquidity();
-        (bytes32[] memory chainUIDs,) = gateway.chainConfigs();
-        return getAggregatedFinalizedTotalLiquidity(app, chainUIDs);
+        // Use internally managed chains, not gateway's chains
+        if (readChainUIDs.length == 0) {
+            // If no chains configured, just return local total
+            return _getCurrentLocalAppChronicleOrRevert(app).getTotalLiquidity();
+        }
+        return getAggregatedFinalizedTotalLiquidity(app, readChainUIDs);
     }
 
     /// @inheritdoc ILiquidityMatrix
@@ -720,11 +720,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /// @inheritdoc ILiquidityMatrix
     function getAggregatedTotalLiquidityAt(address app, uint64 timestamp) external view returns (int256 liquidity) {
-        if (address(gateway) == address(0)) {
+        // Use internally managed chains, not gateway's chains
+        if (readChainUIDs.length == 0) {
+            // If no chains configured, just return local total at timestamp
             return _getCurrentLocalAppChronicleOrRevert(app).getTotalLiquidityAt(timestamp);
         }
-        (bytes32[] memory chainUIDs,) = gateway.chainConfigs();
-        return getAggregatedTotalLiquidityAt(app, chainUIDs, timestamp);
+        return getAggregatedTotalLiquidityAt(app, readChainUIDs, timestamp);
     }
 
     /// @inheritdoc ILiquidityMatrix
@@ -753,9 +754,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /// @inheritdoc ILiquidityMatrix
     function getAggregatedSettledLiquidityAt(address app, address account) external view returns (int256 liquidity) {
-        if (address(gateway) == address(0)) return _getCurrentLocalAppChronicleOrRevert(app).getLiquidity(account);
-        (bytes32[] memory chainUIDs,) = gateway.chainConfigs();
-        return getAggregatedSettledLiquidityAt(app, chainUIDs, account);
+        // Use internally managed chains, not gateway's chains
+        if (readChainUIDs.length == 0) {
+            // If no chains configured, just return local balance
+            return _getCurrentLocalAppChronicleOrRevert(app).getLiquidity(account);
+        }
+        return getAggregatedSettledLiquidityAt(app, readChainUIDs, account);
     }
 
     /// @inheritdoc ILiquidityMatrix
@@ -776,9 +780,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /// @inheritdoc ILiquidityMatrix
     function getAggregatedFinalizedLiquidityAt(address app, address account) external view returns (int256 liquidity) {
-        if (address(gateway) == address(0)) return _getCurrentLocalAppChronicleOrRevert(app).getLiquidity(account);
-        (bytes32[] memory chainUIDs,) = gateway.chainConfigs();
-        return getAggregatedFinalizedLiquidityAt(app, chainUIDs, account);
+        // Use internally managed chains, not gateway's chains
+        if (readChainUIDs.length == 0) {
+            // If no chains configured, just return local balance
+            return _getCurrentLocalAppChronicleOrRevert(app).getLiquidity(account);
+        }
+        return getAggregatedFinalizedLiquidityAt(app, readChainUIDs, account);
     }
 
     /// @inheritdoc ILiquidityMatrix
@@ -803,11 +810,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         view
         returns (int256 liquidity)
     {
-        if (address(gateway) == address(0)) {
+        // Use internally managed chains, not gateway's chains
+        if (readChainUIDs.length == 0) {
+            // If no chains configured, just return local balance at timestamp
             return _getCurrentLocalAppChronicleOrRevert(app).getLiquidityAt(account, timestamp);
         }
-        (bytes32[] memory chainUIDs,) = gateway.chainConfigs();
-        return getAggregatedLiquidityAt(app, chainUIDs, account, timestamp);
+        return getAggregatedLiquidityAt(app, readChainUIDs, account, timestamp);
     }
 
     /// @inheritdoc ILiquidityMatrix

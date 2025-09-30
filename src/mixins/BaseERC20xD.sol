@@ -132,7 +132,13 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @return The total supply of the token as a `uint256`.
      */
     function totalSupply() public view override(BaseERC20, IERC20) returns (uint256) {
-        return _toUint(ILiquidityMatrix(liquidityMatrix).getAggregatedSettledTotalLiquidity(address(this)));
+        // Use this token's configured chains, not the gateway's chains
+        if (readChainUIDs.length == 0) {
+            // If no chains configured, just return local supply
+            return _toUint(ILiquidityMatrix(liquidityMatrix).getLocalTotalLiquidity(address(this)));
+        }
+        return
+            _toUint(ILiquidityMatrix(liquidityMatrix).getAggregatedSettledTotalLiquidity(address(this), readChainUIDs));
     }
 
     /**
@@ -141,7 +147,14 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @return The synced balance of the account as a `uint256`.
      */
     function balanceOf(address account) public view override(BaseERC20, IERC20) returns (uint256) {
-        return _toUint(ILiquidityMatrix(liquidityMatrix).getAggregatedSettledLiquidityAt(address(this), account));
+        // Use this token's configured chains, not the gateway's chains
+        if (readChainUIDs.length == 0) {
+            // If no chains configured, just return local balance
+            return _toUint(ILiquidityMatrix(liquidityMatrix).getLocalLiquidity(address(this), account));
+        }
+        return _toUint(
+            ILiquidityMatrix(liquidityMatrix).getAggregatedSettledLiquidityAt(address(this), readChainUIDs, account)
+        );
     }
 
     /**
