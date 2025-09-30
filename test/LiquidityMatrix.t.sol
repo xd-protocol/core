@@ -1056,11 +1056,129 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
     //////////////////////////////////////////////////////////////*/
 
     function test_updateSettler() public {
+        // First whitelist the new settler
+        address newSettler = makeAddr("newWhitelistedSettler");
+        changePrank(owner, owner);
+        liquidityMatrices[0].updateSettlerWhitelisted(newSettler, true);
+
+        // Now app can update to the whitelisted settler
         changePrank(apps[0], apps[0]);
-        liquidityMatrices[0].updateSettler(address(1));
+        liquidityMatrices[0].updateSettler(newSettler);
 
         (,,, address settler) = liquidityMatrices[0].getAppSetting(apps[0]);
-        assertEq(settler, address(1));
+        assertEq(settler, newSettler);
+    }
+
+    function test_updateSettler_requiresWhitelistedSettler() public {
+        // Try to update to unwhitelisted settler - should fail with the fix
+        address unwhitelistedSettler = makeAddr("unwhitelistedSettler");
+
+        changePrank(apps[0], apps[0]);
+        vm.expectRevert(ILiquidityMatrix.InvalidSettler.selector);
+        liquidityMatrices[0].updateSettler(unwhitelistedSettler);
+
+        // Verify settler hasn't changed
+        (,,, address settler) = liquidityMatrices[0].getAppSetting(apps[0]);
+        assertEq(settler, settlers[0]); // Should still be the original settler
+
+        // Whitelist the new settler
+        changePrank(owner, owner);
+        liquidityMatrices[0].updateSettlerWhitelisted(unwhitelistedSettler, true);
+
+        // Now update should succeed
+        changePrank(apps[0], apps[0]);
+        liquidityMatrices[0].updateSettler(unwhitelistedSettler);
+
+        // Verify settler has changed
+        (,,, settler) = liquidityMatrices[0].getAppSetting(apps[0]);
+        assertEq(settler, unwhitelistedSettler);
+    }
+
+    function test_registerApp_requiresWhitelistedSettler() public {
+        address unwhitelistedSettler = makeAddr("unwhitelistedSettler");
+        address newApp = makeAddr("securityTestApp");
+
+        // Try to register with unwhitelisted settler - should fail
+        changePrank(newApp, newApp);
+        vm.expectRevert(ILiquidityMatrix.InvalidSettler.selector);
+        liquidityMatrices[0].registerApp(false, false, unwhitelistedSettler);
+
+        // Whitelist the settler
+        changePrank(owner, owner);
+        liquidityMatrices[0].updateSettlerWhitelisted(unwhitelistedSettler, true);
+
+        // Now registration should succeed
+        changePrank(newApp, newApp);
+        liquidityMatrices[0].registerApp(false, false, unwhitelistedSettler);
+
+        // Verify app is registered with correct settler
+        (bool registered,,, address settler) = liquidityMatrices[0].getAppSetting(newApp);
+        assertTrue(registered);
+        assertEq(settler, unwhitelistedSettler);
+    }
+
+    function test_settlerWhitelistBypass_prevented() public {
+        // This test demonstrates the vulnerability would have allowed before the fix
+        // and confirms it's now prevented
+
+        address maliciousSettler = makeAddr("maliciousSettler");
+        address secureApp = makeAddr("secureApp");
+
+        // Step 1: App registers with whitelisted settler (settlers[0] is whitelisted in setup)
+        changePrank(secureApp, secureApp);
+        liquidityMatrices[0].registerApp(false, false, settlers[0]);
+
+        // Step 2: App attempts to change to malicious unwhitelisted settler
+        // Before fix: This would succeed, giving malicious settler full privileges
+        // After fix: This should revert
+        changePrank(secureApp, secureApp);
+        vm.expectRevert(ILiquidityMatrix.InvalidSettler.selector);
+        liquidityMatrices[0].updateSettler(maliciousSettler);
+
+        // Create version 2 for further testing
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].addVersion(uint64(block.timestamp + 1));
+
+        // Verify the malicious settler cannot perform settler actions
+        changePrank(maliciousSettler, maliciousSettler);
+        vm.expectRevert(ILiquidityMatrix.Forbidden.selector);
+        liquidityMatrices[0].addLocalAppChronicle(secureApp, 2);
+
+        // The original whitelisted settler can still perform actions
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].addLocalAppChronicle(secureApp, 2);
+    }
+
+    function test_onlyAppSettler_worksWithWhitelistedSettlers() public {
+        address testApp = makeAddr("multiSettlerApp");
+
+        // Register app with initial whitelisted settler
+        changePrank(testApp, testApp);
+        liquidityMatrices[0].registerApp(false, false, settlers[0]);
+
+        // Create version 2
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].addVersion(uint64(block.timestamp + 1));
+
+        // The app's designated settler can add chronicles for version 2
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].addLocalAppChronicle(testApp, 2);
+
+        // Whitelist another settler globally
+        address globalSettler = makeAddr("globalSettler");
+        changePrank(owner, owner);
+        liquidityMatrices[0].updateSettlerWhitelisted(globalSettler, true);
+
+        // Global settler can also add chronicles (for version 3)
+        changePrank(globalSettler, globalSettler);
+        liquidityMatrices[0].addVersion(uint64(block.timestamp + 2));
+        liquidityMatrices[0].addLocalAppChronicle(testApp, 3);
+
+        // Unwhitelisted settler cannot add chronicles
+        address unwhitelistedSettler = makeAddr("unwhitelistedSettler");
+        changePrank(unwhitelistedSettler, unwhitelistedSettler);
+        vm.expectRevert(ILiquidityMatrix.Forbidden.selector);
+        liquidityMatrices[0].addRemoteAppChronicle(testApp, bytes32("CHAIN"), 1);
     }
 
     /*//////////////////////////////////////////////////////////////

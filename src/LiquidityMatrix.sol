@@ -911,6 +911,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
     /// @inheritdoc ILiquidityMatrix
     function updateSettler(address settler) external onlyApp {
+        if (!_isSettlerWhitelisted[settler]) revert InvalidSettler();
         _appStates[msg.sender].settler = settler;
         emit UpdateSettler(msg.sender, settler);
     }
