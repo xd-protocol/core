@@ -21,7 +21,7 @@ import { OptionsBuilder } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/Opti
 contract Composable {
     event Compose(address indexed token, uint256 amount);
 
-    function compose(address token, uint256 amount) external payable {
+    function compose(address payable token, uint256 amount) external payable {
         BaseERC20xD(token).transferFrom(msg.sender, address(this), amount);
 
         emit Compose(token, amount);
@@ -30,7 +30,7 @@ contract Composable {
 
 contract MaliciousComposable {
     // Attempt to call transferFrom from an unauthorized spender (not the recipient)
-    function attemptUnauthorizedSpender(address token, uint256 amount) external {
+    function attemptUnauthorizedSpender(address payable token, uint256 amount) external {
         // Create a secondary contract to try to call transferFrom
         SecondaryAttacker attacker = new SecondaryAttacker();
 
@@ -42,20 +42,20 @@ contract MaliciousComposable {
     }
 
     // Attempt to spend from an unauthorized source (not the funding source or contract)
-    function attemptUnauthorizedSource(address token, uint256 amount, address unauthorizedSource) external {
+    function attemptUnauthorizedSource(address payable token, uint256 amount, address unauthorizedSource) external {
         // This should fail because 'unauthorizedSource' is not the funding source or the contract
         BaseERC20xD(token).transferFrom(unauthorizedSource, address(this), amount);
     }
 
     // Attempt to spend more than the max spendable amount
-    function attemptExcessiveSpending(address token, uint256 excessiveAmount) external {
+    function attemptExcessiveSpending(address payable token, uint256 excessiveAmount) external {
         // This should fail because it exceeds the maxSpendable limit
         BaseERC20xD(token).transferFrom(msg.sender, address(this), excessiveAmount);
     }
 }
 
 contract SecondaryAttacker {
-    function attack(address token, address from, address to, uint256 amount) external {
+    function attack(address payable token, address from, address to, uint256 amount) external {
         // This call should fail with UnauthorizedComposeSpender because this contract
         // is not the authorized spender (the recipient) in the compose context
         BaseERC20xD(token).transferFrom(from, to, amount);
@@ -1514,11 +1514,11 @@ contract NonPayableContract {
 }
 
 contract ReentrantReceiver {
-    address immutable token;
+    address payable immutable token;
     bool attempted;
 
     constructor(address _token) {
-        token = _token;
+        token = payable(_token);
     }
 
     receive() external payable {
@@ -1540,13 +1540,13 @@ contract VulnerabilityTestComposer {
     event ComposeSuccess(address token, uint256 amount);
     event ExploitAttemptFailed(address attacker, string reason);
 
-    function simpleCompose(address token, uint256 amount) external {
+    function simpleCompose(address payable token, uint256 amount) external {
         // This should work - we are the authorized spender
         BaseERC20xD(token).transferFrom(msg.sender, address(this), amount);
         emit ComposeSuccess(token, amount);
     }
 
-    function doCompose(address token, uint256 amount, address maliciousParty) external {
+    function doCompose(address payable token, uint256 amount, address maliciousParty) external {
         // First, legitimate transfer (should work)
         BaseERC20xD(token).transferFrom(msg.sender, address(this), amount);
 
@@ -1578,7 +1578,7 @@ contract VulnerabilityTestComposer {
  * @notice Malicious contract that tries to exploit compose mode
  */
 contract VulnerabilityTestMalicious {
-    function tryExploit(address token, address from, uint256 amount) external {
+    function tryExploit(address payable token, address from, uint256 amount) external {
         // Try to call transferFrom even though we're not the authorized spender
         // This should fail with UnauthorizedComposeSpender if the fix is working
         BaseERC20xD(token).transferFrom(from, address(this), amount);

@@ -39,7 +39,7 @@ contract WrappedERC20xDTest is BaseERC20xDTestHelper {
             underlyings[i].mint(users[j], 100e18);
         }
         return BaseERC20xD(
-            address(
+            payable(
                 new WrappedERC20xD(
                     address(underlyings[i]),
                     "Mock Wrapped",
@@ -201,24 +201,24 @@ contract WrappedERC20xDTest is BaseERC20xDTestHelper {
 
     function test_fallback() public {
         WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
-        uint256 initialBalance = address(wrapped).balance;
         vm.prank(alice);
 
-        // Send with data (triggers fallback)
+        // Send with data should revert (no fallback function)
         (bool success,) = address(wrapped).call{ value: 0.5 ether }(hex"1234");
-        assertTrue(success);
-        assertEq(address(wrapped).balance, initialBalance + 0.5 ether);
+        assertFalse(success, "Should revert when sending ETH with data");
     }
 
     function test_receive() public {
         WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
         uint256 initialBalance = address(wrapped).balance;
-        vm.prank(alice);
+        uint256 initialRecoverable = wrapped.getRecoverableETH();
 
+        vm.prank(alice);
         // Send without data (triggers receive)
         (bool success,) = address(wrapped).call{ value: 0.5 ether }("");
         assertTrue(success);
         assertEq(address(wrapped).balance, initialBalance + 0.5 ether);
+        assertEq(wrapped.getRecoverableETH(), initialRecoverable + 0.5 ether, "Should track recoverable ETH");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -236,5 +236,44 @@ contract WrappedERC20xDTest is BaseERC20xDTestHelper {
 
         assertEq(actualFee, expectedFee);
         assertGt(actualFee, 0); // Should be non-zero for cross-chain messaging
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        ETH RECOVERY TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_recoverETH() public {
+        WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
+        address recovery = makeAddr("recovery");
+
+        // Send recoverable ETH
+        vm.prank(alice);
+        (bool success,) = address(wrapped).call{ value: 2 ether }("");
+        assertTrue(success);
+
+        uint256 balanceBefore = recovery.balance;
+
+        vm.expectEmit(true, false, false, true);
+        emit IBaseERC20xD.ETHRecovered(recovery, 2 ether);
+
+        vm.prank(owner);
+        wrapped.recoverETH(recovery);
+
+        assertEq(recovery.balance - balanceBefore, 2 ether);
+        assertEq(wrapped.getRecoverableETH(), 0);
+    }
+
+    function test_recoverETH_onlyOwner() public {
+        WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
+        address recovery = makeAddr("recovery");
+
+        // Send ETH through receive()
+        vm.prank(alice);
+        (bool success,) = address(wrapped).call{ value: 1 ether }("");
+        assertTrue(success);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        wrapped.recoverETH(recovery);
     }
 }

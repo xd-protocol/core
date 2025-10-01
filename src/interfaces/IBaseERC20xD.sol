@@ -82,6 +82,7 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
     );
     event ReadChainsConfigured(bytes32[] chainUIDs);
     event UpdateReadTarget(bytes32 indexed chainUID, bytes32 indexed target);
+    event ETHRecovered(address indexed to, uint256 amount);
 
     /*//////////////////////////////////////////////////////////////
                             VIEW FUNCTIONS
@@ -258,4 +259,18 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
      * @dev Only callable by owner
      */
     function configureReadChains(bytes32[] memory chainUIDs, address[] memory targets) external;
+
+    /**
+     * @notice Returns the amount of ETH that can be recovered
+     * @dev This is ETH that was sent through receive()
+     * @return The amount of recoverable ETH
+     */
+    function getRecoverableETH() external view returns (uint256);
+
+    /**
+     * @notice Recover all ETH that was sent to the contract through receive()
+     * @dev Only the owner can recover ETH. Recovers all tracked ETH in one call.
+     * @param to The address to send the recovered ETH to
+     */
+    function recoverETH(address to) external;
 }

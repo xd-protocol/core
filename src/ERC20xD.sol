@@ -48,8 +48,10 @@ contract ERC20xD is BaseERC20xD, IERC20xD {
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    /// @inheritdoc IERC20xD
-    receive() external payable virtual { }
+    // Override receive to resolve multiple inheritance
+    receive() external payable virtual override(BaseERC20xD, IERC20xD) {
+        _recoverableETH += msg.value;
+    }
 
     /// @inheritdoc IERC20xD
     function mint(address to, uint256 amount) external onlyOwner {

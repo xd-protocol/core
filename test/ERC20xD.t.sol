@@ -22,7 +22,7 @@ import { OptionsBuilder } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/Opti
 contract Composable {
     event Compose(address indexed token, uint256 amount);
 
-    function compose(address token, uint256 amount) external payable {
+    function compose(address payable token, uint256 amount) external payable {
         BaseERC20xD(token).transferFrom(msg.sender, address(this), amount);
 
         emit Compose(token, amount);
@@ -548,5 +548,107 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
         skip(1);
         _syncAndSettleLiquidity();
         assertEq(erc20s[0].balanceOf(alice), CHAINS * 100e18 + 100e18);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        ETH RECOVERY TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_receiveTracksETH() public {
+        ERC20xD token = ERC20xD(payable(address(erc20s[0])));
+
+        // Send ETH through receive()
+        vm.prank(alice);
+        (bool success,) = address(token).call{ value: 1 ether }("");
+        assertTrue(success);
+
+        assertEq(token.getRecoverableETH(), 1 ether);
+    }
+
+    function test_sendWithDataFails() public {
+        ERC20xD token = ERC20xD(payable(address(erc20s[0])));
+
+        // Send ETH with data should fail (no fallback)
+        vm.prank(alice);
+        (bool success,) = address(token).call{ value: 1 ether }(hex"1234");
+        assertFalse(success);
+
+        // Nothing tracked
+        assertEq(token.getRecoverableETH(), 0);
+    }
+
+    function test_recoverETH() public {
+        ERC20xD token = ERC20xD(payable(address(erc20s[0])));
+        address recovery = makeAddr("recovery");
+
+        // Send ETH through receive()
+        vm.prank(alice);
+        (bool success,) = address(token).call{ value: 2 ether }("");
+        assertTrue(success);
+
+        uint256 balanceBefore = recovery.balance;
+
+        vm.expectEmit(true, false, false, true);
+        emit IBaseERC20xD.ETHRecovered(recovery, 2 ether);
+
+        vm.prank(owner);
+        token.recoverETH(recovery);
+
+        assertEq(recovery.balance - balanceBefore, 2 ether);
+        assertEq(token.getRecoverableETH(), 0);
+    }
+
+    function test_recoverETH_multipleDeposits() public {
+        ERC20xD token = ERC20xD(payable(address(erc20s[0])));
+        address recovery = makeAddr("recovery");
+
+        // Send ETH multiple times
+        vm.prank(alice);
+        (bool success1,) = address(token).call{ value: 1 ether }("");
+        assertTrue(success1);
+
+        vm.prank(bob);
+        (bool success2,) = address(token).call{ value: 2 ether }("");
+        assertTrue(success2);
+
+        assertEq(token.getRecoverableETH(), 3 ether);
+
+        uint256 balanceBefore = recovery.balance;
+
+        vm.expectEmit(true, false, false, true);
+        emit IBaseERC20xD.ETHRecovered(recovery, 3 ether);
+
+        vm.prank(owner);
+        token.recoverETH(recovery);
+
+        assertEq(recovery.balance - balanceBefore, 3 ether);
+        assertEq(token.getRecoverableETH(), 0);
+    }
+
+    function test_recoverETH_onlyOwner() public {
+        ERC20xD token = ERC20xD(payable(address(erc20s[0])));
+        address recovery = makeAddr("recovery");
+
+        // Send ETH through receive()
+        vm.prank(alice);
+        (bool success,) = address(token).call{ value: 1 ether }("");
+        assertTrue(success);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        token.recoverETH(recovery);
+    }
+
+    function test_recoverETH_whenZero() public {
+        ERC20xD token = ERC20xD(payable(address(erc20s[0])));
+        address recovery = makeAddr("recovery");
+
+        // No ETH sent
+        assertEq(token.getRecoverableETH(), 0);
+
+        vm.prank(owner);
+        token.recoverETH(recovery); // Should not revert even when zero
+
+        assertEq(recovery.balance, 0);
     }
 }

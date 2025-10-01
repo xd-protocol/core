@@ -49,8 +49,10 @@ contract NativexD is BaseERC20xD, INativexD {
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    /// @inheritdoc INativexD
-    receive() external payable virtual { }
+    // Override receive to resolve multiple inheritance
+    receive() external payable virtual override(BaseERC20xD, INativexD) {
+        _recoverableETH += msg.value;
+    }
 
     /// @inheritdoc INativexD
     function wrap(address to, bytes memory hookData) external payable virtual nonReentrant {

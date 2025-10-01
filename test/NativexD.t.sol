@@ -31,7 +31,7 @@ contract NativexDTest is BaseERC20xDTestHelper {
 
     function _newBaseERC20xD(uint256 i) internal override returns (BaseERC20xD) {
         return BaseERC20xD(
-            address(
+            payable(
                 new NativexD(
                     "Test Native xD",
                     "TNxD",
@@ -193,24 +193,24 @@ contract NativexDTest is BaseERC20xDTestHelper {
 
     function test_fallback() public {
         NativexD wrapped = NativexD(payable(address(erc20s[0])));
-        uint256 initialBalance = address(wrapped).balance;
         vm.prank(alice);
 
-        // Send with data (triggers fallback)
+        // Send with data should revert (no fallback function)
         (bool success,) = address(wrapped).call{ value: 0.5 ether }(hex"1234");
-        assertTrue(success);
-        assertEq(address(wrapped).balance, initialBalance + 0.5 ether);
+        assertFalse(success, "Should revert when sending ETH with data");
     }
 
     function test_receive() public {
         NativexD wrapped = NativexD(payable(address(erc20s[0])));
         uint256 initialBalance = address(wrapped).balance;
-        vm.prank(alice);
+        uint256 initialRecoverable = wrapped.getRecoverableETH();
 
+        vm.prank(alice);
         // Send without data (triggers receive)
         (bool success,) = address(wrapped).call{ value: 0.5 ether }("");
         assertTrue(success);
         assertEq(address(wrapped).balance, initialBalance + 0.5 ether);
+        assertEq(wrapped.getRecoverableETH(), initialRecoverable + 0.5 ether, "Should track recoverable ETH");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -353,6 +353,95 @@ contract NativexDTest is BaseERC20xDTestHelper {
         wrapped.wrap{ value: 10 ether }(alice, "");
 
         assertEq(address(wrapped).balance, contractBalanceBefore + 10 ether);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        ETH RECOVERY TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_recoverETH_onlyTracksReceive() public {
+        NativexD wrapped = NativexD(payable(address(erc20s[0])));
+        address recovery = makeAddr("recovery");
+
+        // Get initial balance
+        uint256 initialBalance = address(wrapped).balance;
+
+        // Send recoverable ETH through receive()
+        vm.prank(alice);
+        (bool success1,) = address(wrapped).call{ value: 1 ether }("");
+        assertTrue(success1);
+
+        // Wrap ETH (not recoverable)
+        vm.prank(bob);
+        wrapped.wrap{ value: 10 ether }(bob, "");
+
+        // Send more recoverable ETH
+        vm.prank(alice);
+        (bool success2,) = address(wrapped).call{ value: 0.5 ether }("");
+        assertTrue(success2);
+
+        // Total balance: initial + 11.5 ether
+        // Recoverable: 1.5 ether (only from receive())
+        assertEq(address(wrapped).balance, initialBalance + 11.5 ether);
+        assertEq(wrapped.getRecoverableETH(), 1.5 ether);
+
+        // Recover only the recoverable amount
+        uint256 recoveryBalanceBefore = recovery.balance;
+        uint256 contractBalanceBefore = address(wrapped).balance;
+
+        vm.prank(owner);
+        wrapped.recoverETH(recovery);
+
+        assertEq(recovery.balance - recoveryBalanceBefore, 1.5 ether);
+        assertEq(address(wrapped).balance, contractBalanceBefore - 1.5 ether); // Only recoverable ETH removed
+        assertEq(wrapped.getRecoverableETH(), 0);
+    }
+
+    function test_recoverETH_basic() public {
+        NativexD wrapped = NativexD(payable(address(erc20s[0])));
+        address recovery = makeAddr("recovery");
+
+        // Send ETH directly (not through wrap)
+        vm.prank(alice);
+        (bool success,) = address(wrapped).call{ value: 1 ether }("");
+        assertTrue(success);
+
+        assertEq(wrapped.getRecoverableETH(), 1 ether);
+
+        vm.expectEmit(true, false, false, true);
+        emit IBaseERC20xD.ETHRecovered(recovery, 1 ether);
+
+        vm.prank(owner);
+        wrapped.recoverETH(recovery);
+
+        assertEq(recovery.balance, 1 ether);
+        assertEq(wrapped.getRecoverableETH(), 0);
+    }
+
+    function test_recoverETH_wrapDoesNotMakeETHRecoverable() public {
+        NativexD wrapped = NativexD(payable(address(erc20s[0])));
+
+        // Wrap ETH
+        vm.prank(alice);
+        wrapped.wrap{ value: 5 ether }(alice, "");
+
+        // Wrapped ETH should not be recoverable
+        assertEq(wrapped.getRecoverableETH(), 0);
+        assertGe(address(wrapped).balance, 5 ether); // ETH is in contract (at least the wrapped amount)
+    }
+
+    function test_recoverETH_onlyOwner() public {
+        NativexD wrapped = NativexD(payable(address(erc20s[0])));
+        address recovery = makeAddr("recovery");
+
+        // Send ETH through receive()
+        vm.prank(alice);
+        (bool success,) = address(wrapped).call{ value: 1 ether }("");
+        assertTrue(success);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        wrapped.recoverETH(recovery);
     }
 
     /*//////////////////////////////////////////////////////////////

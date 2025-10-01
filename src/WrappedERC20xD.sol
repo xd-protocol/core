@@ -58,8 +58,10 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    /// @inheritdoc IWrappedERC20xD
-    receive() external payable virtual { }
+    // Override receive to resolve multiple inheritance
+    receive() external payable virtual override(BaseERC20xD, IWrappedERC20xD) {
+        _recoverableETH += msg.value;
+    }
 
     /// @inheritdoc IWrappedERC20xD
     function wrap(address to, uint256 amount, bytes memory hookData) external payable virtual nonReentrant {

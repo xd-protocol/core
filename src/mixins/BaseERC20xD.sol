@@ -81,6 +81,9 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     // Target addresses for each read chain
     mapping(bytes32 => address) internal _readTargets;
 
+    // Track ETH received through receive() function for recovery
+    uint256 internal _recoverableETH;
+
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
@@ -115,6 +118,14 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     /*//////////////////////////////////////////////////////////////
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Returns the amount of ETH that can be recovered
+     * @dev This is ETH that was sent through receive()
+     */
+    function getRecoverableETH() public view virtual returns (uint256) {
+        return _recoverableETH;
+    }
 
     /// @inheritdoc IBaseERC20xD
     function pendingNonce(address account) external view returns (uint256) {
@@ -231,6 +242,32 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
             availability += balance;
         }
         return abi.encode(availability);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                           ETH RECOVERY FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Receive function to accept ETH and track it for recovery
+     * @dev Only ETH received through this function is recoverable
+     */
+    receive() external payable virtual {
+        _recoverableETH += msg.value;
+    }
+
+    /**
+     * @notice Recover all ETH that was sent to the contract through receive()
+     * @dev Only the owner can recover ETH. Recovers all tracked ETH in one call.
+     * @param to The address to send the recovered ETH to
+     */
+    function recoverETH(address to) external virtual onlyOwner {
+        uint256 amount = _recoverableETH;
+        if (amount > 0) {
+            _recoverableETH = 0;
+            AddressLib.transferNative(to, amount);
+            emit ETHRecovered(to, amount);
+        }
     }
 
     /*//////////////////////////////////////////////////////////////
