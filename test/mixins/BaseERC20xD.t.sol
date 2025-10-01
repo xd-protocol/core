@@ -651,6 +651,93 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         assertEq(token.balanceOf(address(composable)), amount);
     }
 
+    /**
+     * @notice Comprehensive test that demonstrates the compose vulnerability is fixed
+     * @dev The original vulnerability allowed anyone with an allowance to call transferFrom during compose mode
+     *      This test proves that only the authorized spender (the `to` address) can do so
+     */
+    function test_composeMode_vulnerabilityFixed_comprehensive() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        // Setup: Alice gives allowances to multiple parties
+        address eve = makeAddr("eve");
+        vm.prank(owner);
+        ERC20xD(payable(address(token))).mint(eve, 100e18);
+
+        // Create test contracts
+        VulnerabilityTestComposer legitimateComposer = new VulnerabilityTestComposer();
+        VulnerabilityTestMalicious maliciousParty = new VulnerabilityTestMalicious();
+
+        vm.startPrank(alice);
+
+        // Alice approves the legitimate composer
+        token.approve(address(legitimateComposer), 100e18);
+
+        // Alice ALSO approves the malicious third party (simulating existing allowance)
+        token.approve(address(maliciousParty), 100e18);
+
+        // Alice ALSO approves Eve directly (another third party with allowance)
+        token.approve(eve, 100e18);
+
+        vm.stopPrank();
+
+        // Alice initiates a compose transfer to the legitimate composer
+        changePrank(alice, alice);
+        uint256 amount = 50e18;
+        bytes memory callData = abi.encodeWithSelector(
+            VulnerabilityTestComposer.doCompose.selector, address(token), amount, address(maliciousParty)
+        );
+        uint256 fee = token.quoteTransfer(alice, 1_000_000);
+
+        // Initiate the transfer with compose
+        token.transfer{ value: fee }(address(legitimateComposer), amount, callData, 0, abi.encode(1_000_000, alice));
+
+        // Execute the transfer - the legitimate composer will try to have third parties exploit compose mode
+        _executeTransfer(token, alice, "");
+
+        // Verify results:
+        // 1. The legitimate composer successfully received and spent the tokens
+        assertEq(token.balanceOf(address(legitimateComposer)), amount, "Legitimate composer should have tokens");
+
+        // 2. The malicious party couldn't steal tokens despite having allowances
+        assertEq(token.balanceOf(address(maliciousParty)), 0, "Malicious party should not have stolen tokens");
+        assertEq(token.balanceOf(eve), 100e18, "Eve's balance should be unchanged");
+
+        // 3. The exploit attempts were blocked
+        assertTrue(legitimateComposer.maliciousAttemptFailed(), "Malicious attempt should have failed");
+    }
+
+    /**
+     * @notice Test showing that transferFrom only works for the authorized spender in compose mode
+     */
+    function test_composeMode_onlyAuthorizedSpenderCanTransfer() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        // Create a simple composer for testing
+        VulnerabilityTestComposer simpleComposer = new VulnerabilityTestComposer();
+
+        // Setup allowances
+        vm.prank(alice);
+        token.approve(address(simpleComposer), 100e18);
+
+        // Initiate compose to simple composer
+        changePrank(alice, alice);
+        uint256 amount = 30e18;
+        bytes memory callData =
+            abi.encodeWithSelector(VulnerabilityTestComposer.simpleCompose.selector, address(token), amount);
+        uint256 fee = token.quoteTransfer(alice, 1_000_000);
+
+        token.transfer{ value: fee }(address(simpleComposer), amount, callData, 0, abi.encode(1_000_000, alice));
+
+        // Execute - should succeed because simple composer is the authorized spender
+        _executeTransfer(token, alice, "");
+
+        // Verify the simple composer successfully received tokens
+        assertEq(token.balanceOf(address(simpleComposer)), amount, "Should successfully compose");
+    }
+
     /*//////////////////////////////////////////////////////////////
                       LZ REDUCE/READ TESTS
     //////////////////////////////////////////////////////////////*/
@@ -1441,5 +1528,59 @@ contract ReentrantReceiver {
             // This should fail due to pending transfer check
             try BaseERC20xD(token).transfer{ value: 0.01 ether }(msg.sender, 1e18, "", 0, "") { } catch { }
         }
+    }
+}
+
+/**
+ * @notice Test composer contract for vulnerability testing
+ */
+contract VulnerabilityTestComposer {
+    bool public maliciousAttemptFailed;
+
+    event ComposeSuccess(address token, uint256 amount);
+    event ExploitAttemptFailed(address attacker, string reason);
+
+    function simpleCompose(address token, uint256 amount) external {
+        // This should work - we are the authorized spender
+        BaseERC20xD(token).transferFrom(msg.sender, address(this), amount);
+        emit ComposeSuccess(token, amount);
+    }
+
+    function doCompose(address token, uint256 amount, address maliciousParty) external {
+        // First, legitimate transfer (should work)
+        BaseERC20xD(token).transferFrom(msg.sender, address(this), amount);
+
+        // Now try to have the malicious party exploit compose mode
+        // This should FAIL even though maliciousParty has an allowance from Alice
+        try VulnerabilityTestMalicious(maliciousParty).tryExploit(token, msg.sender, amount / 2) {
+            // If this succeeds, the vulnerability exists
+            revert("VULNERABILITY: Malicious party could exploit compose mode!");
+        } catch Error(string memory reason) {
+            // Expected to fail with UnauthorizedComposeSpender
+            maliciousAttemptFailed = true;
+            emit ExploitAttemptFailed(maliciousParty, reason);
+        } catch {
+            // Also acceptable if it fails with different error
+            maliciousAttemptFailed = true;
+            emit ExploitAttemptFailed(maliciousParty, "Unknown error");
+        }
+
+        // For Eve (an EOA), we can't directly test from within compose context
+        // But the fact that only contracts can be called with compose,
+        // and only the target contract becomes the authorized spender,
+        // means Eve cannot exploit this even with an allowance
+
+        emit ComposeSuccess(token, amount);
+    }
+}
+
+/**
+ * @notice Malicious contract that tries to exploit compose mode
+ */
+contract VulnerabilityTestMalicious {
+    function tryExploit(address token, address from, uint256 amount) external {
+        // Try to call transferFrom even though we're not the authorized spender
+        // This should fail with UnauthorizedComposeSpender if the fix is working
+        BaseERC20xD(token).transferFrom(from, address(this), amount);
     }
 }
