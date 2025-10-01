@@ -7,6 +7,7 @@ import { ILiquidityMatrixHook } from "../interfaces/ILiquidityMatrixHook.sol";
 import { SnapshotsLib } from "../libraries/SnapshotsLib.sol";
 import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
 import { ArrayLib } from "../libraries/ArrayLib.sol";
+import { Pausable } from "../mixins/Pausable.sol";
 
 /**
  * @title RemoteAppChronicle
@@ -25,6 +26,7 @@ import { ArrayLib } from "../libraries/ArrayLib.sol";
  *      Access control:
  *      - Only the app's designated settler can write state
  *      - All view functions are publicly accessible
+ *      - Pause control is inherited from LiquidityMatrix owner
  *
  *      Settlement flow:
  *      1. Settler calls settleLiquidity with account balances from remote chain
@@ -32,8 +34,17 @@ import { ArrayLib } from "../libraries/ArrayLib.sol";
  *      3. When both are settled for same timestamp, state becomes finalized
  *      4. Optional hooks notify the app of settlement events
  */
-contract RemoteAppChronicle is IRemoteAppChronicle {
+contract RemoteAppChronicle is IRemoteAppChronicle, Pausable {
     using SnapshotsLib for SnapshotsLib.Snapshots;
+
+    /*//////////////////////////////////////////////////////////////
+                        ACTION BIT MAPPINGS (1-32)
+    //////////////////////////////////////////////////////////////*/
+
+    // Define which bit position corresponds to which action in this contract
+    uint8 constant ACTION_SETTLE_LIQUIDITY = 1; // Bit 1: settle liquidity from remote chains
+    uint8 constant ACTION_SETTLE_DATA = 2; // Bit 2: settle data from remote chains
+    // Bits 3-32 are available for future use
 
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
@@ -244,6 +255,15 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
         return uint64(ArrayLib.findFloor(_finalizedTimestamps, timestamp));
     }
 
+    /**
+     * @notice Internal function to check LiquidityMatrix owner for pause control
+     * @dev Required by Pausable contract
+     */
+    function _requirePauser() internal view override {
+        address matrixOwner = ILiquidityMatrix(liquidityMatrix).owner();
+        if (msg.sender != matrixOwner) revert Unauthorized();
+    }
+
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
@@ -256,7 +276,11 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
      *      Reverts if liquidity is already settled for the timestamp
      * @param params Settlement parameters containing timestamp, accounts, and liquidity values
      */
-    function settleLiquidity(SettleLiquidityParams memory params) external onlySettler {
+    function settleLiquidity(SettleLiquidityParams memory params)
+        external
+        onlySettler
+        whenNotPaused(ACTION_SETTLE_LIQUIDITY)
+    {
         if (isLiquiditySettled[params.timestamp]) revert LiquidityAlreadySettled();
 
         ILiquidityMatrix _liquidityMatrix = ILiquidityMatrix(liquidityMatrix);
@@ -343,7 +367,7 @@ contract RemoteAppChronicle is IRemoteAppChronicle {
      *      Reverts if data is already settled for the timestamp
      * @param params Settlement parameters containing timestamp, keys, and values
      */
-    function settleData(SettleDataParams memory params) external onlySettler {
+    function settleData(SettleDataParams memory params) external onlySettler whenNotPaused(ACTION_SETTLE_DATA) {
         if (isDataSettled[params.timestamp]) revert DataAlreadySettled();
 
         ILiquidityMatrix _liquidityMatrix = ILiquidityMatrix(liquidityMatrix);

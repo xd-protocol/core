@@ -14,6 +14,7 @@ import { IGatewayApp } from "../interfaces/IGatewayApp.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
 import { IUserWallet } from "../interfaces/IUserWallet.sol";
 import { IUserWalletFactory } from "../interfaces/IUserWalletFactory.sol";
+import { Pausable } from "./Pausable.sol";
 
 /**
  * @title BaseERC20xD
@@ -39,8 +40,20 @@ import { IUserWalletFactory } from "../interfaces/IUserWalletFactory.sol";
  *
  *      Note: This contract is abstract and provides the core cross-chain transfer functionality.
  */
-abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20xD, ILiquidityMatrixHook {
+abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20xD, ILiquidityMatrixHook, Pausable {
     using AddressLib for address;
+
+    /*//////////////////////////////////////////////////////////////
+                        ACTION BIT MAPPINGS (1-32)
+    //////////////////////////////////////////////////////////////*/
+
+    // Define which bit position corresponds to which action in this contract
+    uint8 constant ACTION_TRANSFER = 1; // Bit 1: transfer operations
+    uint8 constant ACTION_TRANSFER_FROM = 2; // Bit 2: transferFrom operations
+    uint8 constant ACTION_CANCEL_TRANSFER = 3; // Bit 3: cancel pending transfers
+    // Bits 4-32 are available for future use
+    // Note: Owner-only functions like setHook, configureReadChains don't need pause control
+    // Note: _compose is only called internally during transfer execution, covered by ACTION_TRANSFER
 
     /*//////////////////////////////////////////////////////////////
                                 TYPES
@@ -198,6 +211,15 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         for (uint256 i; i < chainUIDs.length; i++) {
             targets[i] = _readTargets[chainUIDs[i]];
         }
+        return (chainUIDs, targets);
+    }
+
+    /**
+     * @notice Internal function to check ownership for pause control
+     * @dev Required by Pausable contract
+     */
+    function _requirePauser() internal view override {
+        if (msg.sender != owner()) revert Unauthorized();
     }
 
     /// @inheritdoc IBaseERC20xD
@@ -318,7 +340,6 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     function setHook(address newHook) external onlyOwner {
         address oldHook = hook;
         hook = newHook;
-
         emit SetHook(oldHook, newHook);
     }
 
@@ -372,6 +393,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     function transfer(address to, uint256 amount, bytes memory callData, uint256 value, bytes memory data)
         public
         payable
+        whenNotPaused(ACTION_TRANSFER)
         returns (bytes32 guid)
     {
         if (to == address(0)) revert InvalidAddress();
@@ -434,7 +456,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
     }
 
     /// @inheritdoc IBaseERC20xD
-    function cancelPendingTransfer() external {
+    function cancelPendingTransfer() external whenNotPaused(ACTION_CANCEL_TRANSFER) {
         uint256 nonce = _pendingNonce[msg.sender];
         PendingTransfer storage pending = _pendingTransfers[nonce];
         if (!pending.pending) revert TransferNotPending(nonce);
@@ -460,6 +482,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         public
         virtual
         override(BaseERC20, IERC20)
+        whenNotPaused(ACTION_TRANSFER_FROM)
         returns (bool)
     {
         if (!_composeContext.active) revert NotComposing();

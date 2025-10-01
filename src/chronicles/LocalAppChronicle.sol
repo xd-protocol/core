@@ -7,6 +7,7 @@ import { ILiquidityMatrixHook } from "../interfaces/ILiquidityMatrixHook.sol";
 import { SnapshotsLib } from "../libraries/SnapshotsLib.sol";
 import { ArrayLib } from "../libraries/ArrayLib.sol";
 import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
+import { Pausable } from "../mixins/Pausable.sol";
 
 /**
  * @title LocalAppChronicle
@@ -24,11 +25,21 @@ import { MerkleTreeLib } from "../libraries/MerkleTreeLib.sol";
  *      Access control:
  *      - Only the associated app or LiquidityMatrix can update state
  *      - All view functions are publicly accessible
+ *      - Pause control is inherited from LiquidityMatrix owner
  */
-contract LocalAppChronicle is ILocalAppChronicle {
+contract LocalAppChronicle is ILocalAppChronicle, Pausable {
     using SnapshotsLib for SnapshotsLib.Snapshots;
     using MerkleTreeLib for MerkleTreeLib.Tree;
     using ArrayLib for uint256[];
+
+    /*//////////////////////////////////////////////////////////////
+                        ACTION BIT MAPPINGS (1-32)
+    //////////////////////////////////////////////////////////////*/
+
+    // Define which bit position corresponds to which action in this contract
+    uint8 constant ACTION_UPDATE_LIQUIDITY = 1; // Bit 1: update liquidity for accounts
+    uint8 constant ACTION_UPDATE_DATA = 2; // Bit 2: update data key-value pairs
+    // Bits 3-32 are available for future use
 
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
@@ -137,6 +148,15 @@ contract LocalAppChronicle is ILocalAppChronicle {
         return _data[key][hash];
     }
 
+    /**
+     * @notice Internal function to check LiquidityMatrix owner for pause control
+     * @dev Required by Pausable contract
+     */
+    function _requirePauser() internal view override {
+        address matrixOwner = ILiquidityMatrix(liquidityMatrix).owner();
+        if (msg.sender != matrixOwner) revert Unauthorized();
+    }
+
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
@@ -146,6 +166,7 @@ contract LocalAppChronicle is ILocalAppChronicle {
         external
         override
         onlyAppOrLiquidityMatrix
+        whenNotPaused(ACTION_UPDATE_LIQUIDITY)
         returns (uint256 topTreeIndex, uint256 appTreeIndex)
     {
         appTreeIndex = _liquidityTree.update(bytes32(uint256(uint160(account))), bytes32(uint256(liquidity)));
@@ -165,6 +186,7 @@ contract LocalAppChronicle is ILocalAppChronicle {
         external
         override
         onlyAppOrLiquidityMatrix
+        whenNotPaused(ACTION_UPDATE_DATA)
         returns (uint256 topTreeIndex, uint256 appTreeIndex)
     {
         bytes32 hash = keccak256(value);

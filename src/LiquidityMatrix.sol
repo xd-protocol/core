@@ -16,6 +16,7 @@ import { ILiquidityMatrixHook } from "./interfaces/ILiquidityMatrixHook.sol";
 import { ILiquidityMatrixAccountMapper } from "./interfaces/ILiquidityMatrixAccountMapper.sol";
 import { ILocalAppChronicle } from "./interfaces/ILocalAppChronicle.sol";
 import { IRemoteAppChronicle } from "./interfaces/IRemoteAppChronicle.sol";
+import { Pausable } from "./mixins/Pausable.sol";
 
 /**
  * @title LiquidityMatrix
@@ -139,11 +140,25 @@ import { IRemoteAppChronicle } from "./interfaces/IRemoteAppChronicle.sol";
  *    - Root queries like `getLiquidityRootAt` automatically use correct version
  *    - Chronicle contracts provide point-in-time state snapshots
  */
-contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGatewayApp {
+contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGatewayApp, Pausable {
     using ArrayLib for uint256[];
     using AddressLib for address;
     using MerkleTreeLib for MerkleTreeLib.Tree;
     using SnapshotsLib for SnapshotsLib.Snapshots;
+
+    /*//////////////////////////////////////////////////////////////
+                        ACTION BIT MAPPINGS (1-32)
+    //////////////////////////////////////////////////////////////*/
+
+    // Define which bit position corresponds to which action in this contract
+    uint8 constant ACTION_REGISTER_APP = 1; // Bit 1: app registration
+    uint8 constant ACTION_SYNC = 2; // Bit 2: cross-chain sync operations
+    uint8 constant ACTION_ADD_VERSION = 3; // Bit 3: add new version (reorg)
+    uint8 constant ACTION_ADD_LOCAL_CHRONICLE = 4; // Bit 4: add local app chronicle
+    uint8 constant ACTION_ADD_REMOTE_CHRONICLE = 5; // Bit 5: add remote app chronicle
+    // Bits 6-32 are available for future use
+    // Note: Owner-only functions like updateSettlerWhitelisted, updateGateway, updateSyncer don't need pause control
+    // Note: updateLocalLiquidity and updateLocalData are NOT pausable here as they delegate to LocalAppChronicle
 
     /*//////////////////////////////////////////////////////////////
                                 TYPES
@@ -266,6 +281,11 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     /*//////////////////////////////////////////////////////////////
                             VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
+
+    /// @inheritdoc ILiquidityMatrix
+    function owner() public view override(Ownable, ILiquidityMatrix) returns (address) {
+        return Ownable.owner();
+    }
 
     /// @inheritdoc ILiquidityMatrix
     function currentVersion() public view returns (uint256) {
@@ -591,11 +611,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     }
 
     /// @inheritdoc ILiquidityMatrix
-    function getRemoteDataRootAt(bytes32 chainUID, uint256 version, uint64 timestamp)
-        public
-        view
-        returns (bytes32 root)
-    {
+    function getRemoteDataRootAt(bytes32 chainUID, uint256 version, uint64 timestamp) public view returns (bytes32) {
         return _remoteStates[chainUID][version].dataRoots.get(timestamp);
     }
 
@@ -851,12 +867,20 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
         return _getRemoteAppChronicleOrRevert(app, chainUID, getVersion(timestamp)).getDataAt(key, timestamp);
     }
 
+    /**
+     * @notice Internal function to check ownership for pause control
+     * @dev Required by Pausable contract
+     */
+    function _requirePauser() internal view override {
+        if (msg.sender != owner()) revert Unauthorized();
+    }
+
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc ILiquidityMatrix
-    function addVersion(uint64 timestamp) external onlySettler {
+    function addVersion(uint64 timestamp) external onlySettler whenNotPaused(ACTION_ADD_VERSION) {
         uint64 lastTimestamp = uint64(_versions.last());
         if (timestamp <= lastTimestamp) {
             revert InvalidTimestamp();
@@ -883,7 +907,10 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc ILiquidityMatrix
-    function registerApp(bool syncMappedAccountsOnly, bool useHook, address settler) external {
+    function registerApp(bool syncMappedAccountsOnly, bool useHook, address settler)
+        external
+        whenNotPaused(ACTION_REGISTER_APP)
+    {
         if (!_isSettlerWhitelisted[settler]) revert InvalidSettler();
 
         address app = msg.sender;
@@ -933,7 +960,11 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     }
 
     /// @inheritdoc ILiquidityMatrix
-    function addLocalAppChronicle(address app, uint256 version) external onlyAppSettler(app) {
+    function addLocalAppChronicle(address app, uint256 version)
+        external
+        onlyAppSettler(app)
+        whenNotPaused(ACTION_ADD_LOCAL_CHRONICLE)
+    {
         if (version > currentVersion()) revert InvalidVersion();
 
         AppState storage appState = _appStates[app];
@@ -949,7 +980,11 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     }
 
     /// @inheritdoc ILiquidityMatrix
-    function addRemoteAppChronicle(address app, bytes32 chainUID, uint256 version) external onlyAppSettler(app) {
+    function addRemoteAppChronicle(address app, bytes32 chainUID, uint256 version)
+        external
+        onlyAppSettler(app)
+        whenNotPaused(ACTION_ADD_REMOTE_CHRONICLE)
+    {
         if (version > currentVersion()) revert InvalidVersion();
 
         AppState storage appState = _appStates[app];
@@ -1141,7 +1176,7 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc ILiquidityMatrix
-    function sync(bytes memory data) external payable onlySyncer returns (bytes32 guid) {
+    function sync(bytes memory data) external payable onlySyncer whenNotPaused(ACTION_SYNC) returns (bytes32 guid) {
         // Rate limiting: only one sync per block
         uint256 version = currentVersion();
         if (block.timestamp <= _lastSyncRequestTimestamp[version]) revert AlreadyRequested();

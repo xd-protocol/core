@@ -2229,6 +2229,144 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
     }
 
     /*//////////////////////////////////////////////////////////////
+                        PAUSE FUNCTIONALITY TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_pausable_setPaused() public {
+        changePrank(owner, owner);
+
+        // Test pausing single action
+        bytes32 pauseFlags = bytes32(uint256(1 << 0)); // Bit 1
+        liquidityMatrices[0].setPaused(pauseFlags);
+
+        assertEq(liquidityMatrices[0].pauseFlags(), pauseFlags);
+        assertTrue(liquidityMatrices[0].isPaused(1));
+        assertFalse(liquidityMatrices[0].isPaused(2));
+    }
+
+    function test_pausable_setPaused_unauthorized() public {
+        changePrank(alice, alice);
+
+        bytes32 pauseFlags = bytes32(uint256(1 << 0));
+        vm.expectRevert(abi.encodeWithSignature("Unauthorized()"));
+        liquidityMatrices[0].setPaused(pauseFlags);
+    }
+
+    function test_pausable_registerApp_whenPaused() public {
+        // Pause registerApp (ACTION_REGISTER_APP = bit 1)
+        changePrank(owner, owner);
+        bytes32 pauseFlags = bytes32(uint256(1 << 0)); // Bit 1
+        liquidityMatrices[0].setPaused(pauseFlags);
+
+        // Try to register a new app
+        address newApp = makeAddr("newApp");
+        changePrank(newApp, newApp);
+
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 1));
+        liquidityMatrices[0].registerApp(false, false, settlers[0]);
+    }
+
+    function test_pausable_sync_whenPaused() public {
+        // Pause sync (ACTION_SYNC = bit 2)
+        changePrank(owner, owner);
+        bytes32 pauseFlags = bytes32(uint256(1 << 1)); // Bit 2
+        liquidityMatrices[0].setPaused(pauseFlags);
+
+        // Try to sync
+        changePrank(syncers[0], syncers[0]);
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 2));
+        liquidityMatrices[0].sync{ value: 1 ether }("");
+    }
+
+    function test_pausable_addVersion_whenPaused() public {
+        // Pause addVersion (ACTION_ADD_VERSION = bit 3)
+        changePrank(owner, owner);
+        bytes32 pauseFlags = bytes32(uint256(1 << 2)); // Bit 3
+        liquidityMatrices[0].setPaused(pauseFlags);
+
+        // Try to add a version
+        changePrank(settlers[0], settlers[0]);
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 3));
+        liquidityMatrices[0].addVersion(uint64(block.timestamp + 1000));
+    }
+
+    function test_pausable_addLocalAppChronicle_whenPaused() public {
+        // First add a new version
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].addVersion(uint64(block.timestamp + 1000));
+
+        // Pause addLocalAppChronicle (ACTION_ADD_LOCAL_CHRONICLE = bit 4)
+        changePrank(owner, owner);
+        bytes32 pauseFlags = bytes32(uint256(1 << 3)); // Bit 4
+        liquidityMatrices[0].setPaused(pauseFlags);
+
+        // Try to add local app chronicle
+        changePrank(settlers[0], settlers[0]);
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 4));
+        liquidityMatrices[0].addLocalAppChronicle(apps[0], 2);
+    }
+
+    function test_pausable_addRemoteAppChronicle_whenPaused() public {
+        // First add a new version
+        changePrank(settlers[0], settlers[0]);
+        liquidityMatrices[0].addVersion(uint64(block.timestamp + 1000));
+
+        // Pause addRemoteAppChronicle (ACTION_ADD_REMOTE_CHRONICLE = bit 5)
+        changePrank(owner, owner);
+        bytes32 pauseFlags = bytes32(uint256(1 << 4)); // Bit 5
+        liquidityMatrices[0].setPaused(pauseFlags);
+
+        // Try to add remote app chronicle
+        changePrank(settlers[0], settlers[0]);
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 5));
+        liquidityMatrices[0].addRemoteAppChronicle(apps[0], bytes32(uint256(eids[1])), 2);
+    }
+
+    function test_pausable_multipleActions() public {
+        changePrank(owner, owner);
+
+        // Pause multiple actions: registerApp (bit 1) and sync (bit 2)
+        bytes32 pauseFlags = bytes32(uint256((1 << 0) | (1 << 1)));
+        liquidityMatrices[0].setPaused(pauseFlags);
+
+        assertTrue(liquidityMatrices[0].isPaused(1));
+        assertTrue(liquidityMatrices[0].isPaused(2));
+        assertFalse(liquidityMatrices[0].isPaused(3));
+
+        // Verify registerApp is paused
+        address newApp = makeAddr("newApp");
+        changePrank(newApp, newApp);
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 1));
+        liquidityMatrices[0].registerApp(false, false, settlers[0]);
+
+        // Verify sync is paused
+        changePrank(syncers[0], syncers[0]);
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 2));
+        liquidityMatrices[0].sync{ value: 1 ether }("");
+    }
+
+    function test_pausable_unpause() public {
+        changePrank(owner, owner);
+
+        // First pause an action
+        bytes32 pauseFlags = bytes32(uint256(1 << 0));
+        liquidityMatrices[0].setPaused(pauseFlags);
+        assertTrue(liquidityMatrices[0].isPaused(1));
+
+        // Unpause all actions
+        liquidityMatrices[0].setPaused(bytes32(0));
+        assertFalse(liquidityMatrices[0].isPaused(1));
+
+        // Verify action works again
+        address newApp = makeAddr("newApp");
+        changePrank(newApp, newApp);
+        liquidityMatrices[0].registerApp(false, false, settlers[0]);
+
+        // Verify app was registered - check if local chronicle exists
+        assertNotEq(liquidityMatrices[0].getCurrentLocalAppChronicle(newApp), address(0));
+    }
+
+    /*//////////////////////////////////////////////////////////////
                         INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 

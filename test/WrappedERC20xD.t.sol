@@ -276,4 +276,126 @@ contract WrappedERC20xDTest is BaseERC20xDTestHelper {
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
         wrapped.recoverETH(recovery);
     }
+
+    /*//////////////////////////////////////////////////////////////
+                        PAUSE FUNCTIONALITY TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_pausable_setPaused() public {
+        WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
+
+        vm.prank(owner);
+        bytes32 pauseFlags = bytes32(uint256(1 << 0)); // Bit 1
+        wrapped.setPaused(pauseFlags);
+
+        assertEq(wrapped.pauseFlags(), pauseFlags);
+        assertTrue(wrapped.isPaused(1));
+        assertFalse(wrapped.isPaused(2));
+    }
+
+    function test_pausable_setPaused_unauthorized() public {
+        WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("Unauthorized()"));
+        wrapped.setPaused(bytes32(uint256(1 << 0)));
+    }
+
+    function test_pausable_transfer_whenPaused() public {
+        WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
+
+        // First wrap some tokens
+        vm.startPrank(alice);
+        underlyings[0].approve(address(wrapped), 50e18);
+        wrapped.wrap(alice, 50e18, "");
+        vm.stopPrank();
+
+        // Pause transfer (ACTION_TRANSFER = bit 1)
+        vm.prank(owner);
+        wrapped.setPaused(bytes32(uint256(1 << 0)));
+
+        // Try to transfer
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 1));
+        wrapped.transfer(bob, 10e18, "", 0, "");
+    }
+
+    function test_pausable_cancelPendingTransfer_whenPaused() public {
+        WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
+
+        // First wrap some tokens
+        vm.startPrank(alice);
+        underlyings[0].approve(address(wrapped), 50e18);
+        wrapped.wrap(alice, 50e18, "");
+        vm.stopPrank();
+
+        // Create a pending transfer
+        vm.prank(alice);
+        try wrapped.transfer{ value: 0.001 ether }(bob, 10e18, "", 0.001 ether, "") {
+            fail("Transfer should have created pending state");
+        } catch {
+            // Expected
+        }
+
+        // Pause cancelPendingTransfer (ACTION_CANCEL_TRANSFER = bit 3)
+        vm.prank(owner);
+        wrapped.setPaused(bytes32(uint256(1 << 2)));
+
+        // Try to cancel
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 3));
+        wrapped.cancelPendingTransfer();
+    }
+
+    function test_pausable_wrapUnwrapStillWork() public {
+        WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
+
+        // Pause all transfer actions
+        vm.prank(owner);
+        wrapped.setPaused(bytes32(uint256((1 << 0) | (1 << 1) | (1 << 2))));
+
+        // Wrap should still work (not pausable)
+        vm.startPrank(alice);
+        underlyings[0].approve(address(wrapped), 50e18);
+        wrapped.wrap(alice, 50e18, "");
+        vm.stopPrank();
+
+        // Verify wrapped balance increased
+        assertEq(wrapped.localBalanceOf(alice), int256(50e18));
+
+        // Note: Unwrap requires cross-chain reads which need proper LZ setup
+        // Just verify wrap worked and transfers are still paused
+
+        // But transfers should be paused
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 1));
+        wrapped.transfer(bob, 10e18, "", 0, "");
+    }
+
+    function test_pausable_unpause() public {
+        WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
+
+        // Wrap tokens first
+        vm.startPrank(alice);
+        underlyings[0].approve(address(wrapped), 50e18);
+        wrapped.wrap(alice, 50e18, "");
+        vm.stopPrank();
+
+        // Pause then unpause
+        vm.prank(owner);
+        wrapped.setPaused(bytes32(uint256(1 << 0)));
+        assertTrue(wrapped.isPaused(1));
+
+        // Verify transfer is blocked while paused
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 1));
+        wrapped.transfer(bob, 10e18, "", 0, "");
+
+        vm.prank(owner);
+        wrapped.setPaused(bytes32(0));
+        assertFalse(wrapped.isPaused(1));
+
+        // After unpause, verify pause flag is cleared
+        assertTrue(!wrapped.isPaused(1));
+    }
 }

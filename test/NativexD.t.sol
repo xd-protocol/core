@@ -448,6 +448,158 @@ contract NativexDTest is BaseERC20xDTestHelper {
                         HELPER FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
+    /*//////////////////////////////////////////////////////////////
+                        PAUSE FUNCTIONALITY TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_pausable_setPaused() public {
+        NativexD wrapped = NativexD(payable(address(erc20s[0])));
+
+        vm.prank(owner);
+        bytes32 pauseFlags = bytes32(uint256(1 << 0)); // Bit 1
+        wrapped.setPaused(pauseFlags);
+
+        assertEq(wrapped.pauseFlags(), pauseFlags);
+        assertTrue(wrapped.isPaused(1));
+        assertFalse(wrapped.isPaused(2));
+    }
+
+    function test_pausable_setPaused_unauthorized() public {
+        NativexD wrapped = NativexD(payable(address(erc20s[0])));
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("Unauthorized()"));
+        wrapped.setPaused(bytes32(uint256(1 << 0)));
+    }
+
+    function test_pausable_transfer_whenPaused() public {
+        NativexD wrapped = NativexD(payable(address(erc20s[0])));
+
+        // First wrap some native tokens
+        vm.prank(alice);
+        wrapped.wrap{ value: 50 ether }(alice, "");
+
+        // Pause transfer (ACTION_TRANSFER = bit 1)
+        vm.prank(owner);
+        wrapped.setPaused(bytes32(uint256(1 << 0)));
+
+        // Try to transfer
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 1));
+        wrapped.transfer(bob, 10 ether, "", 0, "");
+    }
+
+    function test_pausable_cancelPendingTransfer_whenPaused() public {
+        NativexD wrapped = NativexD(payable(address(erc20s[0])));
+
+        // First wrap some native tokens
+        vm.prank(alice);
+        wrapped.wrap{ value: 50 ether }(alice, "");
+
+        // Create a pending transfer
+        vm.prank(alice);
+        try wrapped.transfer{ value: 0.001 ether }(bob, 10 ether, "", 0.001 ether, "") {
+            fail("Transfer should have created pending state");
+        } catch {
+            // Expected
+        }
+
+        // Pause cancelPendingTransfer (ACTION_CANCEL_TRANSFER = bit 3)
+        vm.prank(owner);
+        wrapped.setPaused(bytes32(uint256(1 << 2)));
+
+        // Try to cancel
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 3));
+        wrapped.cancelPendingTransfer();
+    }
+
+    function test_pausable_wrapUnwrapStillWork() public {
+        NativexD wrapped = NativexD(payable(address(erc20s[0])));
+
+        // Pause all transfer actions
+        vm.prank(owner);
+        wrapped.setPaused(bytes32(uint256((1 << 0) | (1 << 1) | (1 << 2))));
+
+        // Wrap should still work (not pausable)
+        vm.prank(alice);
+        wrapped.wrap{ value: 50 ether }(alice, "");
+        assertEq(wrapped.balanceOf(alice), 50 ether);
+
+        // Unwrap should still work (not pausable)
+        uint256 fee = wrapped.quoteUnwrap(500_000);
+        vm.prank(alice);
+        wrapped.unwrap{ value: fee }(alice, 25 ether, abi.encode(uint128(500_000), alice), "");
+
+        // Simulate gateway response
+        _simulateGatewayResponse(wrapped, 1, 0);
+        assertEq(wrapped.balanceOf(alice), 25 ether);
+
+        // But transfers should be paused
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 1));
+        wrapped.transfer(bob, 10 ether, "", 0, "");
+    }
+
+    function test_pausable_unpause() public {
+        NativexD wrapped = NativexD(payable(address(erc20s[0])));
+
+        // Wrap tokens first
+        vm.prank(alice);
+        wrapped.wrap{ value: 50 ether }(alice, "");
+
+        // Pause then unpause
+        vm.prank(owner);
+        wrapped.setPaused(bytes32(uint256(1 << 0)));
+        assertTrue(wrapped.isPaused(1));
+
+        // Verify transfer is blocked while paused
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 1));
+        wrapped.transfer(bob, 10 ether, "", 0, "");
+
+        vm.prank(owner);
+        wrapped.setPaused(bytes32(0));
+        assertFalse(wrapped.isPaused(1));
+
+        // After unpause, verify pause flag is cleared
+        assertTrue(!wrapped.isPaused(1));
+    }
+
+    function test_pausable_multipleActions() public {
+        NativexD wrapped = NativexD(payable(address(erc20s[0])));
+
+        // Wrap some tokens
+        vm.prank(alice);
+        wrapped.wrap{ value: 50 ether }(alice, "");
+
+        // Pause transfer (bit 1) and cancelPendingTransfer (bit 3)
+        vm.prank(owner);
+        bytes32 pauseFlags = bytes32(uint256((1 << 0) | (1 << 2)));
+        wrapped.setPaused(pauseFlags);
+
+        assertTrue(wrapped.isPaused(1));
+        assertFalse(wrapped.isPaused(2));
+        assertTrue(wrapped.isPaused(3));
+
+        // Verify transfer is blocked
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 1));
+        wrapped.transfer(bob, 10 ether, "", 0, "");
+
+        // Create pending transfer to test cancel
+        vm.prank(alice);
+        try wrapped.transfer{ value: 0.001 ether }(bob, 5 ether, "", 0.001 ether, "") {
+            fail("Transfer should fail due to pause");
+        } catch {
+            // Expected - transfer is paused
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        INTERNAL FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
     function _simulateGatewayResponse(NativexD wrapped, uint256 nonce, int256 globalAvailability) internal {
         // Simulate the gateway calling back with global availability
         address gateway = address(gateways[0]); // Use the first gateway from test setup

@@ -229,6 +229,12 @@ interface ILiquidityMatrix {
     //////////////////////////////////////////////////////////////*/
 
     /**
+     * @notice Returns the owner of the LiquidityMatrix contract
+     * @return The owner address
+     */
+    function owner() external view returns (address);
+
+    /**
      * @notice Returns the gateway contract
      * @return The gateway contract
      */

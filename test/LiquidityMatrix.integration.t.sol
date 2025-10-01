@@ -7,6 +7,7 @@ import {
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { LiquidityMatrix } from "src/LiquidityMatrix.sol";
 import { LocalAppChronicleDeployer } from "src/chronicles/LocalAppChronicleDeployer.sol";
+import { LocalAppChronicle } from "src/chronicles/LocalAppChronicle.sol";
 import { RemoteAppChronicleDeployer } from "src/chronicles/RemoteAppChronicleDeployer.sol";
 import { RemoteAppChronicle } from "src/chronicles/RemoteAppChronicle.sol";
 import { LayerZeroGateway } from "src/gateways/LayerZeroGateway.sol";
@@ -1886,5 +1887,199 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
 
         // Version 1 finalization should NOT be valid in version 2 chronicle
         assertFalse(remoteChronicle.isFinalized(1000));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    PAUSE FUNCTIONALITY TESTS - CHRONICLES
+    //////////////////////////////////////////////////////////////*/
+
+    function test_pausable_localAppChronicle_updateLiquidity() public {
+        // Get the local app chronicle
+        address localChronicle = liquidityMatrices[0].getCurrentLocalAppChronicle(apps[0]);
+
+        // Pause updateLiquidity (ACTION_UPDATE_LIQUIDITY = bit 1) via LiquidityMatrix owner
+        changePrank(owner, owner);
+        LocalAppChronicle(localChronicle).setPaused(bytes32(uint256(1 << 0))); // Bit 1
+
+        // Try to update liquidity
+        changePrank(apps[0], apps[0]);
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 1));
+        liquidityMatrices[0].updateLocalLiquidity(alice, 100e18);
+    }
+
+    function test_pausable_localAppChronicle_updateData() public {
+        // Get the local app chronicle
+        address localChronicle = liquidityMatrices[0].getCurrentLocalAppChronicle(apps[0]);
+
+        // Pause updateData (ACTION_UPDATE_DATA = bit 2) via LiquidityMatrix owner
+        changePrank(owner, owner);
+        LocalAppChronicle(localChronicle).setPaused(bytes32(uint256(1 << 1))); // Bit 2
+
+        // Try to update data
+        changePrank(apps[0], apps[0]);
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 2));
+        liquidityMatrices[0].updateLocalData("key", abi.encode("value"));
+    }
+
+    function test_pausable_localAppChronicle_unauthorized() public {
+        address localChronicle = liquidityMatrices[0].getCurrentLocalAppChronicle(apps[0]);
+
+        // Try to pause as non-owner
+        changePrank(alice, alice);
+        vm.expectRevert(abi.encodeWithSignature("Unauthorized()"));
+        LocalAppChronicle(localChronicle).setPaused(bytes32(uint256(1 << 0)));
+    }
+
+    function test_pausable_remoteAppChronicle_settleLiquidity() public {
+        // Get existing remote chronicle (already created in setup)
+        bytes32 chainUID = bytes32(uint256(eids[1]));
+        address remoteChronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
+
+        // Pause settleLiquidity (ACTION_SETTLE_LIQUIDITY = bit 1) via LiquidityMatrix owner
+        changePrank(owner, owner);
+        RemoteAppChronicle(remoteChronicle).setPaused(bytes32(uint256(1 << 0))); // Bit 1
+
+        // Try to settle liquidity
+        changePrank(settlers[0], settlers[0]);
+        address[] memory accounts = new address[](1);
+        accounts[0] = alice;
+        int256[] memory liquidity = new int256[](1);
+        liquidity[0] = 100e18;
+
+        bytes32[] memory proof = new bytes32[](0);
+
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 1));
+        RemoteAppChronicle(remoteChronicle).settleLiquidity(
+            RemoteAppChronicle.SettleLiquidityParams({
+                timestamp: 1000,
+                accounts: accounts,
+                liquidity: liquidity,
+                totalLiquidity: 100e18,
+                liquidityRoot: bytes32(0),
+                proof: proof
+            })
+        );
+    }
+
+    function test_pausable_remoteAppChronicle_settleData() public {
+        // Get existing remote chronicle (already created in setup)
+        bytes32 chainUID = bytes32(uint256(eids[1]));
+        address remoteChronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
+
+        // Pause settleData (ACTION_SETTLE_DATA = bit 2) via LiquidityMatrix owner
+        changePrank(owner, owner);
+        RemoteAppChronicle(remoteChronicle).setPaused(bytes32(uint256(1 << 1))); // Bit 2
+
+        // Try to settle data
+        changePrank(settlers[0], settlers[0]);
+        bytes32[] memory keys = new bytes32[](1);
+        keys[0] = "key";
+        bytes[] memory values = new bytes[](1);
+        values[0] = abi.encode("value");
+        bytes32[] memory proof = new bytes32[](0);
+
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 2));
+        RemoteAppChronicle(remoteChronicle).settleData(
+            RemoteAppChronicle.SettleDataParams({
+                timestamp: 1000,
+                keys: keys,
+                values: values,
+                dataRoot: bytes32(0),
+                proof: proof
+            })
+        );
+    }
+
+    function test_pausable_remoteAppChronicle_multipleActions() public {
+        // Get existing remote chronicle (already created in setup)
+        bytes32 chainUID = bytes32(uint256(eids[1]));
+        address remoteChronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
+
+        // Pause both actions via LiquidityMatrix owner
+        changePrank(owner, owner);
+        bytes32 pauseFlags = bytes32(uint256((1 << 0) | (1 << 1))); // Bits 1 and 2
+        RemoteAppChronicle(remoteChronicle).setPaused(pauseFlags);
+
+        assertTrue(RemoteAppChronicle(remoteChronicle).isPaused(1));
+        assertTrue(RemoteAppChronicle(remoteChronicle).isPaused(2));
+
+        // Verify both are paused
+        changePrank(settlers[0], settlers[0]);
+
+        // settleLiquidity should fail
+        address[] memory accounts = new address[](1);
+        accounts[0] = alice;
+        int256[] memory liquidity = new int256[](1);
+        liquidity[0] = 100e18;
+        bytes32[] memory proof = new bytes32[](0);
+
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 1));
+        RemoteAppChronicle(remoteChronicle).settleLiquidity(
+            RemoteAppChronicle.SettleLiquidityParams({
+                timestamp: 1000,
+                accounts: accounts,
+                liquidity: liquidity,
+                totalLiquidity: 100e18,
+                liquidityRoot: bytes32(0),
+                proof: proof
+            })
+        );
+
+        // settleData should fail
+        bytes32[] memory keys = new bytes32[](1);
+        keys[0] = "key";
+        bytes[] memory values = new bytes[](1);
+        values[0] = abi.encode("value");
+        proof = new bytes32[](0);
+
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 2));
+        RemoteAppChronicle(remoteChronicle).settleData(
+            RemoteAppChronicle.SettleDataParams({
+                timestamp: 1000,
+                keys: keys,
+                values: values,
+                dataRoot: bytes32(0),
+                proof: proof
+            })
+        );
+    }
+
+    function test_pausable_remoteAppChronicle_unpause() public {
+        // Get existing remote chronicle (already created in setup)
+        bytes32 chainUID = bytes32(uint256(eids[1]));
+        address remoteChronicle = liquidityMatrices[0].getCurrentRemoteAppChronicle(apps[0], chainUID);
+
+        // Pause settleLiquidity
+        changePrank(owner, owner);
+        RemoteAppChronicle(remoteChronicle).setPaused(bytes32(uint256(1 << 0)));
+        assertTrue(RemoteAppChronicle(remoteChronicle).isPaused(1));
+
+        // Verify settleLiquidity is blocked while paused
+        changePrank(settlers[0], settlers[0]);
+        address[] memory accounts = new address[](1);
+        accounts[0] = alice;
+        int256[] memory liquidity = new int256[](1);
+        liquidity[0] = 100e18;
+        bytes32[] memory proof = new bytes32[](0);
+
+        vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 1));
+        RemoteAppChronicle(remoteChronicle).settleLiquidity(
+            RemoteAppChronicle.SettleLiquidityParams({
+                timestamp: 1000,
+                accounts: accounts,
+                liquidity: liquidity,
+                totalLiquidity: 100e18,
+                liquidityRoot: bytes32(0),
+                proof: proof
+            })
+        );
+
+        // Unpause
+        changePrank(owner, owner);
+        RemoteAppChronicle(remoteChronicle).setPaused(bytes32(0));
+        assertFalse(RemoteAppChronicle(remoteChronicle).isPaused(1));
+
+        // After unpause, verify pause flag is cleared (settleLiquidity may still fail with RootNotReceived which is expected)
+        assertTrue(!RemoteAppChronicle(remoteChronicle).isPaused(1));
     }
 }
