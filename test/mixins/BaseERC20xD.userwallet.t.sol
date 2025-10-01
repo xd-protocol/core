@@ -134,6 +134,10 @@ contract BaseERC20xDUserWalletTest is Test {
         // Setup gateway
         // gateway.registerApp(address(token)); // Not available in mock
 
+        // Add RemoteAppChronicle for the chain we're reading from
+        vm.prank(address(settler));
+        liquidityMatrix.addRemoteAppChronicle(address(token), bytes32(uint256(1)), 1);
+
         // Fund for gas
         vm.deal(alice, 10 ether);
         vm.deal(bob, 10 ether);
@@ -346,6 +350,11 @@ contract BaseERC20xDUserWalletTest is Test {
         targets[0] = address(legacyToken);
         legacyToken.configureReadChains(readChains, targets);
         vm.stopPrank();
+
+        // Add RemoteAppChronicle for the legacy token
+        vm.prank(address(settler));
+        liquidityMatrix.addRemoteAppChronicle(address(legacyToken), bytes32(uint256(1)), 1);
+
         // gateway.registerApp(address(legacyToken)); // Not available in mock
 
         // Prepare compose call

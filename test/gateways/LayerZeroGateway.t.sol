@@ -850,6 +850,11 @@ contract LayerZeroGatewayTest is TestHelperOz5 {
         gatewayA.registerApp(address(mockAppA));
         vm.prank(owner);
         gatewayB.registerApp(address(mockAppB));
+
+        // Authorize mockAppA to send to mockAppB
+        vm.prank(owner);
+        gatewayA.authorizeTarget(address(mockAppA), address(mockAppB), true);
+
         vm.prank(address(mockAppA));
 
         // Prepare message
@@ -897,6 +902,13 @@ contract LayerZeroGatewayTest is TestHelperOz5 {
         // Create a third mock app for chain C
         GatewayAppMock mockAppC = new GatewayAppMock();
         vm.deal(address(mockAppC), 100 ether);
+
+        // Authorize mockAppA to send to both mockAppB and mockAppC
+        vm.startPrank(owner);
+        gatewayA.authorizeTarget(address(mockAppA), address(mockAppB), true);
+        gatewayA.authorizeTarget(address(mockAppA), address(mockAppC), true);
+        vm.stopPrank();
+
         vm.startPrank(address(mockAppA));
         vm.stopPrank();
 
@@ -939,7 +951,11 @@ contract LayerZeroGatewayTest is TestHelperOz5 {
         vm.startPrank(owner);
         gatewayA.registerApp(address(mockAppA));
         gatewayB.registerApp(address(mockAppB));
+
+        // Authorize mockAppA to send to mockAppB
+        gatewayA.authorizeTarget(address(mockAppA), address(mockAppB), true);
         vm.stopPrank();
+
         vm.startPrank(address(mockAppA));
         vm.stopPrank();
 
@@ -997,6 +1013,10 @@ contract LayerZeroGatewayTest is TestHelperOz5 {
         vm.startPrank(owner);
         gatewayA.registerApp(address(mockAppA));
         gatewayB.registerApp(address(mockAppB));
+
+        // Authorize bidirectional messaging
+        gatewayA.authorizeTarget(address(mockAppA), address(mockAppB), true);
+        gatewayB.authorizeTarget(address(mockAppB), address(mockAppA), true);
         vm.stopPrank();
 
         bytes memory dataA = abi.encode(GAS_LIMIT, address(mockAppA));

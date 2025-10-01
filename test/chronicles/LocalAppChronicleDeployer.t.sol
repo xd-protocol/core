@@ -349,12 +349,14 @@ contract LocalAppChronicleDeployerTest is Test {
 
         uint256 gasUsed = gasBefore - gasleft();
 
-        // Gas usage should be reasonable (less than 1M gas)
-        assertTrue(gasUsed < 1_000_000);
+        // Gas usage should be reasonable (less than 1.1M gas)
+        // Note: Increased from 1M to 1.1M after adding Pausable functionality
+        assertTrue(gasUsed < 1_100_000);
 
         // Should use less gas than manual deployment + initialization
         // (This is a basic sanity check)
-        assertTrue(gasUsed > 500_000); // Should still be substantial due to contract creation
+        // Note: Increased from 500_000 to 900_000 after adding Pausable functionality
+        assertTrue(gasUsed > 900_000); // Should still be substantial due to contract creation
     }
 
     function test_gasUsage_computeAddress() public view {

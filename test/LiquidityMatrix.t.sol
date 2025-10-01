@@ -89,6 +89,18 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
 
         wireOApps(oapps);
 
+        // Authorize LiquidityMatrix to send messages to all apps and other LiquidityMatrices
+        for (uint32 i; i < CHAINS; ++i) {
+            changePrank(owner, owner);
+            for (uint32 j; j < CHAINS; ++j) {
+                if (i != j) {
+                    // Allow LiquidityMatrix[i] to send to apps[j] and liquidityMatrices[j]
+                    gateways[i].authorizeTarget(address(liquidityMatrices[i]), apps[j], true);
+                    gateways[i].authorizeTarget(address(liquidityMatrices[i]), address(liquidityMatrices[j]), true);
+                }
+            }
+        }
+
         for (uint32 i; i < CHAINS; ++i) {
             vm.deal(apps[i], 1000e18);
             changePrank(apps[i], apps[i]);
