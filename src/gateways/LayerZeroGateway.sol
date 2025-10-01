@@ -39,6 +39,11 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
                                 TYPES
     //////////////////////////////////////////////////////////////*/
 
+    struct AppState {
+        uint16 cmdLabel;
+        mapping(address target => bool authorized) targetAuthorized;
+    }
+
     struct ReadRequest {
         address app;
         bytes extra;
@@ -55,7 +60,8 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     uint32[] internal _targetEids;
     mapping(uint32 => uint16) internal _chainConfigConfirmations;
 
-    mapping(address app => uint16 cmdLabel) public appCmdLabels;
+    // App state management
+    mapping(address app => AppState) internal _appStates;
     mapping(uint16 cmdLabel => address app) public getApp;
     mapping(uint32 eid => uint64) public transferDelays;
 
@@ -67,7 +73,7 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     //////////////////////////////////////////////////////////////*/
 
     modifier onlyApp() {
-        if (appCmdLabels[msg.sender] == 0) revert Forbidden();
+        if (_appStates[msg.sender].cmdLabel == 0) revert Forbidden();
         _;
     }
 
@@ -115,6 +121,25 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     /// @inheritdoc IGateway
     function chainUIDAt(uint256 index) external view returns (bytes32) {
         return bytes32(uint256(_targetEids[index]));
+    }
+
+    /**
+     * @notice Gets the command label for a registered app
+     * @param app The app address to query
+     * @return The command label for the app (0 if not registered)
+     */
+    function appCmdLabel(address app) external view returns (uint16) {
+        return _appStates[app].cmdLabel;
+    }
+
+    /**
+     * @notice Checks if an app is authorized to send messages to a specific target
+     * @param app The app address
+     * @param target The target address
+     * @return Whether the app is authorized to send to the target
+     */
+    function targetAuthorized(address app, address target) external view returns (bool) {
+        return _appStates[app].targetAuthorized[target];
     }
 
     /// @inheritdoc IGateway
@@ -170,10 +195,16 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     function registerApp(address app) external onlyOwner {
         uint16 cmdLabel = _lastCmdLabel + 1;
         _lastCmdLabel = cmdLabel;
-        appCmdLabels[app] = cmdLabel;
+        _appStates[app].cmdLabel = cmdLabel;
         getApp[cmdLabel] = app;
 
         emit RegisterApp(app, cmdLabel);
+    }
+
+    /// @inheritdoc IGateway
+    function authorizeTarget(address app, address target, bool authorized) external onlyOwner {
+        _appStates[app].targetAuthorized[target] = authorized;
+        emit TargetAuthorizationUpdated(app, target, authorized);
     }
 
     /// @inheritdoc IGateway
@@ -278,6 +309,7 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
     {
         if (uint256(chainUID) >= type(uint32).max) revert InvalidChainUID();
         if (target == address(0)) revert InvalidTarget();
+        if (!_appStates[msg.sender].targetAuthorized[target]) revert UnauthorizedTarget(msg.sender, target);
         uint32 eid = uint32(uint256(chainUID));
         (uint128 gasLimit, address refundTo) = abi.decode(data, (uint128, address));
         MessagingReceipt memory receipt = _lzSend(
@@ -335,7 +367,7 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
         view
         returns (bytes memory)
     {
-        uint16 cmdLabel = appCmdLabels[app];
+        uint16 cmdLabel = _appStates[app].cmdLabel;
         if (cmdLabel == 0) revert InvalidApp();
         if (chainUIDs.length != targets.length) revert InvalidLengths();
 

@@ -32,6 +32,49 @@ import { LocalAppChronicleDeployer } from "../../src/chronicles/LocalAppChronicl
 import { RemoteAppChronicleDeployer } from "../../src/chronicles/RemoteAppChronicleDeployer.sol";
 import { GatewayAppMock } from "../mocks/GatewayAppMock.sol";
 
+// Malicious app for authorization testing
+contract MaliciousApp is IGatewayApp {
+    LayerZeroGateway public gateway;
+    address public liquidityMatrix;
+
+    constructor(address _gateway, address _liquidityMatrix) {
+        gateway = LayerZeroGateway(_gateway);
+        liquidityMatrix = _liquidityMatrix;
+    }
+
+    function attemptUnauthorizedMapAccounts(
+        bytes32 chainUID,
+        address victimApp,
+        address[] memory remoteAccounts,
+        address[] memory localAccounts
+    ) external payable {
+        // Craft malicious MAP_REMOTE_ACCOUNTS message impersonating another app
+        bytes memory maliciousPayload = abi.encode(
+            uint16(1), // MAP_REMOTE_ACCOUNTS
+            address(0), // remote app (not used in this context)
+            victimApp, // impersonate victim app
+            remoteAccounts,
+            localAccounts
+        );
+
+        // Try to send to LiquidityMatrix
+        bytes memory data = abi.encode(uint128(500_000), address(this)); // gasLimit and refundTo
+        gateway.sendMessage{ value: msg.value }(chainUID, liquidityMatrix, maliciousPayload, data);
+    }
+
+    function getReadTargets() external pure returns (bytes32[] memory, address[] memory) {
+        return (new bytes32[](0), new address[](0));
+    }
+
+    function reduce(Request[] calldata, bytes calldata, bytes[] calldata) external pure returns (bytes memory) {
+        return "";
+    }
+
+    function onRead(bytes calldata, bytes calldata) external { }
+
+    function onReceive(bytes32, bytes calldata) external { }
+}
+
 /**
  * @title LayerZeroGatewayTest
  * @notice Comprehensive test suite for LayerZeroGateway using EndpointV2Mock
@@ -79,6 +122,7 @@ contract LayerZeroGatewayTest is TestHelperOz5 {
     event RegisterApp(address indexed app, uint16 indexed cmdLabel);
     event UpdateTransferDelay(uint32 indexed eid, uint64 delay);
     event MessageSent(uint32 indexed eid, bytes32 indexed guid, bytes message);
+    event TargetAuthorizationUpdated(address indexed app, address indexed target, bool authorized);
 
     /*//////////////////////////////////////////////////////////////
                                 SETUP
@@ -217,7 +261,7 @@ contract LayerZeroGatewayTest is TestHelperOz5 {
         gatewayA.registerApp(appA);
 
         // Verify app is registered with correct cmdLabel
-        uint16 cmdLabel = gatewayA.appCmdLabels(appA);
+        uint16 cmdLabel = gatewayA.appCmdLabel(appA);
         assertEq(cmdLabel, 1);
 
         // Verify getApp mapping is populated (this was the bug we fixed)
@@ -234,9 +278,9 @@ contract LayerZeroGatewayTest is TestHelperOz5 {
         vm.stopPrank();
 
         // Verify sequential cmdLabel assignment
-        uint16 cmdLabelA = gatewayA.appCmdLabels(appA);
-        uint16 cmdLabelB = gatewayA.appCmdLabels(appB);
-        uint16 cmdLabelC = gatewayA.appCmdLabels(appC);
+        uint16 cmdLabelA = gatewayA.appCmdLabel(appA);
+        uint16 cmdLabelB = gatewayA.appCmdLabel(appB);
+        uint16 cmdLabelC = gatewayA.appCmdLabel(appC);
 
         assertEq(cmdLabelA, 1);
         assertEq(cmdLabelB, 2);
@@ -252,6 +296,161 @@ contract LayerZeroGatewayTest is TestHelperOz5 {
         vm.prank(unauthorizedUser);
         vm.expectRevert();
         gatewayA.registerApp(appA);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    authorizeTarget() TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_authorizeTarget_basic() public {
+        // Register an app first
+        vm.prank(owner);
+        gatewayA.registerApp(appA);
+
+        // Check that the app is not authorized by default
+        assertEq(gatewayA.targetAuthorized(appA, appB), false);
+
+        // Authorize the app to send to a target
+        vm.prank(owner);
+        gatewayA.authorizeTarget(appA, appB, true);
+
+        // Now check that authorization is set
+        assertEq(gatewayA.targetAuthorized(appA, appB), true);
+    }
+
+    function test_authorizeTarget_canRevoke() public {
+        vm.startPrank(owner);
+        gatewayA.registerApp(appA);
+
+        // First authorize
+        gatewayA.authorizeTarget(appA, appB, true);
+        assertEq(gatewayA.targetAuthorized(appA, appB), true);
+
+        // Then revoke
+        gatewayA.authorizeTarget(appA, appB, false);
+        assertEq(gatewayA.targetAuthorized(appA, appB), false);
+        vm.stopPrank();
+    }
+
+    function test_authorizeTarget_revertNonOwner() public {
+        vm.prank(owner);
+        gatewayA.registerApp(appA);
+
+        // Non-owner cannot authorize
+        vm.prank(unauthorizedUser);
+        vm.expectRevert(abi.encodeWithSelector(0x118cdaa7, unauthorizedUser)); // OwnableUnauthorizedAccount
+        gatewayA.authorizeTarget(appA, appB, true);
+    }
+
+    function test_authorizeTarget_emitsEvent() public {
+        vm.startPrank(owner);
+        gatewayA.registerApp(appA);
+
+        // Check event emission for authorization
+        vm.expectEmit(true, true, false, true);
+        emit IGateway.TargetAuthorizationUpdated(appA, appB, true);
+        gatewayA.authorizeTarget(appA, appB, true);
+
+        // Check event emission for revocation
+        vm.expectEmit(true, true, false, true);
+        emit IGateway.TargetAuthorizationUpdated(appA, appB, false);
+        gatewayA.authorizeTarget(appA, appB, false);
+
+        vm.stopPrank();
+    }
+
+    function test_sendMessage_revertUnauthorizedTarget() public {
+        // Setup: register app but don't authorize target
+        vm.prank(owner);
+        gatewayA.registerApp(address(mockAppA));
+
+        // Configure chains so sendMessage can work
+        bytes32[] memory chainUIDs = new bytes32[](1);
+        uint16[] memory confirmations = new uint16[](1);
+        chainUIDs[0] = bytes32(uint256(CHAIN_B_EID));
+        confirmations[0] = 15;
+
+        vm.prank(owner);
+        gatewayA.configureChains(chainUIDs, confirmations);
+
+        // Try to send message without authorization
+        bytes memory message = abi.encode("test");
+        bytes memory data = abi.encode(uint128(GAS_LIMIT), address(mockAppA));
+
+        vm.prank(address(mockAppA));
+        vm.expectRevert(
+            abi.encodeWithSelector(IGateway.UnauthorizedTarget.selector, address(mockAppA), address(mockAppB))
+        );
+        gatewayA.sendMessage{ value: 0.1 ether }(bytes32(uint256(CHAIN_B_EID)), address(mockAppB), message, data);
+    }
+
+    function test_sendMessage_successWithAuthorization() public {
+        // Setup: register app and authorize target
+        vm.startPrank(owner);
+        gatewayA.registerApp(address(mockAppA));
+        gatewayA.authorizeTarget(address(mockAppA), address(mockAppB), true);
+
+        // Configure chains
+        bytes32[] memory chainUIDs = new bytes32[](1);
+        uint16[] memory confirmations = new uint16[](1);
+        chainUIDs[0] = bytes32(uint256(CHAIN_B_EID));
+        confirmations[0] = 15;
+        gatewayA.configureChains(chainUIDs, confirmations);
+        vm.stopPrank();
+
+        // Now sending should work
+        bytes memory message = abi.encode("test");
+        bytes memory data = abi.encode(uint128(GAS_LIMIT), address(mockAppA));
+
+        uint256 fee = gatewayA.quoteSendMessage(bytes32(uint256(CHAIN_B_EID)), address(mockAppB), message, GAS_LIMIT);
+
+        vm.prank(address(mockAppA));
+        bytes32 guid =
+            gatewayA.sendMessage{ value: fee }(bytes32(uint256(CHAIN_B_EID)), address(mockAppB), message, data);
+
+        assertTrue(guid != bytes32(0), "Message should be sent successfully");
+    }
+
+    function test_vulnerability_preventsMaliciousImpersonation() public {
+        // Deploy a malicious app
+        MaliciousApp maliciousApp = new MaliciousApp(address(gatewayA), address(liquidityMatrixA));
+        vm.deal(address(maliciousApp), 10 ether);
+
+        // Register both legitimate and malicious apps
+        vm.startPrank(owner);
+        gatewayA.registerApp(address(mockAppA));
+        gatewayA.registerApp(address(maliciousApp));
+
+        // Only authorize the legitimate app to send to LiquidityMatrix
+        gatewayA.authorizeTarget(address(mockAppA), address(liquidityMatrixA), true);
+        // Explicitly do NOT authorize maliciousApp
+
+        // Configure chains
+        bytes32[] memory chainUIDs = new bytes32[](1);
+        uint16[] memory confirmations = new uint16[](1);
+        chainUIDs[0] = bytes32(uint256(CHAIN_B_EID));
+        confirmations[0] = 15;
+        gatewayA.configureChains(chainUIDs, confirmations);
+        vm.stopPrank();
+
+        // Attack attempt: Malicious app tries to impersonate legitimate app
+        address[] memory remoteAccounts = new address[](1);
+        address[] memory localAccounts = new address[](1);
+        remoteAccounts[0] = makeAddr("attacker");
+        localAccounts[0] = makeAddr("victim");
+
+        // The attack should fail with UnauthorizedTarget error
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IGateway.UnauthorizedTarget.selector, address(maliciousApp), address(liquidityMatrixA)
+            )
+        );
+
+        maliciousApp.attemptUnauthorizedMapAccounts{ value: 1 ether }(
+            bytes32(uint256(CHAIN_B_EID)), address(mockAppA), remoteAccounts, localAccounts
+        );
+
+        // Verify: The attack was prevented, no unauthorized mappings were created
     }
 
     /*//////////////////////////////////////////////////////////////

@@ -9,6 +9,7 @@ interface IGateway {
     event RegisterApp(address indexed app, uint16 indexed cmdLabel);
     event UpdateTransferDelay(uint32 indexed eid, uint64 delay);
     event MessageSent(uint32 indexed eid, bytes32 indexed guid, bytes message);
+    event TargetAuthorizationUpdated(address indexed app, address indexed target, bool authorized);
 
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
@@ -25,6 +26,7 @@ interface IGateway {
     error InvalidRequests();
     error DuplicateTargetEid();
     error InvalidChainUIDs();
+    error UnauthorizedTarget(address app, address target);
 
     /*//////////////////////////////////////////////////////////////
                             VIEW FUNCTIONS
@@ -61,6 +63,14 @@ interface IGateway {
      * @param app The application address to register
      */
     function registerApp(address app) external;
+
+    /**
+     * @notice Authorizes or revokes an app's permission to send messages to a target
+     * @param app The application to authorize
+     * @param target The target address the app can send messages to
+     * @param authorized Whether the app is authorized to send to the target
+     */
+    function authorizeTarget(address app, address target, bool authorized) external;
 
     /**
      * @notice Updates transfer delays for specific chains
