@@ -50,9 +50,6 @@ contract NativexD is BaseERC20xD, INativexD {
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc INativexD
-    fallback() external payable virtual { }
-
-    /// @inheritdoc INativexD
     receive() external payable virtual { }
 
     /// @inheritdoc INativexD

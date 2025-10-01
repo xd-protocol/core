@@ -36,10 +36,6 @@ interface IERC20xD is IBaseERC20xD {
     function burn(uint256 amount, bytes calldata data) external payable returns (bytes32 guid);
 
     /**
-     * @notice Fallback function to receive Ether
-     */
-    fallback() external payable;
-    /**
      * @notice Receive function to accept Ether transfers
      */
     receive() external payable;

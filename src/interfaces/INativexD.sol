@@ -52,10 +52,6 @@ interface INativexD is IBaseERC20xD {
         returns (bytes32 guid);
 
     /**
-     * @notice Fallback function to receive Ether
-     */
-    fallback() external payable;
-    /**
      * @notice Receive function to accept Ether transfers
      */
     receive() external payable;

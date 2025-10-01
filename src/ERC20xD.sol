@@ -49,9 +49,6 @@ contract ERC20xD is BaseERC20xD, IERC20xD {
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IERC20xD
-    fallback() external payable virtual { }
-
-    /// @inheritdoc IERC20xD
     receive() external payable virtual { }
 
     /// @inheritdoc IERC20xD

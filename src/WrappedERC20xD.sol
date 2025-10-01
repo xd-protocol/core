@@ -59,9 +59,6 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IWrappedERC20xD
-    fallback() external payable virtual { }
-
-    /// @inheritdoc IWrappedERC20xD
     receive() external payable virtual { }
 
     /// @inheritdoc IWrappedERC20xD
