@@ -27,6 +27,14 @@ contract LiquidityMatrixMock {
         return liquidity[app][account];
     }
 
+    function getAggregatedSettledLiquidityAt(address app, bytes32[] memory, address account)
+        external
+        view
+        returns (int256)
+    {
+        return liquidity[app][account];
+    }
+
     function getAggregatedFinalizedLiquidityAt(address app, address account) external view returns (int256) {
         return liquidity[app][account];
     }

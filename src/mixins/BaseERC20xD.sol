@@ -498,6 +498,7 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
      * @dev Executes a pending transfer after global availability check
      * @param pending The pending transfer details to execute
      * @dev Routes to _compose if callData is provided, otherwise to _transferFrom
+     *      If value is provided without callData, it's sent to the recipient
      */
     function _executePendingTransfer(PendingTransfer memory pending) internal virtual {
         (address to, bytes memory callData) = (pending.to, pending.callData);
@@ -505,6 +506,11 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
             _compose(pending.from, to, pending.amount, pending.value, callData, pending.data);
         } else {
             _transferFrom(pending.from, to, pending.amount, pending.data);
+
+            // Transfer any native value to the recipient
+            if (pending.value > 0) {
+                AddressLib.transferNative(to, pending.value);
+            }
         }
     }
 
