@@ -298,6 +298,26 @@ contract LayerZeroGatewayTest is TestHelperOz5 {
         gatewayA.registerApp(appA);
     }
 
+    function test_registerApp_preventsDuplicateRegistration() public {
+        vm.startPrank(owner);
+
+        // First registration should succeed
+        gatewayA.registerApp(appA);
+        assertEq(gatewayA.appCmdLabel(appA), 1);
+        assertEq(gatewayA.getApp(1), appA);
+
+        // Attempt to re-register the same app should revert
+        vm.expectRevert(abi.encodeWithSelector(IGateway.AppAlreadyRegistered.selector, appA));
+        gatewayA.registerApp(appA);
+
+        // Verify the app still has the original registration
+        assertEq(gatewayA.appCmdLabel(appA), 1);
+        assertEq(gatewayA.getApp(1), appA);
+        assertEq(gatewayA.getApp(2), address(0)); // cmdLabel 2 was never assigned
+
+        vm.stopPrank();
+    }
+
     /*//////////////////////////////////////////////////////////////
                     authorizeTarget() TESTS
     //////////////////////////////////////////////////////////////*/

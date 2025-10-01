@@ -17,6 +17,7 @@ interface IGateway {
 
     error Forbidden();
     error InvalidApp();
+    error AppAlreadyRegistered(address app);
     error InvalidTarget();
     error InvalidLengths();
     error InvalidChainUID();

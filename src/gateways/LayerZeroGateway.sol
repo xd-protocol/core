@@ -193,6 +193,11 @@ contract LayerZeroGateway is OApp, OAppRead, ReentrancyGuard, IGateway {
 
     /// @inheritdoc IGateway
     function registerApp(address app) external onlyOwner {
+        // Check if app is already registered to prevent stale command labels
+        if (_appStates[app].cmdLabel != 0) {
+            revert AppAlreadyRegistered(app);
+        }
+
         uint16 cmdLabel = _lastCmdLabel + 1;
         _lastCmdLabel = cmdLabel;
         _appStates[app].cmdLabel = cmdLabel;
