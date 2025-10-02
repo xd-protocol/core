@@ -22,6 +22,12 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
 
     address public immutable underlying;
 
+    /// @notice Maximum amount of tokens that can be wrapped per account (0 = unlimited)
+    uint256 public liquidityCap;
+
+    /// @notice Tracks the amount of tokens wrapped by each account
+    mapping(address => uint256) public wrappedAmount;
+
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
@@ -67,6 +73,17 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
     function wrap(address to, uint256 amount, bytes memory hookData) external payable virtual nonReentrant {
         if (to == address(0)) revert InvalidAddress();
         if (amount == 0) revert InvalidAmount();
+
+        // Check liquidity cap if it's set (0 means unlimited)
+        uint256 _liquidityCap = liquidityCap;
+        if (_liquidityCap > 0) {
+            uint256 currentWrapped = wrappedAmount[to];
+            uint256 newWrapped = currentWrapped + amount;
+            if (newWrapped > _liquidityCap) {
+                revert LiquidityCapExceeded(to, currentWrapped, amount, _liquidityCap);
+            }
+            wrappedAmount[to] = newWrapped;
+        }
 
         // Always transfer underlying tokens to this contract first
         ERC20(underlying).safeTransferFrom(msg.sender, address(this), amount);
@@ -124,6 +141,12 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
             // Decode the recipient and hookData from callData
             (address recipient, bytes memory hookData) = abi.decode(pending.callData, (address, bytes));
 
+            // Decrease wrapped amount for the sender if liquidity cap is enabled
+            if (liquidityCap > 0) {
+                uint256 currentWrapped = wrappedAmount[pending.from];
+                wrappedAmount[pending.from] = currentWrapped > pending.amount ? currentWrapped - pending.amount : 0;
+            }
+
             // Perform the burn
             _transferFrom(pending.from, address(0), pending.amount, pending.data);
 
@@ -144,5 +167,11 @@ contract WrappedERC20xD is BaseERC20xD, IWrappedERC20xD {
             // For normal transfers, use parent implementation
             super._executePendingTransfer(pending);
         }
+    }
+
+    /// @inheritdoc IWrappedERC20xD
+    function setLiquidityCap(uint256 newCap) external virtual onlyOwner {
+        liquidityCap = newCap;
+        emit LiquidityCapUpdated(newCap);
     }
 }

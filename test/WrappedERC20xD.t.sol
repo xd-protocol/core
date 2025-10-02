@@ -398,4 +398,167 @@ contract WrappedERC20xDTest is BaseERC20xDTestHelper {
         // After unpause, verify pause flag is cleared
         assertTrue(!wrapped.isPaused(1));
     }
+
+    /*//////////////////////////////////////////////////////////////
+                        LIQUIDITY CAP TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_liquidityCap_defaultUnlimited() public view {
+        WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
+        assertEq(wrapped.liquidityCap(), 0, "Default liquidity cap should be 0 (unlimited)");
+    }
+
+    function test_liquidityCap_setByOwner() public {
+        WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
+        uint256 newCap = 1000e18;
+
+        vm.prank(owner);
+        vm.expectEmit(true, false, false, true);
+        emit IWrappedERC20xD.LiquidityCapUpdated(newCap);
+        wrapped.setLiquidityCap(newCap);
+
+        assertEq(wrapped.liquidityCap(), newCap);
+    }
+
+    function test_liquidityCap_revertNonOwner() public {
+        WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        wrapped.setLiquidityCap(1000e18);
+    }
+
+    function test_liquidityCap_enforcedOnWrap() public {
+        WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
+        uint256 cap = 100e18;
+
+        // Set liquidity cap
+        vm.prank(owner);
+        wrapped.setLiquidityCap(cap);
+
+        // Alice wraps up to the cap
+        vm.prank(alice);
+        wrapped.wrap(alice, cap, "");
+
+        assertEq(wrapped.wrappedAmount(alice), cap);
+        assertEq(wrapped.balanceOf(alice), cap);
+
+        // Try to wrap more should revert
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IWrappedERC20xD.LiquidityCapExceeded.selector,
+                alice,
+                cap, // current wrapped
+                1e18, // attempted amount
+                cap // cap
+            )
+        );
+        wrapped.wrap(alice, 1e18, "");
+    }
+
+    function test_liquidityCap_multipleUsers() public {
+        WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
+        uint256 cap = 75e18;
+
+        vm.prank(owner);
+        wrapped.setLiquidityCap(cap);
+
+        // Alice wraps 50e18
+        vm.prank(alice);
+        wrapped.wrap(alice, 50e18, "");
+        assertEq(wrapped.wrappedAmount(alice), 50e18);
+
+        // Bob wraps 75e18 (his own cap)
+        vm.prank(bob);
+        wrapped.wrap(bob, 75e18, "");
+        assertEq(wrapped.wrappedAmount(bob), 75e18);
+
+        // Alice can still wrap 25e18 more
+        vm.prank(alice);
+        wrapped.wrap(alice, 25e18, "");
+        assertEq(wrapped.wrappedAmount(alice), 75e18);
+
+        // But not more
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(IWrappedERC20xD.LiquidityCapExceeded.selector, alice, 75e18, 1e18, cap));
+        wrapped.wrap(alice, 1e18, "");
+    }
+
+    function test_liquidityCap_unwrapReducesWrappedAmount() public {
+        WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
+        uint256 cap = 100e18;
+        uint256 wrapAmount = 80e18;
+
+        vm.prank(owner);
+        wrapped.setLiquidityCap(cap);
+
+        // Alice wraps 80e18
+        vm.prank(alice);
+        wrapped.wrap(alice, wrapAmount, "");
+        assertEq(wrapped.wrappedAmount(alice), wrapAmount);
+
+        // Alice unwraps 30e18
+        uint256 fee = wrapped.quoteTransfer(alice, uint128(GAS_LIMIT));
+        vm.prank(alice);
+        bytes memory data = abi.encode(uint128(GAS_LIMIT), alice);
+        wrapped.unwrap{ value: fee }(alice, 30e18, data, "");
+
+        // Simulate the cross-chain callback to execute the pending transfer
+        vm.prank(address(gateways[0]));
+        wrapped.onRead(abi.encode(int256(30e18)), abi.encode(uint256(1)));
+
+        // Wrapped amount should be reduced
+        assertEq(wrapped.wrappedAmount(alice), 50e18);
+
+        // Alice can now wrap 50e18 more (up to cap)
+        vm.prank(alice);
+        wrapped.wrap(alice, 50e18, "");
+        assertEq(wrapped.wrappedAmount(alice), 100e18);
+    }
+
+    function test_liquidityCap_zeroMeansUnlimited() public {
+        WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
+
+        // Default cap is 0 (unlimited)
+        assertEq(wrapped.liquidityCap(), 0);
+
+        // Mint more tokens for alice to test unlimited wrapping
+        underlyings[0].mint(alice, 1000e18);
+
+        // Can wrap large amounts (within alice's balance)
+        vm.prank(alice);
+        wrapped.wrap(alice, 1000e18, "");
+        assertEq(wrapped.balanceOf(alice), 1000e18);
+
+        // wrappedAmount is not tracked when cap is 0
+        assertEq(wrapped.wrappedAmount(alice), 0);
+    }
+
+    function test_liquidityCap_setToZeroDisablesCap() public {
+        WrappedERC20xD wrapped = WrappedERC20xD(payable(address(erc20s[0])));
+
+        // Set a cap at 50e18 (within alice's balance)
+        vm.prank(owner);
+        wrapped.setLiquidityCap(50e18);
+
+        // Alice wraps up to cap
+        vm.prank(alice);
+        wrapped.wrap(alice, 50e18, "");
+        assertEq(wrapped.wrappedAmount(alice), 50e18);
+
+        // Can't wrap more
+        vm.prank(alice);
+        vm.expectRevert();
+        wrapped.wrap(alice, 1e18, "");
+
+        // Owner sets cap back to 0
+        vm.prank(owner);
+        wrapped.setLiquidityCap(0);
+
+        // Now alice can wrap more (remaining 50e18 from her initial 100e18)
+        vm.prank(alice);
+        wrapped.wrap(alice, 50e18, "");
+        assertEq(wrapped.balanceOf(alice), 100e18);
+    }
 }

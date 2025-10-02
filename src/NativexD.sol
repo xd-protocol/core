@@ -21,6 +21,12 @@ contract NativexD is BaseERC20xD, INativexD {
     /// @notice Constant representing the native asset (e.g., ETH). In this context, native is denoted by address(0).
     address public constant underlying = address(0);
 
+    /// @notice Maximum amount of native tokens that can be wrapped per account (0 = unlimited)
+    uint256 public liquidityCap;
+
+    /// @notice Tracks the amount of native tokens wrapped by each account
+    mapping(address => uint256) public wrappedAmount;
+
     /*//////////////////////////////////////////////////////////////
                                CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
@@ -58,6 +64,17 @@ contract NativexD is BaseERC20xD, INativexD {
     function wrap(address to, bytes memory hookData) external payable virtual nonReentrant {
         if (to == address(0)) revert InvalidAddress();
         if (msg.value == 0) revert InvalidAmount();
+
+        // Check liquidity cap if it's set (0 means unlimited)
+        uint256 _liquidityCap = liquidityCap;
+        if (_liquidityCap > 0) {
+            uint256 currentWrapped = wrappedAmount[to];
+            uint256 newWrapped = currentWrapped + msg.value;
+            if (newWrapped > _liquidityCap) {
+                revert LiquidityCapExceeded(to, currentWrapped, msg.value, _liquidityCap);
+            }
+            wrappedAmount[to] = newWrapped;
+        }
 
         address _hook = hook;
         uint256 actualAmount = msg.value;
@@ -106,6 +123,12 @@ contract NativexD is BaseERC20xD, INativexD {
             // Decode the recipient and hookData from callData
             (address recipient, bytes memory hookData) = abi.decode(pending.callData, (address, bytes));
 
+            // Decrease wrapped amount for the sender if liquidity cap is enabled
+            if (liquidityCap > 0) {
+                uint256 currentWrapped = wrappedAmount[pending.from];
+                wrappedAmount[pending.from] = currentWrapped > pending.amount ? currentWrapped - pending.amount : 0;
+            }
+
             // Perform the burn
             _transferFrom(pending.from, address(0), pending.amount, pending.data);
 
@@ -126,5 +149,11 @@ contract NativexD is BaseERC20xD, INativexD {
             // For normal transfers, use parent implementation
             super._executePendingTransfer(pending);
         }
+    }
+
+    /// @inheritdoc INativexD
+    function setLiquidityCap(uint256 newCap) external virtual onlyOwner {
+        liquidityCap = newCap;
+        emit LiquidityCapUpdated(newCap);
     }
 }

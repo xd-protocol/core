@@ -5,11 +5,18 @@ import { IBaseERC20xD } from "./IBaseERC20xD.sol";
 
 interface INativexD is IBaseERC20xD {
     /*//////////////////////////////////////////////////////////////
+                                ERRORS
+    //////////////////////////////////////////////////////////////*/
+
+    error LiquidityCapExceeded(address account, uint256 currentWrapped, uint256 attemptedAmount, uint256 cap);
+
+    /*//////////////////////////////////////////////////////////////
                                 EVENTS
     //////////////////////////////////////////////////////////////*/
 
     event Wrap(address indexed to, uint256 amount);
     event Unwrap(address indexed to, uint256 shares, uint256 assets);
+    event LiquidityCapUpdated(uint256 newCap);
 
     /*//////////////////////////////////////////////////////////////
                             VIEW FUNCTIONS
@@ -26,6 +33,18 @@ interface INativexD is IBaseERC20xD {
      * @return fee The fee required for the unwrap operation
      */
     function quoteUnwrap(uint128 gasLimit) external view returns (uint256);
+
+    /**
+     * @notice Returns the current liquidity cap (0 means unlimited)
+     * @return The maximum amount of tokens that can be wrapped per account
+     */
+    function liquidityCap() external view returns (uint256);
+
+    /**
+     * @notice Returns the amount of tokens wrapped by an account
+     * @return The current wrapped balance for the account
+     */
+    function wrappedAmount(address account) external view returns (uint256);
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
@@ -50,6 +69,12 @@ interface INativexD is IBaseERC20xD {
         external
         payable
         returns (bytes32 guid);
+
+    /**
+     * @notice Sets the liquidity cap for wrapped tokens per account (owner only)
+     * @param newCap The new liquidity cap (0 for unlimited)
+     */
+    function setLiquidityCap(uint256 newCap) external;
 
     /**
      * @notice Receive function to accept Ether transfers
