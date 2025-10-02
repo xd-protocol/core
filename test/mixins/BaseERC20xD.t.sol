@@ -752,6 +752,310 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         token.onRead(message, "");
     }
 
+    /**
+     * @notice Test onRead can only be called by gateway
+     */
+    function test_onRead_revertForbidden_fromOwner() public {
+        BaseERC20xD token = erc20s[0];
+
+        bytes memory message = abi.encode(int256(100e18));
+        bytes memory extra = abi.encode(uint256(1));
+
+        // Even owner cannot call onRead
+        vm.prank(owner);
+        vm.expectRevert(IBaseERC20xD.Forbidden.selector);
+        token.onRead(message, extra);
+    }
+
+    /**
+     * @notice Test onRead with non-existent nonce
+     */
+    function test_onRead_revertTransferNotPending() public {
+        BaseERC20xD token = erc20s[0];
+
+        // First create a valid pending transfer to establish a baseline
+        vm.startPrank(alice);
+        uint256 fee = token.quoteTransfer(bob, GAS_LIMIT);
+        token.transfer{ value: fee }(bob, 10e18, abi.encode(GAS_LIMIT, bob));
+        uint256 validNonce = token.pendingNonce(alice);
+        vm.stopPrank();
+
+        // Cancel it to make it not pending
+        vm.prank(alice);
+        token.cancelPendingTransfer();
+
+        // Now try to execute the cancelled transfer
+        bytes memory message = abi.encode(int256(100e18));
+        bytes memory extra = abi.encode(validNonce);
+
+        vm.prank(address(gateways[0]));
+        vm.expectRevert(abi.encodeWithSelector(IBaseERC20xD.TransferNotPending.selector, validNonce));
+        token.onRead(message, extra);
+    }
+
+    /**
+     * @notice Test onRead with cancelled transfer
+     */
+    function test_onRead_afterCancellation() public {
+        BaseERC20xD token = erc20s[0];
+
+        // Alice initiates transfer
+        changePrank(alice, alice);
+        uint256 amount = 50e18;
+        uint256 fee = token.quoteTransfer(bob, GAS_LIMIT);
+        token.transfer{ value: fee }(bob, amount, abi.encode(GAS_LIMIT, bob));
+        uint256 nonce = token.pendingNonce(alice);
+
+        // Alice cancels the transfer
+        token.cancelPendingTransfer();
+
+        // Stop the ongoing prank before using vm.prank
+        vm.stopPrank();
+
+        // Gateway tries to execute cancelled transfer
+        bytes memory message = abi.encode(int256(100e18));
+        bytes memory extra = abi.encode(nonce);
+
+        vm.prank(address(gateways[0]));
+        vm.expectRevert(abi.encodeWithSelector(IBaseERC20xD.TransferNotPending.selector, nonce));
+        token.onRead(message, extra);
+    }
+
+    /**
+     * @notice Test onRead with negative global availability
+     */
+    function test_onRead_negativeGlobalAvailability() public {
+        BaseERC20xD token = erc20s[0];
+
+        // Alice initiates transfer
+        changePrank(alice, alice);
+        uint256 amount = 80e18;
+        uint256 fee = token.quoteTransfer(bob, GAS_LIMIT);
+        token.transfer{ value: fee }(bob, amount, abi.encode(GAS_LIMIT, bob));
+        uint256 nonce = token.pendingNonce(alice);
+
+        // Stop the ongoing prank before using vm.prank
+        vm.stopPrank();
+
+        // Gateway reports negative global availability (other chains have negative balance)
+        bytes memory message = abi.encode(int256(-30e18)); // Alice has 100e18 locally - 30e18 globally = 70e18 < 80e18
+        bytes memory extra = abi.encode(nonce);
+
+        vm.prank(address(gateways[0]));
+        vm.expectRevert(
+            abi.encodeWithSelector(IBaseERC20xD.InsufficientAvailability.selector, nonce, amount, int256(70e18))
+        );
+        token.onRead(message, extra);
+    }
+
+    /**
+     * @notice Test onRead with zero global availability allows exact local balance transfer
+     */
+    function test_onRead_zeroGlobalAvailability_exactLocalBalance() public {
+        BaseERC20xD token = erc20s[0];
+
+        // Alice transfers exact local balance
+        changePrank(alice, alice);
+        uint256 amount = 100e18; // Exact local balance
+        uint256 fee = token.quoteTransfer(bob, GAS_LIMIT);
+        token.transfer{ value: fee }(bob, amount, abi.encode(GAS_LIMIT, bob));
+        uint256 nonce = token.pendingNonce(alice);
+
+        // Stop the ongoing prank before using vm.prank
+        vm.stopPrank();
+
+        // Gateway reports zero global availability
+        bytes memory message = abi.encode(int256(0));
+        bytes memory extra = abi.encode(nonce);
+
+        // Expect the standard Transfer event when the cross-chain transfer is executed
+        vm.expectEmit(true, true, false, true);
+        emit Transfer(alice, bob, amount);
+
+        vm.prank(address(gateways[0]));
+        token.onRead(message, extra);
+
+        // Verify transfer completed
+        assertEq(token.localBalanceOf(alice), 0);
+        assertEq(token.localBalanceOf(bob), 200e18);
+        assertEq(token.pendingNonce(alice), 0);
+    }
+
+    /**
+     * @notice Test onRead with large positive global availability
+     */
+    function test_onRead_largeGlobalAvailability() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        // Alice initiates large transfer
+        changePrank(alice, alice);
+        uint256 amount = 250e18; // More than local but less than total
+        uint256 fee = token.quoteTransfer(bob, GAS_LIMIT);
+        token.transfer{ value: fee }(bob, amount, abi.encode(GAS_LIMIT, bob));
+        uint256 nonce = token.pendingNonce(alice);
+
+        // Stop the ongoing prank before using vm.prank
+        vm.stopPrank();
+
+        // Gateway reports large global availability
+        bytes memory message = abi.encode(int256(200e18)); // Alice has 100e18 locally + 200e18 globally = 300e18
+        bytes memory extra = abi.encode(nonce);
+
+        vm.prank(address(gateways[0]));
+        token.onRead(message, extra);
+
+        // Verify transfer completed
+        assertEq(token.localBalanceOf(alice), -150e18);
+        assertEq(token.localBalanceOf(bob), 350e18);
+    }
+
+    /**
+     * @notice Test onRead executes pending transfer exactly once
+     */
+    function test_onRead_executesOnlyOnce() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        // Alice initiates transfer
+        changePrank(alice, alice);
+        uint256 amount = 50e18;
+        uint256 fee = token.quoteTransfer(bob, GAS_LIMIT);
+        token.transfer{ value: fee }(bob, amount, abi.encode(GAS_LIMIT, bob));
+        uint256 nonce = token.pendingNonce(alice);
+
+        // Stop the ongoing prank before using vm.prank
+        vm.stopPrank();
+
+        // Gateway executes successfully
+        bytes memory message = abi.encode(int256(100e18));
+        bytes memory extra = abi.encode(nonce);
+
+        vm.prank(address(gateways[0]));
+        token.onRead(message, extra);
+
+        // Verify transfer completed
+        assertEq(token.localBalanceOf(alice), 50e18);
+        assertEq(token.localBalanceOf(bob), 150e18);
+
+        // Try to execute again - should revert
+        vm.prank(address(gateways[0]));
+        vm.expectRevert(abi.encodeWithSelector(IBaseERC20xD.TransferNotPending.selector, nonce));
+        token.onRead(message, extra);
+    }
+
+    /**
+     * @notice Test onRead with exact availability match
+     */
+    function test_onRead_exactAvailabilityMatch() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        // Alice transfers exactly what she has globally after settlement
+        changePrank(alice, alice);
+        uint256 amount = 250e18; // Alice has 100e18 locally + 200e18 globally after settlement
+        uint256 fee = token.quoteTransfer(bob, GAS_LIMIT);
+        token.transfer{ value: fee }(bob, amount, abi.encode(GAS_LIMIT, bob));
+        uint256 nonce = token.pendingNonce(alice);
+
+        // Stop the ongoing prank before using vm.prank
+        vm.stopPrank();
+
+        // Gateway reports exact needed availability
+        bytes memory message = abi.encode(int256(150e18)); // 100 local + 150 global = 250 exact
+        bytes memory extra = abi.encode(nonce);
+
+        vm.prank(address(gateways[0]));
+        token.onRead(message, extra);
+
+        // Verify transfer completed with exact match
+        assertEq(token.localBalanceOf(alice), -150e18);
+        assertEq(token.localBalanceOf(bob), 350e18);
+    }
+
+    /**
+     * @notice Test onRead with compose execution and native value
+     */
+    function test_onRead_composeWithNativeValue() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        Composable composer = new Composable();
+
+        // Alice initiates transfer with compose and native value
+        changePrank(alice, alice);
+        uint256 amount = 30e18;
+        uint256 nativeValue = 0.5 ether;
+        bytes memory callData = abi.encodeWithSelector(Composable.compose.selector, token, amount);
+        uint256 fee = token.quoteTransfer(address(composer), GAS_LIMIT);
+
+        token.transfer{ value: fee + nativeValue }(
+            address(composer), amount, callData, nativeValue, abi.encode(GAS_LIMIT, address(composer))
+        );
+
+        uint256 nonce = token.pendingNonce(alice);
+
+        // Stop the ongoing prank before using vm.prank
+        vm.stopPrank();
+
+        // Gateway executes
+        bytes memory message = abi.encode(int256(100e18));
+        bytes memory extra = abi.encode(nonce);
+
+        vm.prank(address(gateways[0]));
+        token.onRead(message, extra);
+
+        // Verify composer received tokens and native value
+        assertEq(token.balanceOf(address(composer)), amount);
+        assertEq(address(composer).balance, nativeValue);
+    }
+
+    /**
+     * @notice Test multiple sequential onRead calls
+     */
+    function test_onRead_multipleSequentialTransfers() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        // Setup multiple users with pending transfers
+        uint256[] memory nonces = new uint256[](3);
+
+        // Alice transfer
+        changePrank(alice, alice);
+        token.transfer{ value: token.quoteTransfer(bob, GAS_LIMIT) }(bob, 30e18, abi.encode(GAS_LIMIT, bob));
+        nonces[0] = token.pendingNonce(alice);
+
+        // Bob transfer
+        changePrank(bob, bob);
+        token.transfer{ value: token.quoteTransfer(charlie, GAS_LIMIT) }(charlie, 20e18, abi.encode(GAS_LIMIT, charlie));
+        nonces[1] = token.pendingNonce(bob);
+
+        // Charlie transfer
+        changePrank(charlie, charlie);
+        token.transfer{ value: token.quoteTransfer(alice, GAS_LIMIT) }(alice, 10e18, abi.encode(GAS_LIMIT, alice));
+        nonces[2] = token.pendingNonce(charlie);
+
+        // Execute all transfers via gateway
+        vm.startPrank(address(gateways[0]));
+
+        // Execute Alice's transfer
+        token.onRead(abi.encode(int256(100e18)), abi.encode(nonces[0]));
+        assertEq(token.localBalanceOf(alice), 70e18);
+        assertEq(token.localBalanceOf(bob), 130e18);
+
+        // Execute Bob's transfer
+        token.onRead(abi.encode(int256(100e18)), abi.encode(nonces[1]));
+        assertEq(token.localBalanceOf(bob), 110e18);
+        assertEq(token.localBalanceOf(charlie), 120e18);
+
+        // Execute Charlie's transfer
+        token.onRead(abi.encode(int256(100e18)), abi.encode(nonces[2]));
+        assertEq(token.localBalanceOf(charlie), 110e18);
+        assertEq(token.localBalanceOf(alice), 80e18);
+
+        vm.stopPrank();
+    }
+
     /*//////////////////////////////////////////////////////////////
                         INTEGRATION TESTS
     //////////////////////////////////////////////////////////////*/
