@@ -403,11 +403,15 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
         if (expectedError.length > 0) {
             vm.expectRevert(expectedError);
         }
+        // Create isContract array - all false for EOAs by default
+        bool[] memory isContract = new bool[](accounts.length);
+
         RemoteAppChronicle(chronicle).settleLiquidity(
             RemoteAppChronicle.SettleLiquidityParams({
                 timestamp: timestamp,
                 accounts: accounts,
                 liquidity: liquidity,
+                isContract: isContract,
                 totalLiquidity: totalLiquidity,
                 liquidityRoot: appLiquidityRoot,
                 proof: proof

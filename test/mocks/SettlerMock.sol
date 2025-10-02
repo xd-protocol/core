@@ -61,10 +61,13 @@ contract SettlerMock {
         // Get the current RemoteAppChronicle for this app and chainUID
         address chronicle = ILiquidityMatrix(liquidityMatrix).getCurrentRemoteAppChronicle(app, chainUID);
 
+        // Create isContract array - all false for EOAs by default in mock
+        bool[] memory isContract = new bool[](accounts.length);
+
         // Call settleLiquidity on the RemoteAppChronicle with Merkle proof
         RemoteAppChronicle(chronicle).settleLiquidity(
             RemoteAppChronicle.SettleLiquidityParams(
-                uint64(timestamp), accounts, liquidity, totalLiquidity, liquidityRoot, proof
+                uint64(timestamp), accounts, liquidity, isContract, totalLiquidity, liquidityRoot, proof
             )
         );
     }

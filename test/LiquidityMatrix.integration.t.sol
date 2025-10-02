@@ -1948,12 +1948,16 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
 
         bytes32[] memory proof = new bytes32[](0);
 
+        // Create isContract array - all false for EOAs
+        bool[] memory isContract = new bool[](accounts.length);
+
         vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 1));
         RemoteAppChronicle(remoteChronicle).settleLiquidity(
             RemoteAppChronicle.SettleLiquidityParams({
                 timestamp: 1000,
                 accounts: accounts,
                 liquidity: liquidity,
+                isContract: isContract,
                 totalLiquidity: 100e18,
                 liquidityRoot: bytes32(0),
                 proof: proof
@@ -2013,12 +2017,16 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         liquidity[0] = 100e18;
         bytes32[] memory proof = new bytes32[](0);
 
+        // Create isContract array - all false for EOAs
+        bool[] memory isContract = new bool[](accounts.length);
+
         vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 1));
         RemoteAppChronicle(remoteChronicle).settleLiquidity(
             RemoteAppChronicle.SettleLiquidityParams({
                 timestamp: 1000,
                 accounts: accounts,
                 liquidity: liquidity,
+                isContract: isContract,
                 totalLiquidity: 100e18,
                 liquidityRoot: bytes32(0),
                 proof: proof
@@ -2062,12 +2070,16 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
         liquidity[0] = 100e18;
         bytes32[] memory proof = new bytes32[](0);
 
+        // Create isContract array - all false for EOAs
+        bool[] memory isContract = new bool[](accounts.length);
+
         vm.expectRevert(abi.encodeWithSignature("ActionPaused(uint8)", 1));
         RemoteAppChronicle(remoteChronicle).settleLiquidity(
             RemoteAppChronicle.SettleLiquidityParams({
                 timestamp: 1000,
                 accounts: accounts,
                 liquidity: liquidity,
+                isContract: isContract,
                 totalLiquidity: 100e18,
                 liquidityRoot: bytes32(0),
                 proof: proof

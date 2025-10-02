@@ -1613,11 +1613,15 @@ contract LiquidityMatrixTest is LiquidityMatrixTestHelper {
             totalLiquidity += liquidity[i];
         }
 
+        // Create isContract array - all false for EOAs
+        bool[] memory isContract = new bool[](accounts.length);
+
         RemoteAppChronicle(chronicle).settleLiquidity(
             RemoteAppChronicle.SettleLiquidityParams({
                 timestamp: uint64(block.timestamp),
                 accounts: accounts,
                 liquidity: liquidity,
+                isContract: isContract,
                 totalLiquidity: totalLiquidity,
                 liquidityRoot: appLiquidityRoot,
                 proof: proof

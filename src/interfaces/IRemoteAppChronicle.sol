@@ -51,6 +51,11 @@ interface IRemoteAppChronicle {
      */
     error StaleTimestamp();
 
+    /**
+     * @notice Thrown when array parameters have mismatched lengths
+     */
+    error InvalidArrayLengths();
+
     /*//////////////////////////////////////////////////////////////
                             VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/

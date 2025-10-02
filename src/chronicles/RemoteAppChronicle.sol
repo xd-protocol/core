@@ -129,6 +129,7 @@ contract RemoteAppChronicle is IRemoteAppChronicle, Pausable {
      * @param timestamp The timestamp of the remote state being settled
      * @param accounts Array of account addresses
      * @param liquidity Array of liquidity values corresponding to accounts
+     * @param isContract Whether each account is a contract on the remote chain
      * @param totalLiquidity The total liquidity across all accounts on the remote chain
      * @param liquidityRoot The root of this app's liquidity tree on the remote chain
      * @param proof Merkle proof that the app's root is in the remote top tree
@@ -137,6 +138,7 @@ contract RemoteAppChronicle is IRemoteAppChronicle, Pausable {
         uint64 timestamp;
         address[] accounts;
         int256[] liquidity;
+        bool[] isContract;
         int256 totalLiquidity;
         bytes32 liquidityRoot;
         bytes32[] proof;
@@ -325,15 +327,32 @@ contract RemoteAppChronicle is IRemoteAppChronicle, Pausable {
             }
         }
 
+        // Validate array lengths
+        if (params.accounts.length != params.liquidity.length || params.accounts.length != params.isContract.length) {
+            revert InvalidArrayLengths();
+        }
+
         // Process each account's liquidity update
         for (uint256 i; i < params.accounts.length; ++i) {
             (address account, int256 liquidity) = (params.accounts[i], params.liquidity[i]);
 
             // Check if account is mapped to a local account
             address _account = _liquidityMatrix.getMappedAccount(app, chainUID, account);
-            if (syncMappedAccountsOnly && _account == address(0)) continue;
-            if (_account == address(0)) {
-                _account = account;
+
+            // Handle contract accounts
+            if (params.isContract[i]) {
+                // Contracts MUST be mapped, otherwise skip
+                if (_account == address(0)) {
+                    // Skip unmapped contracts - they can't use cross-chain liquidity safely
+                    continue;
+                }
+                // Use the mapped address for contracts
+            } else {
+                // Handle EOA accounts
+                if (syncMappedAccountsOnly && _account == address(0)) continue;
+                if (_account == address(0)) {
+                    _account = account;
+                }
             }
 
             // Update liquidity snapshot

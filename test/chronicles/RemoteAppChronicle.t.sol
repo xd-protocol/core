@@ -130,10 +130,13 @@ contract RemoteAppChronicleTest is Test {
         bytes32 liquidityRoot = keccak256("test_liquidity_root"); // Use standard test root
         address[] memory accounts = new address[](2);
         int256[] memory liquidity = new int256[](2);
+        bool[] memory isContract = new bool[](2);
         accounts[0] = makeAddr("alice");
         accounts[1] = makeAddr("bob");
         liquidity[0] = 1000;
         liquidity[1] = 500;
+        isContract[0] = false; // alice is EOA
+        isContract[1] = false; // bob is EOA
 
         // For single-node Merkle tree: root = keccak256(abi.encodePacked(key, value))
         // where key = bytes32(uint256(uint160(app))) and value = liquidityRoot
@@ -155,6 +158,7 @@ contract RemoteAppChronicleTest is Test {
             timestamp: TIMESTAMP_1,
             accounts: accounts,
             liquidity: liquidity,
+            isContract: isContract,
             totalLiquidity: totalLiq,
             liquidityRoot: liquidityRoot,
             proof: new bytes32[](0)
@@ -185,6 +189,7 @@ contract RemoteAppChronicleTest is Test {
             timestamp: TIMESTAMP_1,
             accounts: new address[](0),
             liquidity: new int256[](0),
+            isContract: new bool[](0),
             totalLiquidity: 0,
             liquidityRoot: bytes32(0),
             proof: new bytes32[](0)
@@ -203,12 +208,14 @@ contract RemoteAppChronicleTest is Test {
             timestamp: TIMESTAMP_1,
             accounts: new address[](1),
             liquidity: new int256[](1),
+            isContract: new bool[](1),
             totalLiquidity: 100,
             liquidityRoot: keccak256("test_liquidity_root"),
             proof: new bytes32[](0)
         });
         params.accounts[0] = makeAddr("alice");
         params.liquidity[0] = 100;
+        params.isContract[0] = false;
 
         vm.prank(settler);
         chronicle.settleLiquidity(params);
@@ -231,6 +238,7 @@ contract RemoteAppChronicleTest is Test {
             timestamp: TIMESTAMP_1,
             accounts: new address[](0),
             liquidity: new int256[](0),
+            isContract: new bool[](0),
             totalLiquidity: 0,
             liquidityRoot: keccak256("test_liquidity_root"),
             proof: new bytes32[](0)
@@ -260,6 +268,7 @@ contract RemoteAppChronicleTest is Test {
             timestamp: TIMESTAMP_1,
             accounts: new address[](0),
             liquidity: new int256[](0),
+            isContract: new bool[](0),
             totalLiquidity: 0,
             liquidityRoot: keccak256("test_liquidity_root"),
             proof: new bytes32[](0)
@@ -286,13 +295,16 @@ contract RemoteAppChronicleTest is Test {
 
         address[] memory accounts = new address[](1);
         int256[] memory liquidity = new int256[](1);
+        bool[] memory isContract = new bool[](1);
         accounts[0] = remoteAccount;
         liquidity[0] = liquidityAmount;
+        isContract[0] = false; // EOA
 
         RemoteAppChronicle.SettleLiquidityParams memory params = RemoteAppChronicle.SettleLiquidityParams({
             timestamp: TIMESTAMP_1,
             accounts: accounts,
             liquidity: liquidity,
+            isContract: isContract,
             totalLiquidity: liquidityAmount,
             liquidityRoot: keccak256("test_liquidity_root"),
             proof: new bytes32[](0)
@@ -319,13 +331,16 @@ contract RemoteAppChronicleTest is Test {
 
         address[] memory accounts = new address[](1);
         int256[] memory liquidity = new int256[](1);
+        bool[] memory isContract = new bool[](1);
         accounts[0] = unmappedAccount;
         liquidity[0] = 1000;
+        isContract[0] = false; // EOA
 
         RemoteAppChronicle.SettleLiquidityParams memory params = RemoteAppChronicle.SettleLiquidityParams({
             timestamp: TIMESTAMP_1,
             accounts: accounts,
             liquidity: liquidity,
+            isContract: isContract,
             totalLiquidity: 1000,
             liquidityRoot: keccak256("test_liquidity_root"),
             proof: new bytes32[](0)
@@ -338,6 +353,226 @@ contract RemoteAppChronicleTest is Test {
         assertEq(chronicle.getLiquidityAt(unmappedAccount, TIMESTAMP_1), 0);
         // But total liquidity is still set to settler's provided value
         assertEq(chronicle.getTotalLiquidityAt(TIMESTAMP_1), 1000);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                CONTRACT MAPPING TESTS  
+    //////////////////////////////////////////////////////////////*/
+
+    function test_settleLiquidity_unmappedContract_skipped() public {
+        // Unmapped contracts should be skipped regardless of syncMappedAccountsOnly setting
+        address contractAccount = makeAddr("contractAccount");
+        int256 liquidityAmount = 1000;
+
+        _setupValidLiquiditySettlementForTimestamp(TIMESTAMP_1);
+
+        address[] memory accounts = new address[](1);
+        int256[] memory liquidity = new int256[](1);
+        bool[] memory isContract = new bool[](1);
+        accounts[0] = contractAccount;
+        liquidity[0] = liquidityAmount;
+        isContract[0] = true; // Mark as contract
+
+        RemoteAppChronicle.SettleLiquidityParams memory params = RemoteAppChronicle.SettleLiquidityParams({
+            timestamp: TIMESTAMP_1,
+            accounts: accounts,
+            liquidity: liquidity,
+            isContract: isContract,
+            totalLiquidity: liquidityAmount,
+            liquidityRoot: keccak256("test_liquidity_root"),
+            proof: new bytes32[](0)
+        });
+
+        vm.prank(settler);
+        chronicle.settleLiquidity(params);
+
+        // Contract should be skipped - liquidity not settled
+        assertEq(chronicle.getLiquidityAt(contractAccount, TIMESTAMP_1), 0);
+        // But total liquidity is still set
+        assertEq(chronicle.getTotalLiquidityAt(TIMESTAMP_1), liquidityAmount);
+    }
+
+    function test_settleLiquidity_unmappedContract_skipped_syncMappedAccountsOnlyTrue() public {
+        // Even with syncMappedAccountsOnly=true, unmapped contracts should be skipped
+        vm.mockCall(
+            liquidityMatrix,
+            abi.encodeWithSelector(ILiquidityMatrix.getAppSetting.selector, app),
+            abi.encode(true, true, false, settler) // syncMappedAccountsOnly = true
+        );
+
+        address contractAccount = makeAddr("contractAccount");
+        int256 liquidityAmount = 1000;
+
+        _setupValidLiquiditySettlementForTimestamp(TIMESTAMP_1);
+
+        address[] memory accounts = new address[](1);
+        int256[] memory liquidity = new int256[](1);
+        bool[] memory isContract = new bool[](1);
+        accounts[0] = contractAccount;
+        liquidity[0] = liquidityAmount;
+        isContract[0] = true; // Mark as contract
+
+        RemoteAppChronicle.SettleLiquidityParams memory params = RemoteAppChronicle.SettleLiquidityParams({
+            timestamp: TIMESTAMP_1,
+            accounts: accounts,
+            liquidity: liquidity,
+            isContract: isContract,
+            totalLiquidity: liquidityAmount,
+            liquidityRoot: keccak256("test_liquidity_root"),
+            proof: new bytes32[](0)
+        });
+
+        vm.prank(settler);
+        chronicle.settleLiquidity(params);
+
+        // Contract should be skipped - liquidity not settled
+        assertEq(chronicle.getLiquidityAt(contractAccount, TIMESTAMP_1), 0);
+        // But total liquidity is still set
+        assertEq(chronicle.getTotalLiquidityAt(TIMESTAMP_1), liquidityAmount);
+    }
+
+    function test_settleLiquidity_mappedContract_settled() public {
+        // Mapped contracts should be settled using their mapped address
+        address remoteContract = makeAddr("remoteContract");
+        address localContract = makeAddr("localContract");
+        int256 liquidityAmount = 1000;
+
+        // Mock contract mapping
+        vm.mockCall(
+            liquidityMatrix,
+            abi.encodeWithSelector(ILiquidityMatrix.getMappedAccount.selector, app, CHAIN_UID, remoteContract),
+            abi.encode(localContract)
+        );
+
+        _setupValidLiquiditySettlementForTimestamp(TIMESTAMP_1);
+
+        address[] memory accounts = new address[](1);
+        int256[] memory liquidity = new int256[](1);
+        bool[] memory isContract = new bool[](1);
+        accounts[0] = remoteContract;
+        liquidity[0] = liquidityAmount;
+        isContract[0] = true; // Mark as contract
+
+        RemoteAppChronicle.SettleLiquidityParams memory params = RemoteAppChronicle.SettleLiquidityParams({
+            timestamp: TIMESTAMP_1,
+            accounts: accounts,
+            liquidity: liquidity,
+            isContract: isContract,
+            totalLiquidity: liquidityAmount,
+            liquidityRoot: keccak256("test_liquidity_root"),
+            proof: new bytes32[](0)
+        });
+
+        vm.prank(settler);
+        chronicle.settleLiquidity(params);
+
+        // Liquidity should be stored under the mapped local contract
+        assertEq(chronicle.getLiquidityAt(localContract, TIMESTAMP_1), liquidityAmount);
+        assertEq(chronicle.getLiquidityAt(remoteContract, TIMESTAMP_1), 0);
+        assertEq(chronicle.getTotalLiquidityAt(TIMESTAMP_1), liquidityAmount);
+    }
+
+    function test_settleLiquidity_mixedAccountTypes() public {
+        // Test with mix of EOAs and contracts (mapped and unmapped)
+        address eoaUnmapped = makeAddr("eoaUnmapped");
+        address eoaMapped = makeAddr("eoaMapped");
+        address eoaMappedLocal = makeAddr("eoaMappedLocal");
+        address contractUnmapped = makeAddr("contractUnmapped");
+        address contractMapped = makeAddr("contractMapped");
+        address contractMappedLocal = makeAddr("contractMappedLocal");
+
+        // Mock mappings
+        vm.mockCall(
+            liquidityMatrix,
+            abi.encodeWithSelector(ILiquidityMatrix.getMappedAccount.selector, app, CHAIN_UID, eoaMapped),
+            abi.encode(eoaMappedLocal)
+        );
+        vm.mockCall(
+            liquidityMatrix,
+            abi.encodeWithSelector(ILiquidityMatrix.getMappedAccount.selector, app, CHAIN_UID, contractMapped),
+            abi.encode(contractMappedLocal)
+        );
+
+        _setupValidLiquiditySettlementForTimestamp(TIMESTAMP_1);
+
+        address[] memory accounts = new address[](4);
+        int256[] memory liquidity = new int256[](4);
+        bool[] memory isContract = new bool[](4);
+
+        accounts[0] = eoaUnmapped;
+        liquidity[0] = 100;
+        isContract[0] = false;
+
+        accounts[1] = eoaMapped;
+        liquidity[1] = 200;
+        isContract[1] = false;
+
+        accounts[2] = contractUnmapped;
+        liquidity[2] = 300;
+        isContract[2] = true;
+
+        accounts[3] = contractMapped;
+        liquidity[3] = 400;
+        isContract[3] = true;
+
+        RemoteAppChronicle.SettleLiquidityParams memory params = RemoteAppChronicle.SettleLiquidityParams({
+            timestamp: TIMESTAMP_1,
+            accounts: accounts,
+            liquidity: liquidity,
+            isContract: isContract,
+            totalLiquidity: 1000,
+            liquidityRoot: keccak256("test_liquidity_root"),
+            proof: new bytes32[](0)
+        });
+
+        vm.prank(settler);
+        chronicle.settleLiquidity(params);
+
+        // EOA unmapped: uses original address
+        assertEq(chronicle.getLiquidityAt(eoaUnmapped, TIMESTAMP_1), 100);
+
+        // EOA mapped: uses mapped address
+        assertEq(chronicle.getLiquidityAt(eoaMappedLocal, TIMESTAMP_1), 200);
+        assertEq(chronicle.getLiquidityAt(eoaMapped, TIMESTAMP_1), 0);
+
+        // Contract unmapped: skipped
+        assertEq(chronicle.getLiquidityAt(contractUnmapped, TIMESTAMP_1), 0);
+
+        // Contract mapped: uses mapped address
+        assertEq(chronicle.getLiquidityAt(contractMappedLocal, TIMESTAMP_1), 400);
+        assertEq(chronicle.getLiquidityAt(contractMapped, TIMESTAMP_1), 0);
+
+        // Total liquidity still includes all
+        assertEq(chronicle.getTotalLiquidityAt(TIMESTAMP_1), 1000);
+    }
+
+    function test_settleLiquidity_arrayLengthMismatch_reverts() public {
+        // Test that mismatched array lengths revert
+        _setupValidLiquiditySettlementForTimestamp(TIMESTAMP_1);
+
+        address[] memory accounts = new address[](2);
+        int256[] memory liquidity = new int256[](2);
+        bool[] memory isContract = new bool[](1); // Wrong length
+
+        accounts[0] = makeAddr("account1");
+        accounts[1] = makeAddr("account2");
+        liquidity[0] = 100;
+        liquidity[1] = 200;
+        isContract[0] = false;
+
+        RemoteAppChronicle.SettleLiquidityParams memory params = RemoteAppChronicle.SettleLiquidityParams({
+            timestamp: TIMESTAMP_1,
+            accounts: accounts,
+            liquidity: liquidity,
+            isContract: isContract,
+            totalLiquidity: 300,
+            liquidityRoot: keccak256("test_liquidity_root"),
+            proof: new bytes32[](0)
+        });
+
+        vm.prank(settler);
+        vm.expectRevert(IRemoteAppChronicle.InvalidArrayLengths.selector);
+        chronicle.settleLiquidity(params);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -520,12 +755,14 @@ contract RemoteAppChronicleTest is Test {
             timestamp: TIMESTAMP_1,
             accounts: new address[](1),
             liquidity: new int256[](1),
+            isContract: new bool[](1),
             totalLiquidity: 100,
             liquidityRoot: keccak256("test_liquidity_root"),
             proof: new bytes32[](0)
         });
         params.accounts[0] = makeAddr("alice");
         params.liquidity[0] = 100;
+        params.isContract[0] = false;
 
         vm.prank(settler);
         vm.expectRevert(IRemoteAppChronicle.StaleTimestamp.selector);
@@ -1559,13 +1796,16 @@ contract RemoteAppChronicleTest is Test {
 
         address[] memory accounts = new address[](1);
         int256[] memory liquidity = new int256[](1);
+        bool[] memory isContract = new bool[](1);
         accounts[0] = alice;
         liquidity[0] = liquidityAmount;
+        isContract[0] = false; // EOA
 
         RemoteAppChronicle.SettleLiquidityParams memory params = RemoteAppChronicle.SettleLiquidityParams({
             timestamp: TIMESTAMP_1,
             accounts: accounts,
             liquidity: liquidity,
+            isContract: isContract,
             totalLiquidity: liquidityAmount,
             liquidityRoot: keccak256("test_liquidity_root"),
             proof: new bytes32[](0)
@@ -1656,6 +1896,7 @@ contract RemoteAppChronicleTest is Test {
             timestamp: TIMESTAMP_1,
             accounts: new address[](0),
             liquidity: new int256[](0),
+            isContract: new bool[](0),
             totalLiquidity: 0,
             liquidityRoot: keccak256("test_liquidity_root"),
             proof: new bytes32[](0)
@@ -1853,10 +2094,14 @@ contract RemoteAppChronicleTest is Test {
             abi.encode(expectedTopRoot)
         );
 
+        // Create isContract array - all false for EOAs
+        bool[] memory isContract = new bool[](accounts.length);
+
         RemoteAppChronicle.SettleLiquidityParams memory params = RemoteAppChronicle.SettleLiquidityParams({
             timestamp: 1000,
             accounts: accounts,
             liquidity: liquidity,
+            isContract: isContract,
             totalLiquidity: providedTotal,
             liquidityRoot: liquidityRoot,
             proof: new bytes32[](0)
@@ -1969,10 +2214,14 @@ contract RemoteAppChronicleTest is Test {
             totalLiq += liquidity[i];
         }
 
+        // Create isContract array - all false for EOAs
+        bool[] memory isContract = new bool[](accounts.length);
+
         RemoteAppChronicle.SettleLiquidityParams memory params = RemoteAppChronicle.SettleLiquidityParams({
             timestamp: timestamp,
             accounts: accounts,
             liquidity: liquidity,
+            isContract: isContract,
             totalLiquidity: totalLiq,
             liquidityRoot: keccak256("test_liquidity_root"), // Match the helper function
             proof: new bytes32[](0)
@@ -2014,10 +2263,14 @@ contract RemoteAppChronicleTest is Test {
         int256[] memory liquidity,
         int256 totalLiquidity
     ) internal {
+        // Create isContract array - all false for EOAs
+        bool[] memory isContract = new bool[](accounts.length);
+
         RemoteAppChronicle.SettleLiquidityParams memory params = RemoteAppChronicle.SettleLiquidityParams({
             timestamp: timestamp,
             accounts: accounts,
             liquidity: liquidity,
+            isContract: isContract,
             totalLiquidity: totalLiquidity,
             liquidityRoot: keccak256("test_liquidity_root"),
             proof: new bytes32[](0)

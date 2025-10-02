@@ -442,11 +442,12 @@ contract RemoteAppChronicleDeployerTest is Test {
 
         uint256 gasUsed = gasBefore - gasleft();
 
-        // Gas usage should be reasonable (less than 2M gas for contract creation)
-        assertTrue(gasUsed < 2_000_000);
+        // Gas usage should be reasonable (less than 2.1M gas for contract creation)
+        // Increased slightly due to isContract parameter addition
+        assertTrue(gasUsed < 2_100_000);
 
         // Should use substantial gas due to contract creation
-        assertTrue(gasUsed > 1_000_000);
+        assertTrue(gasUsed > 1_900_000);
     }
 
     function test_gasUsage_computeAddress() public view {
