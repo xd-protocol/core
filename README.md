@@ -19,7 +19,8 @@ xD Protocol implements a hub-and-spoke architecture where:
 - **Chronicle contracts** provide versioned state management with reorg protection
 - **Gateway system** handles cross-chain communication via LayerZero
 - **Cross-chain tokens** (ERC20xD, WrappedERC20xD, NativexD) enable seamless transfers between chains
-- **Hook system** provides extensibility for custom logic (dividends, vaults, etc.) - **moved to periphery repository**
+- **Hook System**: Provides extensibility for custom logic (dividends, vaults, etc.)
+- **User Wallet System**: Enables secure composable operations with deterministic wallet addresses
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
@@ -42,7 +43,7 @@ xD Protocol implements a hub-and-spoke architecture where:
 
 ## Core Contracts
 
-### Primary Contracts (31 source files total)
+### Primary Contracts (38 source files total)
 
 #### Central Ledger
 - **`LiquidityMatrix.sol`** - Core ledger managing cross-chain liquidity and data state
@@ -63,15 +64,21 @@ xD Protocol implements a hub-and-spoke architecture where:
 #### Cross-Chain Communication
 - **`LayerZeroGateway.sol`** - LayerZero-based gateway for cross-chain messaging and reads
 
+#### User Wallet System (Composable Operations)
+- **`UserWallet.sol`** - Deterministic wallet for secure composable operations
+- **`UserWalletFactory.sol`** - Factory for creating user wallets via CREATE2
+- **`TokenRegistry.sol`** - Registry managing token permissions for wallets
+
 #### Libraries
 - **`MerkleTreeLib.sol`** - Optimized Merkle tree operations for state proofs
 - **`SnapshotsLib.sol`** - Time-based state snapshots with binary search
 - **`AddressLib.sol`** - Native asset transfer utilities
 - **`ArrayLib.sol`** - Sorted array operations
 
-#### Hook System
+#### Hook System & Security
 - **`BaseERC20xDHook.sol`** - Abstract base for implementing token hooks
 - **`IERC20xDHook.sol`** - Interface for extensible token callbacks
+- **`Pausable.sol`** - Fine-grained pause control for specific actions
 - **Note**: Concrete hook implementations moved to separate periphery repository
 
 ## Key Components
@@ -128,17 +135,22 @@ All tokens inherit from `BaseERC20xD` which provides:
 - **Pending Transfer Management**: Tracks transfers awaiting settlement
 - **Hook System**: Extensible callback system for custom logic
 - **Settlement Callbacks**: Implements `ILiquidityMatrixHook` for state updates
+- **User Wallet Integration**: Support for secure composable operations via UserWallet
 - **Security Enhancement**: Removed EIP-2612 permit functionality to reduce attack surface
+- **Pausable Actions**: Fine-grained pause control for transfer operations
 
 **Critical Transfer Logic:**
 ```solidity
 function transfer(
     address to,
     uint256 amount,
-    bytes calldata callData,
-    uint256 value,
-    bytes calldata data
+    bytes calldata callData,  // For composable operations
+    uint256 value,             // Native value for composable calls
+    bytes calldata data        // Cross-chain parameters (gasLimit, refundTo)
 ) external payable;
+
+// Cross-chain availability callback
+function onRead(bytes calldata message, bytes calldata extra) external;
 ```
 
 ### 4. Hook System
@@ -148,6 +160,14 @@ Provides extensibility through callback interfaces:
 - **`ILiquidityMatrixHook`**: Settlement notification hooks
 - **Hook Failure Handling**: Failed hooks emit events but don't revert transactions
 - **Separation of Concerns**: Concrete implementations moved to periphery repository
+
+### 5. User Wallet System
+Enables secure composable operations:
+
+- **Deterministic Addresses**: CREATE2-based wallet deployment per user
+- **Token Registry**: Manages which tokens can use wallet for operations
+- **Isolated Execution**: Each user's operations isolated in their own wallet
+- **Native Value Support**: Handles ETH/native token transfers in composable calls
 
 ## Security Features
 
@@ -168,12 +188,15 @@ Provides extensibility through callback interfaces:
 - **Settlement Tracking**: Remote settlements tracked until both liquidity and data finalized
 - **Atomic Operations**: State updates are atomic within each function call
 - **Data Fetching**: Hook settlements now fetch data directly from LiquidityMatrix
+- **Nonce Management**: Prevents double-spending with pending transfer tracking
 
 ### 4. Cross-Chain Security
 - **Trust-Based Settlement**: Current implementation trusts whitelisted settlers (no proof verification)
 - **Hook Failure Isolation**: Failed hook calls don't compromise core operations
 - **Gateway Abstraction**: Pluggable gateway system allows multiple bridge providers
 - **Reduced Attack Surface**: Removed permit functionality from base ERC20 implementation
+- **Composable Security**: UserWallet system isolates composable operations
+- **Pausable Actions**: Emergency pause capability without full system shutdown
 
 ## Development & Testing
 
@@ -182,7 +205,7 @@ Provides extensibility through callback interfaces:
 # Build contracts
 make build
 
-# Run all tests (294 tests across 11 suites)
+# Run all tests (666 tests passing, 2 skipped)
 make test
 
 # Run specific test patterns
@@ -197,13 +220,13 @@ make test-gas
 ```
 
 ### Test Coverage
-- **294 total tests** across core functionality - all passing
+- **666 tests passing** across 21 test suites (668 total tests, 2 skipped)
 - **Integration tests** for multi-chain scenarios and reorg handling
 - **Fuzz tests** for edge cases and invariants
 - **Hook system tests** for extensibility and failure handling
 - **Reorg scenario tests** for version management and historical access
 
-### Key Test Files (24 test files total)
+### Key Test Files (41 test files total)
 ```
 test/
 ├── LiquidityMatrix.t.sol              # Core ledger unit tests
@@ -211,7 +234,13 @@ test/
 ├── ERC20xD.t.sol                      # Standard token tests  
 ├── WrappedERC20xD.t.sol              # Wrapper token tests
 ├── NativexD.t.sol                     # Native asset tests
-├── mixins/BaseERC20xD.hooks.t.sol     # Hook system tests
+├── mixins/
+│   ├── BaseERC20xD.t.sol             # Base token tests with onRead functionality
+│   ├── BaseERC20xD.hooks.t.sol       # Hook system tests
+│   ├── BaseERC20xD.userwallet.t.sol  # User wallet integration tests
+│   └── BaseERC20xD.mapping.t.sol     # Account mapping tests
+├── wallet/
+│   └── UserWallet.t.sol              # User wallet and registry tests
 └── libraries/                         # Library unit tests
     ├── MerkleTreeLib.t.sol           # Merkle tree operations
     ├── SnapshotsLib.t.sol            # Time-based snapshots
@@ -235,6 +264,9 @@ test/
 - ✅ **Simplified access control** by removing unused modifiers
 - ✅ **Improved function naming** with `getRemote*` prefix for clarity
 - ✅ **Moved hook implementations** to separate periphery repository
+- ✅ **Added UserWallet system** for secure composable operations
+- ✅ **Implemented pausable actions** with fine-grained control
+- ✅ **Fixed onRead functionality** for cross-chain transfer execution
 
 ### Critical Areas for Review
 
@@ -254,6 +286,8 @@ test/
 - Settlement processing and validation
 - Hook system security and failure handling
 - Data fetching in `onSettleData` callbacks
+- UserWallet integration for composable operations
+- onRead callback for cross-chain availability checks
 
 #### 4. Economic Security
 - Liquidity accounting across chains
@@ -279,15 +313,20 @@ test/
 - **Permit removal**: Eliminated EIP-2612 to reduce complexity and attack surface
 - **Function naming**: `getRemote*` prefix clarifies cross-chain data access
 - **Data consistency**: Hooks fetch data from authoritative source (LiquidityMatrix)
+- **UserWallet system**: Secure execution context for composable operations
+- **Pausable pattern**: Fine-grained pause control without disrupting all operations
+- **Settlement with contracts**: Support for settling liquidity with contract addresses
 
 ### Development Status
 - ✅ Core architecture implemented and battle-tested
-- ✅ Full test suite (294 tests) with comprehensive coverage
+- ✅ Full test suite (666 passing tests) with comprehensive coverage
 - ✅ Reorg protection via chronicle system with historical access
 - ✅ Security hardening (permit removal, access control simplification)
 - ✅ Code organization (hook separation, clear naming conventions)
+- ✅ UserWallet system for secure composable operations
+- ✅ Pausable actions with fine-grained control
+- ✅ Support for contract address settlements
 - 🔄 Security audits in progress
-- 🔄 Formal verification planned
 
 ---
 
