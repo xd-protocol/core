@@ -169,14 +169,23 @@ contract LocalAppChronicle is ILocalAppChronicle, Pausable {
         whenNotPaused(ACTION_UPDATE_LIQUIDITY)
         returns (uint256 topTreeIndex, uint256 appTreeIndex)
     {
+        // Update account liquidity in the tree
         appTreeIndex = _liquidityTree.update(bytes32(uint256(uint160(account))), bytes32(uint256(liquidity)));
-        topTreeIndex = ILiquidityMatrix(liquidityMatrix).updateTopLiquidityTree(version, app, _liquidityTree.getRoot());
 
+        // Calculate new total liquidity
         int256 oldTotalLiquidity = _totalLiquidity.getAsInt();
         int256 oldLiquidity = _liquidity[account].getAsInt();
         _liquidity[account].setAsInt(liquidity);
         int256 newTotalLiquidity = oldTotalLiquidity - oldLiquidity + liquidity;
         _totalLiquidity.setAsInt(newTotalLiquidity);
+
+        // Create composite hash of liquidity tree root and total liquidity
+        // This allows future Settler contracts to verify both the Merkle tree AND total liquidity
+        bytes32 liquidityTreeRoot = _liquidityTree.getRoot();
+        bytes32 compositeRoot = keccak256(abi.encodePacked(liquidityTreeRoot, bytes32(uint256(newTotalLiquidity))));
+
+        // Update top tree with composite root that commits to both individual liquidities and total
+        topTreeIndex = ILiquidityMatrix(liquidityMatrix).updateTopLiquidityTree(version, app, compositeRoot);
 
         emit UpdateLiquidity(topTreeIndex, account, appTreeIndex, uint64(block.timestamp));
     }

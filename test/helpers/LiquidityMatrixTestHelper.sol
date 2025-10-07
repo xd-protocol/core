@@ -380,26 +380,30 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
     ) internal {
         (address _remoteApp, uint256 remoteAppIndex) = localMatrix.getRemoteApp(app, chainUID);
 
-        bytes32 appLiquidityRoot =
-            ILocalAppChronicle(remoteMatrix.getCurrentLocalAppChronicle(_remoteApp)).getLiquidityRoot();
+        // Get the raw liquidity root from the chronicle
+        ILocalAppChronicle remoteChronicle = ILocalAppChronicle(remoteMatrix.getCurrentLocalAppChronicle(_remoteApp));
+        bytes32 appLiquidityRoot = remoteChronicle.getLiquidityRoot();
+
+        // Get the actual total liquidity from the remote chronicle
+        // This ensures we use the same value that was used to create the composite root
+        int256 totalLiquidity = remoteChronicle.getTotalLiquidity();
+
+        // Create composite root that matches what's stored in the top tree
+        // This is the same calculation done in LocalAppChronicle.updateLiquidity()
+        bytes32 compositeRoot = keccak256(abi.encodePacked(appLiquidityRoot, bytes32(uint256(totalLiquidity))));
 
         // Create a simple top tree with just this app for testing
         bytes32[] memory appKeys = new bytes32[](1);
         bytes32[] memory appRoots = new bytes32[](1);
         appKeys[0] = bytes32(uint256(uint160(_remoteApp)));
-        appRoots[0] = appLiquidityRoot;
+        appRoots[0] = compositeRoot; // Use composite root instead of raw root
         // Get the proof for this app in the top tree
         bytes32[] memory proof = MerkleTreeLib.getProof(appKeys, appRoots, remoteAppIndex);
 
         // Get the RemoteAppChronicle and settle liquidity
         address chronicle = localMatrix.getCurrentRemoteAppChronicle(app, chainUID);
 
-        // Calculate total liquidity
-        int256 totalLiquidity = 0;
-        for (uint256 i = 0; i < liquidity.length; i++) {
-            totalLiquidity += liquidity[i];
-        }
-
+        // Total liquidity already calculated above
         if (expectedError.length > 0) {
             vm.expectRevert(expectedError);
         }
@@ -413,7 +417,7 @@ abstract contract LiquidityMatrixTestHelper is TestHelperOz5 {
                 liquidity: liquidity,
                 isContract: isContract,
                 totalLiquidity: totalLiquidity,
-                liquidityRoot: appLiquidityRoot,
+                liquidityRoot: compositeRoot, // Pass composite root, not raw root
                 proof: proof
             })
         );
