@@ -442,12 +442,12 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         bytes memory callData = abi.encodeWithSelector(Composable.compose.selector, address(token), 50e18);
         uint256 nativeValue = 1e18;
 
-        uint256 fee = token.quoteTransfer(alice, 1_000_000);
+        uint256 fee = token.quoteTransfer(alice, GAS_LIMIT);
         vm.deal(alice, fee + nativeValue);
 
         vm.prank(alice);
         token.transfer{ value: fee + nativeValue }(
-            address(composable), 50e18, callData, nativeValue, abi.encode(1_000_000, alice)
+            address(composable), 50e18, callData, nativeValue, abi.encode(GAS_LIMIT, alice)
         );
 
         // Execute with compose
@@ -532,10 +532,10 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         uint256 amount = 50e18;
         bytes memory callData =
             abi.encodeWithSelector(MaliciousComposable.attemptUnauthorizedSpender.selector, address(token), amount);
-        uint256 fee = token.quoteTransfer(alice, 1_000_000);
+        uint256 fee = token.quoteTransfer(alice, GAS_LIMIT);
 
         // This should work normally - transfer to malicious contract with callData
-        token.transfer{ value: fee }(address(malicious), amount, callData, 0, abi.encode(1_000_000, alice));
+        token.transfer{ value: fee }(address(malicious), amount, callData, 0, abi.encode(GAS_LIMIT, alice));
 
         // Execute the transfer - the malicious contract will try to spend but should be blocked
         // The compose call will revert with UnauthorizedComposeSpender wrapped in CallFailure
@@ -574,10 +574,10 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
             amount,
             charlie // Try to spend from charlie who is not the funding source
         );
-        uint256 fee = token.quoteTransfer(alice, 1_000_000);
+        uint256 fee = token.quoteTransfer(alice, GAS_LIMIT);
 
         // This transfer should fail when the malicious contract tries to spend from unauthorized source
-        token.transfer{ value: fee }(address(malicious), amount, callData, 0, abi.encode(1_000_000, alice));
+        token.transfer{ value: fee }(address(malicious), amount, callData, 0, abi.encode(GAS_LIMIT, alice));
 
         // Execute the transfer - should fail due to unauthorized source
         // The compose call will revert with UnauthorizedComposeSource wrapped in CallFailure
@@ -611,10 +611,10 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
             address(token),
             amount + 1e18 // Try to spend more than was provided
         );
-        uint256 fee = token.quoteTransfer(alice, 1_000_000);
+        uint256 fee = token.quoteTransfer(alice, GAS_LIMIT);
 
         // This transfer should fail when trying to exceed max spendable
-        token.transfer{ value: fee }(address(malicious), amount, callData, 0, abi.encode(1_000_000, alice));
+        token.transfer{ value: fee }(address(malicious), amount, callData, 0, abi.encode(GAS_LIMIT, alice));
 
         // Execute the transfer - should fail due to exceeding max spendable
         // The compose call will revert with InsufficientBalance wrapped in CallFailure
@@ -637,10 +637,11 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         changePrank(alice, alice);
         uint256 amount = 50e18;
         bytes memory callData = abi.encodeWithSelector(Composable.compose.selector, address(token), amount);
-        uint256 fee = token.quoteTransfer(alice, 1_000_000);
+        uint128 gasLimit = GAS_LIMIT;
+        uint256 fee = token.quoteTransfer(alice, gasLimit);
 
         // This should work - legitimate composition
-        token.transfer{ value: fee }(address(composable), amount, callData, 0, abi.encode(1_000_000, alice));
+        token.transfer{ value: fee }(address(composable), amount, callData, 0, abi.encode(gasLimit, alice));
 
         // Execute the transfer - should succeed
         vm.expectEmit();
@@ -688,10 +689,10 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         bytes memory callData = abi.encodeWithSelector(
             VulnerabilityTestComposer.doCompose.selector, address(token), amount, address(maliciousParty)
         );
-        uint256 fee = token.quoteTransfer(alice, 1_000_000);
+        uint256 fee = token.quoteTransfer(alice, GAS_LIMIT);
 
         // Initiate the transfer with compose
-        token.transfer{ value: fee }(address(legitimateComposer), amount, callData, 0, abi.encode(1_000_000, alice));
+        token.transfer{ value: fee }(address(legitimateComposer), amount, callData, 0, abi.encode(GAS_LIMIT, alice));
 
         // Execute the transfer - the legitimate composer will try to have third parties exploit compose mode
         _executeTransfer(token, alice, "");
@@ -727,9 +728,9 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         uint256 amount = 30e18;
         bytes memory callData =
             abi.encodeWithSelector(VulnerabilityTestComposer.simpleCompose.selector, address(token), amount);
-        uint256 fee = token.quoteTransfer(alice, 1_000_000);
+        uint256 fee = token.quoteTransfer(alice, GAS_LIMIT);
 
-        token.transfer{ value: fee }(address(simpleComposer), amount, callData, 0, abi.encode(1_000_000, alice));
+        token.transfer{ value: fee }(address(simpleComposer), amount, callData, 0, abi.encode(GAS_LIMIT, alice));
 
         // Execute - should succeed because simple composer is the authorized spender
         _executeTransfer(token, alice, "");
@@ -1105,7 +1106,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         uint256 amount = 100e18;
         bytes memory callData = abi.encodeWithSelector(Composable.compose.selector, local, amount);
         uint256 native = 1e18;
-        uint96 gasLimit = 1_000_000;
+        uint96 gasLimit = 12_000_000;
         uint256 fee = local.quoteTransfer(bob, gasLimit);
         local.transfer{ value: fee + native }(
             address(composable), amount, callData, native, abi.encode(gasLimit, address(composable))
@@ -1415,7 +1416,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         uint256 amount = 100e18;
         bytes memory callData = abi.encodeWithSelector(Composable.compose.selector, address(erc20s[0]), amount);
         uint256 nativeValue = 2e18;
-        uint96 gasLimit = 1_000_000;
+        uint96 gasLimit = 12_000_000;
         uint256 fee = erc20s[0].quoteTransfer(alice, gasLimit);
 
         erc20s[0].transfer{ value: fee + nativeValue }(

@@ -42,6 +42,8 @@ contract UserWalletTest is Test {
         // Fund wallet with tokens and ETH
         token.mint(address(wallet), 1000e18);
         vm.deal(address(wallet), 10 ether);
+        // Fund user for sending msg.value to wallet.execute
+        vm.deal(user, 10 ether);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -64,7 +66,7 @@ contract UserWalletTest is Test {
             address(token), 0, callData, true, hex"0000000000000000000000000000000000000000000000000000000000000001"
         );
 
-        (bool success, bytes memory result) = wallet.execute(address(token), 0, callData);
+        (bool success, bytes memory result) = wallet.execute(address(token), callData);
         assertTrue(success);
 
         assertEq(token.balanceOf(attacker), 100e18);
@@ -76,7 +78,7 @@ contract UserWalletTest is Test {
 
         bytes memory callData = abi.encodeWithSignature("transfer(address,uint256)", user, 50e18);
 
-        (bool success, bytes memory result) = wallet.execute(address(token), 0, callData);
+        (bool success, bytes memory result) = wallet.execute(address(token), callData);
         assertTrue(success);
 
         assertEq(token.balanceOf(user), 50e18);
@@ -88,7 +90,7 @@ contract UserWalletTest is Test {
 
         uint256 balanceBefore = attacker.balance;
 
-        (bool success, bytes memory result) = wallet.execute(attacker, 1 ether, "");
+        (bool success, bytes memory result) = wallet.execute{ value: 1 ether }(attacker, "");
         assertTrue(success);
 
         assertEq(attacker.balance - balanceBefore, 1 ether);
@@ -99,17 +101,17 @@ contract UserWalletTest is Test {
         vm.prank(attacker);
 
         vm.expectRevert(IUserWallet.Unauthorized.selector);
-        wallet.execute(address(token), 0, "");
+        wallet.execute(address(token), "");
     }
 
     function test_wallet_execute_preventSelfCall() public {
         // Cannot call wallet itself to prevent storage corruption
         vm.prank(user);
 
-        bytes memory callData = abi.encodeWithSignature("execute(address,uint256,bytes)", attacker, 1 ether, "");
+        bytes memory callData = abi.encodeWithSignature("execute(address,bytes)", attacker, "");
 
         vm.expectRevert(IUserWallet.SelfCallNotAllowed.selector);
-        wallet.execute(address(wallet), 0, callData);
+        wallet.execute(address(wallet), callData);
     }
 
     function test_wallet_execute_preventRegistryCall() public {
@@ -119,7 +121,7 @@ contract UserWalletTest is Test {
         bytes memory callData = abi.encodeWithSignature("registerToken(address,bool)", attacker, true);
 
         vm.expectRevert(IUserWallet.CannotCallRegistry.selector);
-        wallet.execute(address(registry), 0, callData);
+        wallet.execute(address(registry), callData);
     }
 
     function test_wallet_query() public {
@@ -321,7 +323,7 @@ contract UserWalletTest is Test {
         vm.prank(address(token));
         bytes memory callData = abi.encodeWithSignature("transfer(address,uint256)", recipient, 200e18);
 
-        (bool success2, bytes memory result2) = wallet.execute(address(token), 0, callData);
+        (bool success2, bytes memory result2) = wallet.execute(address(token), callData);
         assertTrue(success2);
 
         assertEq(token.balanceOf(recipient), 200e18);
@@ -335,12 +337,11 @@ contract UserWalletTest is Test {
         // User cannot be tricked into calling malicious contract from unregistered address
         vm.prank(attacker);
         vm.expectRevert(IUserWallet.Unauthorized.selector);
-        wallet.execute(address(malicious), 0, abi.encodeWithSignature("drain()"));
+        wallet.execute(address(malicious), abi.encodeWithSignature("drain()"));
 
         // Even if user calls it, wallet isolates the damage
         vm.prank(user);
-        (bool success3, bytes memory result3) =
-            wallet.execute(address(malicious), 0, abi.encodeWithSignature("drain()"));
+        (bool success3, bytes memory result3) = wallet.execute(address(malicious), abi.encodeWithSignature("drain()"));
         assertTrue(success3);
 
         // Only wallet's assets are at risk, not token contract's
@@ -348,13 +349,13 @@ contract UserWalletTest is Test {
     }
 
     function testFuzz_wallet_execute(address target, uint256 value, bytes memory data) public {
+        // ensure caller has enough ETH to send
+        vm.assume(value <= 10 ether);
         vm.assume(target != address(0));
         vm.assume(target != address(wallet)); // No self-calls
         vm.assume(target != address(registry)); // No registry calls
-        vm.assume(value <= address(wallet).balance);
-
         vm.prank(user);
-        wallet.execute(target, value, data);
+        wallet.execute{ value: value }(target, data);
         // Should not revert for valid inputs
     }
 }

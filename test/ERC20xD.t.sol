@@ -376,12 +376,12 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
         bytes memory callData = abi.encodeWithSelector(Composable.compose.selector, address(token), 50e18);
         uint256 nativeValue = 1e18;
 
-        uint256 fee = token.quoteTransfer(alice, 1_000_000);
+        uint256 fee = token.quoteTransfer(alice, 2_000_000);
         vm.deal(alice, fee + nativeValue);
 
         vm.prank(alice);
         token.transfer{ value: fee + nativeValue }(
-            address(composable), 50e18, callData, nativeValue, abi.encode(1_000_000, alice)
+            address(composable), 50e18, callData, nativeValue, abi.encode(2_000_000, alice)
         );
 
         // Execute with compose

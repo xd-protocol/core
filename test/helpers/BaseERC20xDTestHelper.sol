@@ -19,11 +19,13 @@ import { IGatewayApp } from "src/interfaces/IGatewayApp.sol";
 import { MerkleTreeLib } from "src/libraries/MerkleTreeLib.sol";
 import { LiquidityMatrixTestHelper } from "./LiquidityMatrixTestHelper.sol";
 import { SettlerMock } from "../mocks/SettlerMock.sol";
+import { TokenRegistry } from "src/wallet/TokenRegistry.sol";
+import { UserWalletFactory } from "src/wallet/UserWalletFactory.sol";
 
 abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
     uint8 public constant CHAINS = 8;
     uint16 public constant CMD_TRANSFER = 1;
-    uint128 public constant GAS_LIMIT = 500_000;
+    uint128 public constant GAS_LIMIT = 25_000_000;
 
     uint32[CHAINS] eids;
     address[CHAINS] syncers;
@@ -100,6 +102,10 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
         // Wire gateways (they have the OApp functionality)
         wireOApps(_gateways);
 
+        // Set up a shared TokenRegistry and UserWalletFactory, and register all tokens
+        TokenRegistry registry = new TokenRegistry(owner);
+        UserWalletFactory factory = new UserWalletFactory(address(registry));
+
         for (uint32 i; i < CHAINS; ++i) {
             vm.deal(address(erc20s[i]), 1000e18);
 
@@ -122,6 +128,10 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
 
             // Register ERC20xD with gateway
             gateways[i].registerApp(address(erc20s[i]));
+
+            // Configure wallet factory for compose operations and register token in registry
+            erc20s[i].updateWalletFactory(address(factory));
+            registry.registerToken(address(erc20s[i]), true);
         }
 
         // Configure read chains and targets for LiquidityMatrices (they need to read each other)

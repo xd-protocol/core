@@ -48,12 +48,11 @@ contract UserWallet is IUserWallet {
      * @notice Execute an arbitrary call
      * @dev Can be called by owner or registered tokens. Prevents delegatecall and self-calls
      * @param target The target contract address
-     * @param value The ETH value to send
      * @param data The calldata to send
      * @return success Whether the call succeeded
      * @return result The return data from the call
      */
-    function execute(address target, uint256 value, bytes calldata data)
+    function execute(address target, bytes calldata data)
         external
         payable
         onlyAuthorized
@@ -65,10 +64,19 @@ contract UserWallet is IUserWallet {
         // Prevent calling the registry to avoid privilege escalation
         if (target == registry) revert CannotCallRegistry();
 
-        // Execute the call
-        (success, result) = target.call{ value: value }(data);
+        // Enforce blacklist policy via registry
+        bytes4 selector;
+        if (data.length >= 4) {
+            assembly {
+                selector := shr(224, calldataload(data.offset))
+            }
+        }
+        if (TokenRegistry(registry).isBlacklisted(target, selector)) revert Unauthorized();
 
-        emit Executed(target, value, data, success, result);
+        // Execute the call using the ETH sent with this transaction
+        (success, result) = target.call{ value: msg.value }(data);
+
+        emit Executed(target, msg.value, data, success, result);
 
         // Don't revert on failure to allow handling in calling contract
         return (success, result);

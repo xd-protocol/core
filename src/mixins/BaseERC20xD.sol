@@ -589,22 +589,10 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         internal
         virtual
     {
-        bool useWalletFactory = walletFactory != address(0);
-        address executionContext;
-        address fundingSource;
-        int256 oldBalance;
-
-        // Determine execution context based on wallet factory availability
-        if (useWalletFactory) {
-            // Use UserWallet for execution
-            executionContext = IUserWalletFactory(walletFactory).getOrCreateWallet(from);
-            fundingSource = executionContext;
-        } else {
-            // Use contract itself for execution (backwards compatibility)
-            executionContext = address(this);
-            fundingSource = from;
-            oldBalance = localBalanceOf(executionContext);
-        }
+        // Enforce execution via UserWallet
+        if (walletFactory == address(0)) revert UserWalletFactoryNotSet();
+        address executionContext = IUserWalletFactory(walletFactory).getOrCreateWallet(from);
+        address fundingSource = executionContext;
 
         // Transfer tokens to execution context
         _transferFrom(from, executionContext, amount, data);
@@ -616,35 +604,18 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20
         // Give the target contract allowance from execution context
         allowance[executionContext][to] = amount;
 
-        // Execute the call
-        bool ok;
-        bytes memory reason;
-        if (useWalletFactory) {
-            // Execute through wallet (wallet becomes msg.sender)
-            (ok, reason) = IUserWallet(payable(executionContext)).execute(to, value, callData);
-        } else {
-            // Execute directly from contract
-            (ok, reason) = to.call{ value: value }(callData);
-        }
+        // Execute the call through wallet (wallet becomes msg.sender)
+        (bool ok, bytes memory reason) = IUserWallet(payable(executionContext)).execute{ value: value }(to, callData);
         if (!ok) revert CallFailure(to, reason);
 
         // Clear allowances and context
         allowance[executionContext][to] = 0;
         _composeContext.active = false;
 
-        // Handle refunds
-        if (useWalletFactory) {
-            // Return any remaining tokens from wallet to user
-            int256 walletBalance = localBalanceOf(executionContext);
-            if (walletBalance > 0) {
-                _transferFrom(executionContext, from, uint256(walletBalance), data);
-            }
-        } else {
-            // Refund the change if any (backwards compatibility mode)
-            int256 newBalance = localBalanceOf(executionContext);
-            if (oldBalance < newBalance) {
-                _transferFrom(executionContext, from, uint256(newBalance - oldBalance), data);
-            }
+        // Return any remaining tokens from wallet to user
+        int256 walletBalance = localBalanceOf(executionContext);
+        if (walletBalance > 0) {
+            _transferFrom(executionContext, from, uint256(walletBalance), data);
         }
     }
 

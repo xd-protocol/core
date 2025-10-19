@@ -43,6 +43,7 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
     error TransferPending();
     error Overflow();
     error InsufficientAvailability(uint256 nonce, uint256 amount, int256 availabillity);
+    error UserWalletFactoryNotSet();
     error CallFailure(address to, bytes reason);
     error NotComposing();
     error UnauthorizedComposeSpender();
@@ -168,7 +169,7 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
     /**
      * @notice Updates the UserWalletFactory address for compose operations
      * @param newWalletFactory The new UserWalletFactory contract address
-     * @dev Setting to address(0) disables UserWallet and falls back to legacy compose
+     * @dev Compose requires a UserWalletFactory; if set to address(0), compose will revert
      */
     function updateWalletFactory(address newWalletFactory) external;
 

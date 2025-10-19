@@ -13,6 +13,8 @@ interface ITokenRegistry {
     //////////////////////////////////////////////////////////////*/
 
     event TokenRegistered(address indexed token, bool status);
+    event BlacklistTargetSet(address indexed target, bool blacklisted);
+    event BlacklistSelectorSet(bytes4 indexed selector, bool blacklisted);
 
     /*//////////////////////////////////////////////////////////////
                             VIEW FUNCTIONS
@@ -32,6 +34,14 @@ interface ITokenRegistry {
      */
     function isRegistered(address token) external view returns (bool);
 
+    /**
+     * @notice Check if a (target, selector) pair is blacklisted
+     * @param target The target contract address
+     * @param selector The function selector
+     * @return blacklisted True if the pair is blacklisted
+     */
+    function isBlacklisted(address target, bytes4 selector) external view returns (bool blacklisted);
+
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
     //////////////////////////////////////////////////////////////*/
@@ -50,4 +60,14 @@ interface ITokenRegistry {
      * @param statuses Array of registration statuses
      */
     function batchRegisterTokens(address[] calldata tokens, bool[] calldata statuses) external;
+
+    /**
+     * @notice Set blacklist status for multiple targets
+     */
+    function setBlacklistedTargets(address[] calldata targets, bool[] calldata flags) external;
+
+    /**
+     * @notice Set blacklist status for multiple function selectors
+     */
+    function setBlacklistedSelectors(bytes4[] calldata selectors, bool[] calldata flags) external;
 }

@@ -11,6 +11,7 @@ import { LocalAppChronicleDeployer } from "../../src/chronicles/LocalAppChronicl
 import { RemoteAppChronicleDeployer } from "../../src/chronicles/RemoteAppChronicleDeployer.sol";
 import { LayerZeroGatewayMock } from "../mocks/LayerZeroGatewayMock.sol";
 import { ILiquidityMatrix } from "../../src/interfaces/ILiquidityMatrix.sol";
+import { IBaseERC20xD } from "../../src/interfaces/IBaseERC20xD.sol";
 import { ERC20Mock } from "../mocks/ERC20Mock.sol";
 import { SettlerMock } from "../mocks/SettlerMock.sol";
 
@@ -158,7 +159,7 @@ contract BaseERC20xDUserWalletTest is Test {
         // Execute transfer with compose
         vm.prank(alice);
         bytes32 guid = token.transfer{ value: 0.1 ether }(
-            address(defiProtocol), 100 ether, callData, 0, abi.encodePacked(uint128(500_000), alice)
+            address(defiProtocol), 100 ether, callData, 0, abi.encodePacked(uint128(2_000_000), alice)
         );
 
         // Wallet is created during onRead callback (nonce 1)
@@ -187,7 +188,7 @@ contract BaseERC20xDUserWalletTest is Test {
         // Execute transfer with compose
         vm.prank(alice);
         bytes32 guid = token.transfer{ value: 0.1 ether }(
-            address(defiProtocol), 100 ether, callData, 0, abi.encodePacked(uint128(500_000), alice)
+            address(defiProtocol), 100 ether, callData, 0, abi.encodePacked(uint128(2_000_000), alice)
         );
 
         // Simulate gateway callback (nonce 1)
@@ -228,7 +229,7 @@ contract BaseERC20xDUserWalletTest is Test {
 
         vm.prank(alice);
         bytes32 guid1 = token.transfer{ value: 0.1 ether }(
-            address(defiProtocol), 50 ether, callData1, 0, abi.encodePacked(uint128(500_000), alice)
+            address(defiProtocol), 50 ether, callData1, 0, abi.encodePacked(uint128(2_000_000), alice)
         );
 
         // First transfer uses nonce 1 (0 is reserved)
@@ -243,7 +244,7 @@ contract BaseERC20xDUserWalletTest is Test {
 
         vm.prank(alice);
         bytes32 guid2 = token.transfer{ value: 0.1 ether }(
-            address(defiProtocol), 30 ether, callData2, 0, abi.encodePacked(uint128(500_000), alice)
+            address(defiProtocol), 30 ether, callData2, 0, abi.encodePacked(uint128(2_000_000), alice)
         );
 
         // Second transfer uses nonce 2
@@ -275,7 +276,7 @@ contract BaseERC20xDUserWalletTest is Test {
         // Execute transfer with compose
         vm.prank(alice);
         bytes32 guid = token.transfer{ value: 0.1 ether }(
-            address(partialProtocol), 100 ether, callData, 0, abi.encodePacked(uint128(500_000), alice)
+            address(partialProtocol), 100 ether, callData, 0, abi.encodePacked(uint128(2_000_000), alice)
         );
 
         vm.prank(address(gateway));
@@ -305,7 +306,7 @@ contract BaseERC20xDUserWalletTest is Test {
 
         vm.prank(alice);
         bytes32 guid = token.transfer{ value: 0.1 ether }(
-            address(malicious), 50 ether, callData, 0, abi.encodePacked(uint128(500_000), alice)
+            address(malicious), 50 ether, callData, 0, abi.encodePacked(uint128(2_000_000), alice)
         );
 
         vm.prank(address(gateway));
@@ -355,23 +356,19 @@ contract BaseERC20xDUserWalletTest is Test {
         vm.prank(address(settler));
         liquidityMatrix.addRemoteAppChronicle(address(legacyToken), bytes32(uint256(1)), 1);
 
-        // gateway.registerApp(address(legacyToken)); // Not available in mock
-
         // Prepare compose call
         bytes memory callData = abi.encodeWithSignature("deposit(address,uint256)", address(legacyToken), 100 ether);
 
-        // This should use the old compose mechanism (transfers to token contract)
+        // Initiate transfer (does not revert yet)
         vm.prank(alice);
         bytes32 guid = legacyToken.transfer{ value: 0.1 ether }(
-            address(defiProtocol), 100 ether, callData, 0, abi.encodePacked(uint128(500_000), alice)
+            address(defiProtocol), 100 ether, callData, 0, abi.encodePacked(uint128(2_000_000), alice)
         );
 
+        // Expect revert when executing compose without wallet factory set
+        vm.expectRevert(IBaseERC20xD.UserWalletFactoryNotSet.selector);
         vm.prank(address(gateway));
         legacyToken.onRead(abi.encode(int256(0)), abi.encode(uint256(1)));
-
-        // Verify it worked with old mechanism
-        int256 protocolBalance = legacyToken.localBalanceOf(address(defiProtocol));
-        assertEq(protocolBalance, 100 ether);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -388,7 +385,7 @@ contract BaseERC20xDUserWalletTest is Test {
         // Alice initiates cross-chain transfer with compose
         vm.prank(alice);
         bytes32 guid = token.transfer{ value: 0.2 ether }(
-            address(defiProtocol), 200 ether, callData, 0, abi.encodePacked(uint128(500_000), alice)
+            address(defiProtocol), 200 ether, callData, 0, abi.encodePacked(uint128(2_000_000), alice)
         );
 
         // Simulate cross-chain read aggregation (nonce 1)

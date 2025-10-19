@@ -67,12 +67,11 @@ interface IUserWallet {
      * @notice Execute an arbitrary call
      * @dev Can be called by owner or registered tokens. Prevents delegatecall and self-calls
      * @param target The target contract address
-     * @param value The ETH value to send
      * @param data The calldata to send
      * @return success Whether the call succeeded
      * @return result The return data from the call
      */
-    function execute(address target, uint256 value, bytes calldata data)
+    function execute(address target, bytes calldata data)
         external
         payable
         returns (bool success, bytes memory result);
