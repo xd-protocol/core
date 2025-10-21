@@ -28,6 +28,7 @@ interface ILiquidityMatrix {
     error InvalidVersion();
     error Forbidden();
     error IdenticalAccounts();
+    error CannotMapZeroAddress();
     error LocalAccountAlreadyMapped(bytes32 chainUID, address local);
     error LocalAppChronicleNotSet();
     error RemoteAccountAlreadyMapped(bytes32 chainUID, address remote);

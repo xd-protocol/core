@@ -443,8 +443,8 @@ contract RemoteAppChronicleDeployerTest is Test {
         uint256 gasUsed = gasBefore - gasleft();
 
         // Updated static thresholds based on current bytecode size
-        assertTrue(gasUsed < 3_600_000);
-        assertTrue(gasUsed > 3_200_000);
+        assertTrue(gasUsed < 2_200_000);
+        assertTrue(gasUsed > 2_000_000);
     }
 
     function test_gasUsage_computeAddress() public view {

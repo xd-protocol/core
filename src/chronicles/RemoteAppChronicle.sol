@@ -109,6 +109,14 @@ contract RemoteAppChronicle is IRemoteAppChronicle, Pausable {
     event OnSettleDataFailure(uint64 indexed timestamp, bytes32 indexed key, bytes value, bytes reason);
 
     /**
+     * @notice Emitted when liquidity at old address is nullified due to account mapping
+     * @param timestamp The timestamp of the settlement
+     * @param account The old (unmapped) account address that was nullified
+     * @param oldLiquidity The liquidity value that was nullified
+     */
+    event NullifyLiquidity(uint64 indexed timestamp, address indexed account, int256 oldLiquidity);
+
+    /**
      * @notice Emitted when liquidity is successfully settled
      * @param timestamp The timestamp of the settled state
      */
@@ -276,6 +284,26 @@ contract RemoteAppChronicle is IRemoteAppChronicle, Pausable {
      *      Processes account liquidity updates, handles account mapping,
      *      and triggers optional hooks for the application
      *      Reverts if liquidity is already settled for the timestamp
+     *
+     *      Account Resolution Logic:
+     *      - If account has mapping: always use mapped address
+     *      - If account is unmapped EOA: always track at original address
+     *      - If account is unmapped contract:
+     *          - If syncMappedAccountsOnly=true: skip (store zero)
+     *          - If syncMappedAccountsOnly=false: track at original address
+     *
+     *      Nullification Behavior:
+     *      When an account is mapped, the first settlement to the mapped address will:
+     *      1. Nullify (zero out) any existing liquidity at the old (unmapped) address
+     *      2. Update liquidity at the new (mapped) address with the settlement value
+     *      This means historical liquidity at the old address is PERMANENTLY DESTROYED.
+     *
+     *      Race Condition Warning:
+     *      If a mapping and settlement for the same account arrive concurrently,
+     *      the settlement may be processed using the unmapped address.
+     *      App owners must ensure mappings are established BEFORE processing settlements.
+     *      Monitor MapRemoteAccount events to verify mapping state before settlements.
+     *
      * @param params Settlement parameters containing timestamp, accounts, and liquidity values
      */
     function settleLiquidity(SettleLiquidityParams memory params)
@@ -337,30 +365,47 @@ contract RemoteAppChronicle is IRemoteAppChronicle, Pausable {
             (address account, int256 liquidity) = (params.accounts[i], params.liquidity[i]);
 
             // Check if account is mapped to a local account
-            address _account = _liquidityMatrix.getMappedAccount(app, chainUID, account);
+            address mappedAccount = _liquidityMatrix.getMappedAccount(app, chainUID, account);
+            address targetAccount;
+            bool shouldSkip;
 
-            // Handle contract accounts
-            if (params.isContract[i]) {
-                // Contracts MUST be mapped, otherwise skip
-                if (_account == address(0)) {
-                    // Skip unmapped contracts - they can't use cross-chain liquidity safely
-                    continue;
-                }
-                // Use the mapped address for contracts
+            // Determine target account based on mapping and type
+            if (mappedAccount != address(0)) {
+                // Account is mapped - always use mapped address
+                targetAccount = mappedAccount;
+            } else if (!params.isContract[i]) {
+                // Unmapped EOA - always track at original address
+                targetAccount = account;
+            } else if (!syncMappedAccountsOnly) {
+                // Unmapped contract without strict mode - track at original address
+                targetAccount = account;
             } else {
-                // Handle EOA accounts
-                if (syncMappedAccountsOnly && _account == address(0)) continue;
-                if (_account == address(0)) {
-                    _account = account;
+                // Unmapped contract with strict mode - skip
+                shouldSkip = true;
+            }
+
+            // If account is mapped, nullify the old (unmapped) address first
+            if (mappedAccount != address(0) && mappedAccount != account) {
+                int256 oldLiquidity = _liquidity[account].getAsInt(params.timestamp);
+                if (oldLiquidity != 0) {
+                    _liquidity[account].setAsInt(0, params.timestamp);
+                    emit NullifyLiquidity(params.timestamp, account, oldLiquidity);
                 }
             }
 
-            // Update liquidity snapshot
-            _liquidity[_account].setAsInt(liquidity, params.timestamp);
+            if (shouldSkip) {
+                continue;
+            }
+
+            // Get existing liquidity at this exact timestamp (handles duplicates)
+            int256 existingLiquidity = int256(uint256(_liquidity[targetAccount].snapshots[params.timestamp].value));
+
+            // Add to existing (accumulates if duplicate, or sets if first time)
+            _liquidity[targetAccount].setAsInt(existingLiquidity + liquidity, params.timestamp);
 
             // Trigger hook if enabled, catching any failures
             if (useHook) {
-                try ILiquidityMatrixHook(app).onSettleLiquidity(chainUID, version, params.timestamp, _account) { }
+                try ILiquidityMatrixHook(app).onSettleLiquidity(chainUID, version, params.timestamp, targetAccount) { }
                 catch (bytes memory reason) {
                     emit OnSettleLiquidityFailure(params.timestamp, account, liquidity, reason);
                 }

@@ -349,9 +349,9 @@ contract RemoteAppChronicleTest is Test {
         vm.prank(settler);
         chronicle.settleLiquidity(params);
 
-        // Unmapped account should be skipped for individual balance
-        assertEq(chronicle.getLiquidityAt(unmappedAccount, TIMESTAMP_1), 0);
-        // But total liquidity is still set to settler's provided value
+        // NEW BEHAVIOR: Unmapped EOA is always tracked regardless of syncMappedAccountsOnly
+        assertEq(chronicle.getLiquidityAt(unmappedAccount, TIMESTAMP_1), 1000);
+        // Total liquidity is also set to settler's provided value
         assertEq(chronicle.getTotalLiquidityAt(TIMESTAMP_1), 1000);
     }
 
@@ -360,7 +360,7 @@ contract RemoteAppChronicleTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_settleLiquidity_unmappedContract_skipped() public {
-        // Unmapped contracts should be skipped regardless of syncMappedAccountsOnly setting
+        // NEW BEHAVIOR: Unmapped contracts are tracked when syncMappedAccountsOnly=false (default)
         address contractAccount = makeAddr("contractAccount");
         int256 liquidityAmount = 1000;
 
@@ -386,9 +386,9 @@ contract RemoteAppChronicleTest is Test {
         vm.prank(settler);
         chronicle.settleLiquidity(params);
 
-        // Contract should be skipped - liquidity not settled
-        assertEq(chronicle.getLiquidityAt(contractAccount, TIMESTAMP_1), 0);
-        // But total liquidity is still set
+        // NEW BEHAVIOR: Contract is tracked when syncMappedAccountsOnly=false
+        assertEq(chronicle.getLiquidityAt(contractAccount, TIMESTAMP_1), liquidityAmount);
+        // Total liquidity is also set
         assertEq(chronicle.getTotalLiquidityAt(TIMESTAMP_1), liquidityAmount);
     }
 
@@ -535,8 +535,8 @@ contract RemoteAppChronicleTest is Test {
         assertEq(chronicle.getLiquidityAt(eoaMappedLocal, TIMESTAMP_1), 200);
         assertEq(chronicle.getLiquidityAt(eoaMapped, TIMESTAMP_1), 0);
 
-        // Contract unmapped: skipped
-        assertEq(chronicle.getLiquidityAt(contractUnmapped, TIMESTAMP_1), 0);
+        // Contract unmapped: tracked when syncMappedAccountsOnly=false (default)
+        assertEq(chronicle.getLiquidityAt(contractUnmapped, TIMESTAMP_1), 300);
 
         // Contract mapped: uses mapped address
         assertEq(chronicle.getLiquidityAt(contractMappedLocal, TIMESTAMP_1), 400);

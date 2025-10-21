@@ -350,8 +350,8 @@ contract LocalAppChronicleDeployerTest is Test {
         uint256 gasUsed = gasBefore - gasleft();
 
         // Updated static thresholds for current runtime size
-        assertTrue(gasUsed < 2_300_000);
-        assertTrue(gasUsed > 1_900_000); // Substantial due to contract creation
+        assertTrue(gasUsed < 1_100_000);
+        assertTrue(gasUsed > 900_000); // Substantial due to contract creation
     }
 
     function test_gasUsage_computeAddress() public view {

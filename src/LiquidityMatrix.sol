@@ -1148,6 +1148,10 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
 
             address remote = _remotes[i];
             address local = _locals[i];
+
+            // Prevent mapping address(0)
+            if (remote == address(0) || local == address(0)) revert CannotMapZeroAddress();
+
             if (remote == local) revert IdenticalAccounts();
 
             if (state.mappedAccounts[remote] != address(0)) revert RemoteAccountAlreadyMapped(_fromChainUID, remote);
