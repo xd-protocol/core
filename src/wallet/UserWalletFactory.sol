@@ -3,12 +3,16 @@ pragma solidity ^0.8.28;
 
 import { IUserWalletFactory } from "../interfaces/IUserWalletFactory.sol";
 import { UserWallet } from "./UserWallet.sol";
+import { UpgradeableBeacon } from "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
+import { BeaconProxy } from "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
 import { Create2 } from "@openzeppelin/contracts/utils/Create2.sol";
 
 /**
  * @title UserWalletFactory
- * @notice Factory for deploying UserWallet contracts with deterministic addresses using CREATE2
- * @dev Ensures same wallet address across all chains when deployed at same factory address
+ * @notice Factory for deploying UserWallet beacon proxies
+ * @dev Uses beacon proxy pattern for upgradeability - all wallets can be upgraded via beacon
+ * @dev Uses OpenZeppelin's BeaconProxy with CREATE2 for deterministic addresses
+ * @dev All wallets can be upgraded simultaneously by upgrading the beacon
  */
 contract UserWalletFactory is IUserWalletFactory {
     /*//////////////////////////////////////////////////////////////
@@ -18,6 +22,9 @@ contract UserWalletFactory is IUserWalletFactory {
     /// @inheritdoc IUserWalletFactory
     address public immutable override registry;
 
+    /// @notice Beacon contract that stores the current implementation
+    address public immutable beacon;
+
     /// @inheritdoc IUserWalletFactory
     mapping(address user => address wallet) public override userWallets;
 
@@ -25,9 +32,13 @@ contract UserWalletFactory is IUserWalletFactory {
                               CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address _registry) {
+    constructor(address _registry, address _beaconOwner) {
         if (_registry == address(0)) revert InvalidRegistry();
         registry = _registry;
+
+        // Deploy implementation and beacon
+        address implementation = address(new UserWallet());
+        beacon = address(new UpgradeableBeacon(implementation, _beaconOwner));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -36,7 +47,9 @@ contract UserWalletFactory is IUserWalletFactory {
 
     /**
      * @notice Get or create a UserWallet for a user
-     * @dev Uses CREATE2 with user address as salt for deterministic addresses
+     * @dev Uses CREATE2 for deterministic addresses
+     * @dev Deploys BeaconProxy that delegates to beacon's implementation
+     * @dev All wallets can be upgraded by upgrading the beacon
      * @param user The user address to create wallet for
      * @return wallet The UserWallet address (existing or newly created)
      */
@@ -44,12 +57,15 @@ contract UserWalletFactory is IUserWalletFactory {
         wallet = userWallets[user];
 
         if (wallet == address(0)) {
-            // Use user address as salt for CREATE2
-            // This ensures deterministic addresses across chains
+            // Prepare initialization data
+            bytes memory initData = abi.encodeWithSelector(UserWallet.initialize.selector, user, registry);
+
+            // Use user address as salt for deterministic deployment
             bytes32 salt = bytes32(uint256(uint160(user)));
 
-            // Deploy new UserWallet with CREATE2
-            wallet = address(new UserWallet{ salt: salt }(user, registry));
+            // Deploy BeaconProxy with CREATE2
+            // Benefit: All wallets upgradeable via single beacon upgrade
+            wallet = address(new BeaconProxy{ salt: salt }(beacon, initData));
 
             // Store in mapping for convenience
             userWallets[user] = wallet;
@@ -68,11 +84,9 @@ contract UserWalletFactory is IUserWalletFactory {
      */
     function computeWalletAddress(address user) external view returns (address) {
         bytes32 salt = bytes32(uint256(uint160(user)));
-
-        // Compute CREATE2 address using OpenZeppelin's Create2 library
-        bytes32 bytecodeHash = keccak256(abi.encodePacked(type(UserWallet).creationCode, abi.encode(user, registry)));
-
-        return Create2.computeAddress(salt, bytecodeHash, address(this));
+        bytes memory initData = abi.encodeWithSelector(UserWallet.initialize.selector, user, registry);
+        bytes memory bytecode = abi.encodePacked(type(BeaconProxy).creationCode, abi.encode(beacon, initData));
+        return Create2.computeAddress(salt, keccak256(bytecode));
     }
 
     /**

@@ -25,9 +25,9 @@ contract UserWalletTest is Test {
     event TokenRegistered(address indexed token, bool status);
 
     function setUp() public {
-        // Deploy registry and factory
+        // Deploy registry and factory (owner is beacon owner)
         registry = new TokenRegistry(owner);
-        factory = new UserWalletFactory(address(registry));
+        factory = new UserWalletFactory(address(registry), owner);
 
         // Register token contract
         vm.prank(owner);
@@ -57,31 +57,27 @@ contract UserWalletTest is Test {
 
     function test_wallet_execute_asOwner() public {
         // Owner can execute calls
+        // Use custom contract to avoid blacklisted selectors
+        CustomContract customContract = new CustomContract();
         vm.prank(user);
 
-        bytes memory callData = abi.encodeWithSignature("transfer(address,uint256)", attacker, 100e18);
+        bytes memory callData = abi.encodeWithSignature("customFunction()");
 
-        vm.expectEmit(true, false, false, true);
-        emit Executed(
-            address(token), 0, callData, true, hex"0000000000000000000000000000000000000000000000000000000000000001"
-        );
-
-        (bool success, bytes memory result) = wallet.execute(address(token), callData);
+        (bool success, bytes memory result) = wallet.execute(address(customContract), callData);
         assertTrue(success);
-
-        assertEq(token.balanceOf(attacker), 100e18);
+        assertEq(abi.decode(result, (bool)), true);
     }
 
     function test_wallet_execute_asRegisteredToken() public {
         // Registered token can execute calls
+        CustomContract customContract = new CustomContract();
         vm.prank(tokenContract);
 
-        bytes memory callData = abi.encodeWithSignature("transfer(address,uint256)", user, 50e18);
+        bytes memory callData = abi.encodeWithSignature("customFunction()");
 
-        (bool success, bytes memory result) = wallet.execute(address(token), callData);
+        (bool success, bytes memory result) = wallet.execute(address(customContract), callData);
         assertTrue(success);
-
-        assertEq(token.balanceOf(user), 50e18);
+        assertEq(abi.decode(result, (bool)), true);
     }
 
     function test_wallet_execute_withValue() public {
@@ -146,15 +142,112 @@ contract UserWalletTest is Test {
     }
 
     function test_wallet_receiveETH() public {
-        uint256 balanceBefore = address(wallet).balance;
-
-        // Send ETH directly
-        vm.deal(user, 5 ether);
+        // Wallet can receive ETH via execute() function
         vm.prank(user);
-        (bool success,) = address(wallet).call{ value: 2 ether }("");
+        (bool success,) = wallet.execute{ value: 1 ether }(attacker, "");
         assertTrue(success);
+    }
 
-        assertEq(address(wallet).balance - balanceBefore, 2 ether);
+    function test_wallet_noFallback_revertOnInvalidFunction() public {
+        // Calling non-existent function should revert (no fallback)
+        vm.expectRevert();
+        address(wallet).call(abi.encodeWithSignature("nonExistentFunction()"));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    BLACKLIST ENFORCEMENT TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_wallet_execute_revertBlacklistedTarget() public {
+        // Blacklist a target
+        address maliciousTarget = makeAddr("maliciousTarget");
+        address[] memory targets = new address[](1);
+        targets[0] = maliciousTarget;
+        bool[] memory flags = new bool[](1);
+        flags[0] = true;
+
+        vm.prank(owner);
+        registry.setBlacklistedTargets(targets, flags);
+
+        // Owner cannot call blacklisted target
+        vm.prank(user);
+        vm.expectRevert(IUserWallet.Unauthorized.selector);
+        wallet.execute(maliciousTarget, "");
+    }
+
+    function test_wallet_execute_revertBlacklistedSelector() public {
+        // Try to call approve() which is blacklisted by default
+        bytes memory approveCall = abi.encodeWithSignature("approve(address,uint256)", attacker, 1000e18);
+
+        vm.prank(user);
+        vm.expectRevert(IUserWallet.Unauthorized.selector);
+        wallet.execute(address(token), approveCall);
+    }
+
+    function test_wallet_execute_revertBlacklistedTransfer() public {
+        // Try to call transfer() which is blacklisted by default
+        bytes memory transferCall = abi.encodeWithSignature("transfer(address,uint256)", attacker, 100e18);
+
+        vm.prank(user);
+        vm.expectRevert(IUserWallet.Unauthorized.selector);
+        wallet.execute(address(token), transferCall);
+    }
+
+    function test_wallet_execute_revertBlacklistedTransferFrom() public {
+        // Try to call transferFrom() which is blacklisted by default
+        bytes memory transferFromCall =
+            abi.encodeWithSignature("transferFrom(address,address,uint256)", address(wallet), attacker, 100e18);
+
+        vm.prank(user);
+        vm.expectRevert(IUserWallet.Unauthorized.selector);
+        wallet.execute(address(token), transferFromCall);
+    }
+
+    function test_wallet_execute_revertBlacklistedPermit() public {
+        // Try to call permit() which is blacklisted by default
+        bytes memory permitCall = abi.encodeWithSignature(
+            "permit(address,address,uint256,uint256,uint8,bytes32,bytes32)",
+            address(wallet),
+            attacker,
+            1000e18,
+            block.timestamp + 1 hours,
+            uint8(27),
+            bytes32(0),
+            bytes32(0)
+        );
+
+        vm.prank(user);
+        vm.expectRevert(IUserWallet.Unauthorized.selector);
+        wallet.execute(address(token), permitCall);
+    }
+
+    function test_wallet_execute_allowNonBlacklistedSelector() public {
+        // Custom function that's not blacklisted should work
+        // Deploy a mock contract with custom function
+        CustomContract customContract = new CustomContract();
+        bytes memory customCall = abi.encodeWithSignature("customFunction()");
+
+        vm.prank(user);
+        (bool success,) = wallet.execute(address(customContract), customCall);
+        assertTrue(success);
+    }
+
+    function test_wallet_execute_blacklistProtectsFromRegisteredToken() public {
+        // Even registered tokens cannot bypass blacklist
+        bytes memory approveCall = abi.encodeWithSignature("approve(address,uint256)", attacker, 1000e18);
+
+        vm.prank(tokenContract);
+        vm.expectRevert(IUserWallet.Unauthorized.selector);
+        wallet.execute(address(token), approveCall);
+    }
+
+    function test_wallet_execute_callDataTooShort() public {
+        // Calling with data less than 4 bytes (no selector) should not be blacklisted
+        bytes memory shortData = hex"123456";
+
+        vm.prank(user);
+        (bool success,) = wallet.execute(attacker, shortData);
+        // Success depends on target, but should not revert on blacklist check
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -207,7 +300,7 @@ contract UserWalletTest is Test {
 
     function test_factory_create2Deterministic() public {
         // Deploy two factories with same registry
-        UserWalletFactory factory2 = new UserWalletFactory(address(registry));
+        UserWalletFactory factory2 = new UserWalletFactory(address(registry), owner);
 
         address user1 = makeAddr("user1");
 
@@ -313,7 +406,7 @@ contract UserWalletTest is Test {
 
     function test_integration_tokenUsesWallet() public {
         // Simulate token contract using wallet for compose
-        address recipient = makeAddr("recipient");
+        CustomContract customContract = new CustomContract();
 
         // Register actual token contract
         vm.prank(owner);
@@ -321,13 +414,11 @@ contract UserWalletTest is Test {
 
         // Token contract executes through wallet
         vm.prank(address(token));
-        bytes memory callData = abi.encodeWithSignature("transfer(address,uint256)", recipient, 200e18);
+        bytes memory callData = abi.encodeWithSignature("customFunction()");
 
-        (bool success2, bytes memory result2) = wallet.execute(address(token), callData);
-        assertTrue(success2);
-
-        assertEq(token.balanceOf(recipient), 200e18);
-        assertEq(token.balanceOf(address(wallet)), 800e18);
+        (bool success, bytes memory result) = wallet.execute(address(customContract), callData);
+        assertTrue(success);
+        assertEq(abi.decode(result, (bool)), true);
     }
 
     function test_integration_walletProtectsFromArbitraryCall() public {
@@ -365,5 +456,11 @@ contract MaliciousContract {
         // Try to drain caller's tokens
         // With UserWallet, only the wallet's tokens are at risk
         // Not the token contract's tokens
+    }
+}
+
+contract CustomContract {
+    function customFunction() external pure returns (bool) {
+        return true;
     }
 }

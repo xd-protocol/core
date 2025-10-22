@@ -7,7 +7,8 @@ import { TokenRegistry } from "./TokenRegistry.sol";
 /**
  * @title UserWallet
  * @notice Smart contract wallet for each user with deterministic addresses
- * @dev Can be called by owner or registered BaseERC20xD tokens
+ * @dev Used as implementation behind BeaconProxy for upgradeability
+ * @dev Do not use this contract directly - deploy via UserWalletFactory
  */
 contract UserWallet is IUserWallet {
     /*//////////////////////////////////////////////////////////////
@@ -15,19 +16,10 @@ contract UserWallet is IUserWallet {
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IUserWallet
-    address public immutable override owner;
+    address public override owner;
 
     /// @inheritdoc IUserWallet
-    address public immutable override registry;
-
-    /*//////////////////////////////////////////////////////////////
-                              CONSTRUCTOR
-    //////////////////////////////////////////////////////////////*/
-
-    constructor(address _owner, address _registry) {
-        owner = _owner;
-        registry = _registry;
-    }
+    address public override registry;
 
     /*//////////////////////////////////////////////////////////////
                               MODIFIERS
@@ -41,46 +33,24 @@ contract UserWallet is IUserWallet {
     }
 
     /*//////////////////////////////////////////////////////////////
-                                LOGIC
+                            INITIALIZATION
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Execute an arbitrary call
-     * @dev Can be called by owner or registered tokens. Prevents delegatecall and self-calls
-     * @param target The target contract address
-     * @param data The calldata to send
-     * @return success Whether the call succeeded
-     * @return result The return data from the call
+     * @notice Initialize the wallet (called by factory after deployment)
+     * @dev Can only be called once (owner starts as zero)
+     * @param _owner The wallet owner
+     * @param _registry The token registry
      */
-    function execute(address target, bytes calldata data)
-        external
-        payable
-        onlyAuthorized
-        returns (bool success, bytes memory result)
-    {
-        // Prevent self-calls and delegatecalls to protect storage
-        if (target == address(this)) revert SelfCallNotAllowed();
-
-        // Prevent calling the registry to avoid privilege escalation
-        if (target == registry) revert CannotCallRegistry();
-
-        // Enforce blacklist policy via registry
-        bytes4 selector;
-        if (data.length >= 4) {
-            assembly {
-                selector := shr(224, calldataload(data.offset))
-            }
-        }
-        if (TokenRegistry(registry).isBlacklisted(target, selector)) revert Unauthorized();
-
-        // Execute the call using the ETH sent with this transaction
-        (success, result) = target.call{ value: msg.value }(data);
-
-        emit Executed(target, msg.value, data, success, result);
-
-        // Don't revert on failure to allow handling in calling contract
-        return (success, result);
+    function initialize(address _owner, address _registry) external {
+        if (owner != address(0)) revert(); // Already initialized
+        owner = _owner;
+        registry = _registry;
     }
+
+    /*//////////////////////////////////////////////////////////////
+                            VIEW FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     /**
      * @notice Execute a static call (view function)
@@ -125,6 +95,43 @@ contract UserWallet is IUserWallet {
     /// @notice Allow receiving ETH
     receive() external payable { }
 
-    /// @notice Fallback for receiving ETH with data
-    fallback() external payable { }
+    /*//////////////////////////////////////////////////////////////
+                                LOGIC
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Execute an arbitrary call
+     * @dev Can be called by owner or registered tokens. Prevents delegatecall and self-calls
+     * @param target The target contract address
+     * @param data The calldata to send
+     * @return success Whether the call succeeded
+     * @return result The return data from the call
+     */
+    function execute(address target, bytes calldata data)
+        external
+        payable
+        onlyAuthorized
+        returns (bool success, bytes memory result)
+    {
+        // Prevent self-calls and delegatecalls to protect storage
+        if (target == address(this)) revert SelfCallNotAllowed();
+
+        // Prevent calling the registry to avoid privilege escalation
+        if (target == registry) revert CannotCallRegistry();
+
+        // Enforce blacklist policy via registry
+        bytes4 selector;
+        if (data.length >= 4) {
+            selector = bytes4(data[0:4]);
+        }
+        if (TokenRegistry(registry).isBlacklisted(target, selector)) revert Unauthorized();
+
+        // Execute the call using the ETH sent with this transaction
+        (success, result) = target.call{ value: msg.value }(data);
+
+        emit Executed(target, msg.value, data, success, result);
+
+        // Don't revert on failure to allow handling in calling contract
+        return (success, result);
+    }
 }

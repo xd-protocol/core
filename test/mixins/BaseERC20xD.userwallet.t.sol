@@ -103,7 +103,7 @@ contract BaseERC20xDUserWalletTest is Test {
 
         // Deploy wallet infrastructure
         registry = new TokenRegistry(registryOwner);
-        walletFactory = new UserWalletFactory(address(registry));
+        walletFactory = new UserWalletFactory(address(registry), owner);
 
         // Deploy token
         token =

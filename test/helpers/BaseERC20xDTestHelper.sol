@@ -104,7 +104,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
 
         // Set up a shared TokenRegistry and UserWalletFactory, and register all tokens
         TokenRegistry registry = new TokenRegistry(owner);
-        UserWalletFactory factory = new UserWalletFactory(address(registry));
+        UserWalletFactory factory = new UserWalletFactory(address(registry), owner);
 
         for (uint32 i; i < CHAINS; ++i) {
             vm.deal(address(erc20s[i]), 1000e18);

@@ -25,6 +25,12 @@ interface IUserWalletFactory {
     function registry() external view returns (address);
 
     /**
+     * @notice The beacon contract that stores the implementation
+     * @return The beacon address
+     */
+    function beacon() external view returns (address);
+
+    /**
      * @notice Mapping to track deployed wallets (for convenience)
      * @param user The user address
      * @return wallet The wallet address for the user
