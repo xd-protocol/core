@@ -140,7 +140,7 @@ import { Pausable } from "./mixins/Pausable.sol";
  *    - Root queries like `getLiquidityRootAt` automatically use correct version
  *    - Chronicle contracts provide point-in-time state snapshots
  */
-contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGatewayApp, Pausable {
+contract LiquidityMatrix is ReentrancyGuard, Ownable, Pausable, ILiquidityMatrix {
     using ArrayLib for uint256[];
     using AddressLib for address;
     using MerkleTreeLib for MerkleTreeLib.Tree;

@@ -3,8 +3,9 @@ pragma solidity ^0.8.0;
 
 import { IERC20 } from "forge-std/interfaces/IERC20.sol";
 import { IGatewayApp } from "./IGatewayApp.sol";
+import { ILiquidityMatrixHook } from "../interfaces/ILiquidityMatrixHook.sol";
 
-interface IBaseERC20xD is IERC20, IGatewayApp {
+interface IBaseERC20xD is IERC20, IGatewayApp, ILiquidityMatrixHook {
     /*//////////////////////////////////////////////////////////////
                                 TYPES
     //////////////////////////////////////////////////////////////*/

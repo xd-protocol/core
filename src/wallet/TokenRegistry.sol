@@ -9,7 +9,7 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
  * @notice Registry for managing BaseERC20xD tokens that can use UserWallet
  * @dev Only registers tokens, not external protocols like Uniswap or Aave
  */
-contract TokenRegistry is ITokenRegistry, Ownable {
+contract TokenRegistry is Ownable, ITokenRegistry {
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/

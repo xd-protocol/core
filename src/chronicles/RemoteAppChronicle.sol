@@ -34,7 +34,7 @@ import { Pausable } from "../mixins/Pausable.sol";
  *      3. When both are settled for same timestamp, state becomes finalized
  *      4. Optional hooks notify the app of settlement events
  */
-contract RemoteAppChronicle is IRemoteAppChronicle, Pausable {
+contract RemoteAppChronicle is Pausable, IRemoteAppChronicle {
     using SnapshotsLib for SnapshotsLib.Snapshots;
 
     /*//////////////////////////////////////////////////////////////

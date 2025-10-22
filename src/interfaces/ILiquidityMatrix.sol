@@ -2,13 +2,14 @@
 pragma solidity ^0.8.0;
 
 import { IGateway } from "./IGateway.sol";
+import { IGatewayApp } from "./IGatewayApp.sol";
 
 /**
  * @title ILiquidityMatrix
  * @notice Interface for the core ledger contract managing cross-chain liquidity and state synchronization
  * @dev Defines the API for versioned state management through chronicle contracts with reorg protection
  */
-interface ILiquidityMatrix {
+interface ILiquidityMatrix is IGatewayApp {
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
     //////////////////////////////////////////////////////////////*/

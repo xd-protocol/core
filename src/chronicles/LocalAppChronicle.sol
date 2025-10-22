@@ -27,7 +27,7 @@ import { Pausable } from "../mixins/Pausable.sol";
  *      - All view functions are publicly accessible
  *      - Pause control is inherited from LiquidityMatrix owner
  */
-contract LocalAppChronicle is ILocalAppChronicle, Pausable {
+contract LocalAppChronicle is Pausable, ILocalAppChronicle {
     using SnapshotsLib for SnapshotsLib.Snapshots;
     using MerkleTreeLib for MerkleTreeLib.Tree;
     using ArrayLib for uint256[];

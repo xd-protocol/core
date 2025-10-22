@@ -9,7 +9,6 @@ import { IBaseERC20xD } from "../interfaces/IBaseERC20xD.sol";
 import { ILiquidityMatrix } from "../interfaces/ILiquidityMatrix.sol";
 import { IGateway } from "../interfaces/IGateway.sol";
 import { IERC20xDHook } from "../interfaces/IERC20xDHook.sol";
-import { ILiquidityMatrixHook } from "../interfaces/ILiquidityMatrixHook.sol";
 import { IGatewayApp } from "../interfaces/IGatewayApp.sol";
 import { AddressLib } from "../libraries/AddressLib.sol";
 import { IUserWallet } from "../interfaces/IUserWallet.sol";
@@ -40,7 +39,7 @@ import { Pausable } from "./Pausable.sol";
  *
  *      Note: This contract is abstract and provides the core cross-chain transfer functionality.
  */
-abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, IBaseERC20xD, ILiquidityMatrixHook, Pausable {
+abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, Pausable, IBaseERC20xD {
     using AddressLib for address;
 
     /*//////////////////////////////////////////////////////////////
