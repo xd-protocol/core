@@ -69,6 +69,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
 
     event UpdateLiquidityMatrix(address indexed liquidityMatrix);
     event UpdateGateway(address indexed gateway);
+    event UpdateReadTarget(bytes32 indexed chainUID, bytes32 indexed target);
     event InitiateTransfer(
         address indexed from, address indexed to, uint256 amount, uint256 value, uint256 indexed nonce
     );
@@ -156,7 +157,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         token.updateGateway(makeAddr("newGateway"));
     }
 
-    function test_configureReadChains() public {
+    function test_addReadChains() public {
         BaseERC20xD token = erc20s[0];
         bytes32[] memory chainUIDs = new bytes32[](2);
         address[] memory targets = new address[](2);
@@ -167,11 +168,11 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         targets[1] = makeAddr("target2");
 
         vm.prank(owner);
-        token.configureReadChains(chainUIDs, targets);
+        token.addReadChains(chainUIDs, targets);
         // Test passes if no revert
     }
 
-    function test_configureReadChains_revertNonOwner() public {
+    function test_addReadChains_revertNonOwner() public {
         BaseERC20xD token = erc20s[0];
         bytes32[] memory chainUIDs = new bytes32[](1);
         address[] memory targets = new address[](1);
@@ -181,7 +182,109 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
 
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
-        token.configureReadChains(chainUIDs, targets);
+        token.addReadChains(chainUIDs, targets);
+    }
+
+    function test_addReadChains_revertChainAlreadyAdded() public {
+        BaseERC20xD token = erc20s[0];
+        // Chain eids[1] is already configured in setup
+        bytes32[] memory chainUIDs = new bytes32[](1);
+        address[] memory targets = new address[](1);
+        chainUIDs[0] = bytes32(uint256(eids[1]));
+        targets[0] = address(erc20s[1]);
+
+        vm.prank(owner);
+        vm.expectRevert(IBaseERC20xD.ChainAlreadyAdded.selector);
+        token.addReadChains(chainUIDs, targets);
+    }
+
+    function test_addReadChains_revertInvalidTarget() public {
+        BaseERC20xD token = erc20s[0];
+        bytes32[] memory chainUIDs = new bytes32[](1);
+        address[] memory targets = new address[](1);
+        chainUIDs[0] = bytes32(uint256(999));
+        targets[0] = address(0); // Zero address
+
+        vm.prank(owner);
+        vm.expectRevert(IBaseERC20xD.InvalidTarget.selector);
+        token.addReadChains(chainUIDs, targets);
+    }
+
+    function test_addReadChains_revertInvalidLengths() public {
+        BaseERC20xD token = erc20s[0];
+        bytes32[] memory chainUIDs = new bytes32[](2);
+        address[] memory targets = new address[](1); // Mismatched length
+
+        vm.prank(owner);
+        vm.expectRevert(IBaseERC20xD.InvalidLengths.selector);
+        token.addReadChains(chainUIDs, targets);
+    }
+
+    function test_updateReadTargets() public {
+        BaseERC20xD token = erc20s[0];
+        // Update existing chain targets
+        bytes32[] memory chainUIDs = new bytes32[](2);
+        address[] memory targets = new address[](2);
+        chainUIDs[0] = bytes32(uint256(eids[1]));
+        chainUIDs[1] = bytes32(uint256(eids[2]));
+        targets[0] = makeAddr("newTarget1");
+        targets[1] = makeAddr("newTarget2");
+
+        vm.expectEmit(true, true, false, false);
+        emit UpdateReadTarget(chainUIDs[0], bytes32(uint256(uint160(targets[0]))));
+        vm.expectEmit(true, true, false, false);
+        emit UpdateReadTarget(chainUIDs[1], bytes32(uint256(uint160(targets[1]))));
+
+        vm.prank(owner);
+        token.updateReadTargets(chainUIDs, targets);
+        // Test passes if no revert and events emitted
+    }
+
+    function test_updateReadTargets_revertNonOwner() public {
+        BaseERC20xD token = erc20s[0];
+        bytes32[] memory chainUIDs = new bytes32[](1);
+        address[] memory targets = new address[](1);
+        chainUIDs[0] = bytes32(uint256(eids[1]));
+        targets[0] = makeAddr("newTarget");
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        token.updateReadTargets(chainUIDs, targets);
+    }
+
+    function test_updateReadTargets_revertChainNotConfigured() public {
+        BaseERC20xD token = erc20s[0];
+        // Chain 999 is not configured
+        bytes32[] memory chainUIDs = new bytes32[](1);
+        address[] memory targets = new address[](1);
+        chainUIDs[0] = bytes32(uint256(999));
+        targets[0] = makeAddr("newTarget");
+
+        vm.prank(owner);
+        vm.expectRevert(IBaseERC20xD.ChainNotConfigured.selector);
+        token.updateReadTargets(chainUIDs, targets);
+    }
+
+    function test_updateReadTargets_revertInvalidTarget() public {
+        BaseERC20xD token = erc20s[0];
+        bytes32[] memory chainUIDs = new bytes32[](1);
+        address[] memory targets = new address[](1);
+        chainUIDs[0] = bytes32(uint256(eids[1]));
+        targets[0] = address(0); // Zero address
+
+        vm.prank(owner);
+        vm.expectRevert(IBaseERC20xD.InvalidTarget.selector);
+        token.updateReadTargets(chainUIDs, targets);
+    }
+
+    function test_updateReadTargets_revertInvalidLengths() public {
+        BaseERC20xD token = erc20s[0];
+        bytes32[] memory chainUIDs = new bytes32[](2);
+        address[] memory targets = new address[](1); // Mismatched length
+
+        vm.prank(owner);
+        vm.expectRevert(IBaseERC20xD.InvalidLengths.selector);
+        token.updateReadTargets(chainUIDs, targets);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -1471,87 +1574,47 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
     //////////////////////////////////////////////////////////////*/
 
     function test_balanceOf_usesTokenOwnChains() public {
-        // Initially token has no chains configured, so should use local balance only
-        assertEq(erc20s[0].balanceOf(alice), 100e18, "Should only show local balance without chains configured");
-        assertEq(erc20s[0].totalSupply(), 300e18, "Should only show local total supply without chains configured");
+        // Before sync, only local balance
+        assertEq(erc20s[0].balanceOf(alice), 100e18, "Should show local balance without sync");
+        assertEq(erc20s[0].totalSupply(), 300e18, "Should show local total without sync");
 
-        // Configure token with specific chains
-        changePrank(owner, owner);
-        bytes32[] memory tokenChains = new bytes32[](2);
-        address[] memory tokenTargets = new address[](2);
-        tokenChains[0] = bytes32(uint256(eids[1]));
-        tokenChains[1] = bytes32(uint256(eids[2]));
-        tokenTargets[0] = address(erc20s[1]);
-        tokenTargets[1] = address(erc20s[2]);
-        erc20s[0].configureReadChains(tokenChains, tokenTargets);
-
-        // After configuring chains, balance should aggregate only from configured chains
-        // Since chronicles aren't set up for these specific chains in this test context,
-        // it should still return local balance (no remote chronicles to aggregate)
-        assertEq(erc20s[0].balanceOf(alice), 100e18, "Should show local balance when remote chronicles not available");
-
-        // Now sync and settle to set up chronicles
-        changePrank(users[0], users[0]);
+        // Sync and settle to set up chronicles
         _syncAndSettleLiquidity();
 
-        // After sync, should see aggregated balance from configured chains
-        // Token is configured with chains 1 and 2, so should see balance from 3 chains total (local + 2 remote)
-        assertEq(erc20s[0].balanceOf(alice), 300e18, "Should aggregate from local + configured remote chains");
+        // After sync, should see aggregated balance from all configured chains
+        assertEq(erc20s[0].balanceOf(alice), CHAINS * 100e18, "Should aggregate from all configured chains");
     }
 
     function test_totalSupply_usesTokenOwnChains() public {
-        // Initially no chains configured, should show local total only
-        assertEq(erc20s[0].totalSupply(), 300e18, "Should only show local total without chains configured");
+        // Before sync, only local total
+        assertEq(erc20s[0].totalSupply(), 300e18, "Should show local total without sync");
 
-        // Configure token with only one remote chain
-        changePrank(owner, owner);
-        bytes32[] memory tokenChains = new bytes32[](1);
-        address[] memory tokenTargets = new address[](1);
-        tokenChains[0] = bytes32(uint256(eids[1]));
-        tokenTargets[0] = address(erc20s[1]);
-        erc20s[0].configureReadChains(tokenChains, tokenTargets);
-
-        // Still should be 300e18 as no remote chronicles available yet
-        assertEq(erc20s[0].totalSupply(), 300e18, "Should show local total when remote chronicles not available");
-
-        // After sync and settle
-        changePrank(users[0], users[0]);
+        // Sync and settle
         _syncAndSettleLiquidity();
 
-        // Should aggregate from local + 1 configured remote chain = 2 * 300e18
-        assertEq(erc20s[0].totalSupply(), 600e18, "Should aggregate from local + 1 configured remote chain");
+        // After sync, should aggregate from all configured chains
+        assertEq(erc20s[0].totalSupply(), CHAINS * 300e18, "Should aggregate from all configured chains");
     }
 
     function test_balanceOf_notAffectedByGatewayChains() public {
         // First sync to set up chronicles
         _syncAndSettleLiquidity();
 
-        // Configure token with all chains
+        // Token has all chains configured in setup
+        // Balance should include all chains
+        assertEq(erc20s[0].balanceOf(alice), CHAINS * 100e18, "Should show balance from all configured chains");
+
+        // Now update one of the targets (not adding new chain, just updating existing)
+        // This demonstrates that the token maintains its own chain config
         changePrank(owner, owner);
-        bytes32[] memory tokenChains = new bytes32[](2);
-        address[] memory tokenTargets = new address[](2);
+        bytes32[] memory tokenChains = new bytes32[](1);
+        address[] memory tokenTargets = new address[](1);
         tokenChains[0] = bytes32(uint256(eids[1]));
-        tokenChains[1] = bytes32(uint256(eids[2]));
-        tokenTargets[0] = address(erc20s[1]);
-        tokenTargets[1] = address(erc20s[2]);
-        erc20s[0].configureReadChains(tokenChains, tokenTargets);
+        tokenTargets[0] = address(erc20s[1]); // Same target, just updating
+        erc20s[0].updateReadTargets(tokenChains, tokenTargets);
 
-        // Balance should be 300e18 (100e18 from each of 3 chains)
-        assertEq(erc20s[0].balanceOf(alice), 300e18, "Should show balance from all configured chains");
-
-        // Now reconfigure gateway to exclude a chain (this would be the vulnerability)
-        // In a real scenario, gateway.configureChains would be called, but since we're
-        // testing the token in isolation, we just verify the token uses its own chains
-
-        // Reconfigure token to use only one chain
-        bytes32[] memory newTokenChains = new bytes32[](1);
-        address[] memory newTokenTargets = new address[](1);
-        newTokenChains[0] = bytes32(uint256(eids[1]));
-        newTokenTargets[0] = address(erc20s[1]);
-        erc20s[0].configureReadChains(newTokenChains, newTokenTargets);
-
-        // Balance should now be 200e18 (local + 1 remote)
-        assertEq(erc20s[0].balanceOf(alice), 200e18, "Should only aggregate from local + 1 configured chain");
+        // Balance should still be the same since we just updated the target
+        assertEq(erc20s[0].balanceOf(alice), CHAINS * 100e18, "Should still show balance from all configured chains");
 
         // This proves the token uses its own chain configuration, not the gateway's
     }

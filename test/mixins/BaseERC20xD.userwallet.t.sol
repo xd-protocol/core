@@ -129,7 +129,7 @@ contract BaseERC20xDUserWalletTest is Test {
         address[] memory targets = new address[](1);
         readChains[0] = bytes32(uint256(1)); // Just use a dummy chain ID
         targets[0] = address(token);
-        token.configureReadChains(readChains, targets);
+        token.addReadChains(readChains, targets);
         vm.stopPrank();
 
         // Setup gateway
@@ -349,7 +349,7 @@ contract BaseERC20xDUserWalletTest is Test {
         address[] memory targets = new address[](1);
         readChains[0] = bytes32(uint256(1)); // Just use a dummy chain ID
         targets[0] = address(legacyToken);
-        legacyToken.configureReadChains(readChains, targets);
+        legacyToken.addReadChains(readChains, targets);
         vm.stopPrank();
 
         // Add RemoteAppChronicle for the legacy token

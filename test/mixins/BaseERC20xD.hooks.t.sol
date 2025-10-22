@@ -139,7 +139,7 @@ contract BaseERC20xDHooksTest is Test {
         address[] memory targets = new address[](1);
         readChains[0] = bytes32(uint256(1));
         targets[0] = address(token);
-        token.configureReadChains(readChains, targets);
+        token.addReadChains(readChains, targets);
         vm.stopPrank();
 
         // Deploy mock hooks

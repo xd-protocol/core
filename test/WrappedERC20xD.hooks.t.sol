@@ -135,7 +135,7 @@ contract WrappedERC20xDHooksTest is Test {
         address[] memory targets = new address[](1);
         readChains[0] = bytes32(uint256(1));
         targets[0] = address(wrappedToken);
-        wrappedToken.configureReadChains(readChains, targets);
+        wrappedToken.addReadChains(readChains, targets);
         vm.stopPrank();
 
         // Deploy hooks

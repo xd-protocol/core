@@ -17,6 +17,8 @@ interface ILiquidityMatrix {
     error AppChronicleAlreadyAdded();
     error AppNotRegistered();
     error AppAlreadyRegistered();
+    error ChainAlreadyAdded();
+    error ChainNotConfigured();
     error ChronicleDeploymentFailed();
     error InvalidAddress();
     error InvalidAmount();
@@ -80,10 +82,10 @@ interface ILiquidityMatrix {
 
     event UpdateGateway(address indexed gateway);
     event UpdateSyncer(address indexed syncer);
+    event AddReadTarget(bytes32 indexed chainUID, bytes32 indexed target);
     event UpdateReadTarget(bytes32 indexed chainUID, bytes32 indexed target);
     event Sync(address indexed caller);
     event AddVersion(uint256 indexed version, uint64 indexed timestamp);
-    event ReadChainsConfigured(bytes32[] chainUIDs);
     event UpdateLocalAppChronicleDeployer(address indexed deployer);
     event UpdateRemoteAppChronicleDeployer(address indexed deployer);
 
@@ -852,12 +854,20 @@ interface ILiquidityMatrix {
     function updateSyncer(address _syncer) external;
 
     /**
-     * @notice Configures which chains to read from and their target addresses for sync operations
-     * @dev Only callable by owner. These chains must be configured in the gateway.
-     * @param chainUIDs Array of chain UIDs to read from
+     * @notice Adds new chains to read from for sync operations
+     * @dev Only callable by owner. Reverts if any chain already exists.
+     * @param chainUIDs Array of new chain UIDs to add
      * @param targets Array of target addresses for each chain
      */
-    function configureReadChains(bytes32[] memory chainUIDs, address[] memory targets) external;
+    function addReadChains(bytes32[] memory chainUIDs, address[] memory targets) external;
+
+    /**
+     * @notice Updates target addresses for existing chains
+     * @dev Only callable by owner. Reverts if any chain doesn't exist.
+     * @param chainUIDs Array of existing chain UIDs to update
+     * @param targets Array of new target addresses for each chain
+     */
+    function updateReadTargets(bytes32[] memory chainUIDs, address[] memory targets) external;
 
     /**
      * @notice Initiates a sync operation to fetch roots from all configured chains

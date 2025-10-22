@@ -149,7 +149,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             }
             // Configure read chains and targets for LiquidityMatrix
             changePrank(owner, owner);
-            liquidityMatrices[i].configureReadChains(readChainUIDs, readTargets);
+            liquidityMatrices[i].addReadChains(readChainUIDs, readTargets);
         }
 
         // Configure read chains and targets for ERC20xD contracts
@@ -167,7 +167,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             }
             // Configure read chains and targets for the ERC20xD token
             changePrank(owner, owner);
-            erc20s[i].configureReadChains(readChainUIDs, readTargets);
+            erc20s[i].addReadChains(readChainUIDs, readTargets);
         }
 
         // Create RemoteAppChronicles for cross-chain functionality

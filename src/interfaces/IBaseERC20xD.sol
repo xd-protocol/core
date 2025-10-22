@@ -51,6 +51,8 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
     error NoChainsConfigured();
     error InvalidTarget();
     error InvalidLengths();
+    error ChainAlreadyAdded();
+    error ChainNotConfigured();
 
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
@@ -81,7 +83,7 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
     event OnSettleDataHookFailure(
         address indexed hook, bytes32 indexed chainUID, uint64 timestamp, bytes32 indexed key, bytes value, bytes reason
     );
-    event ReadChainsConfigured(bytes32[] chainUIDs);
+    event AddReadTarget(bytes32 indexed chainUID, bytes32 indexed target);
     event UpdateReadTarget(bytes32 indexed chainUID, bytes32 indexed target);
     event ETHRecovered(address indexed to, uint256 amount);
 
@@ -254,12 +256,20 @@ interface IBaseERC20xD is IERC20, IGatewayApp {
     function cancelPendingTransfer() external;
 
     /**
-     * @notice Configure which chains to read from and their target addresses for cross-chain operations
-     * @param chainUIDs Array of chain UIDs to read from
+     * @notice Adds new chains to read from for cross-chain operations
+     * @dev Only callable by owner. Reverts if any chain already exists.
+     * @param chainUIDs Array of new chain UIDs to add
      * @param targets Array of target addresses for each chain
-     * @dev Only callable by owner
      */
-    function configureReadChains(bytes32[] memory chainUIDs, address[] memory targets) external;
+    function addReadChains(bytes32[] memory chainUIDs, address[] memory targets) external;
+
+    /**
+     * @notice Updates target addresses for existing chains
+     * @dev Only callable by owner. Reverts if any chain doesn't exist.
+     * @param chainUIDs Array of existing chain UIDs to update
+     * @param targets Array of new target addresses for each chain
+     */
+    function updateReadTargets(bytes32[] memory chainUIDs, address[] memory targets) external;
 
     /**
      * @notice Returns the amount of ETH that can be recovered

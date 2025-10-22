@@ -1066,22 +1066,44 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, ILiquidityMatrix, IGateway
     }
 
     /// @inheritdoc ILiquidityMatrix
-    function configureReadChains(bytes32[] memory chainUIDs, address[] memory targets) external onlyOwner {
+    function addReadChains(bytes32[] memory chainUIDs, address[] memory targets) external onlyOwner {
         if (chainUIDs.length != targets.length) revert InvalidLengths();
 
-        // Clear existing configuration
-        for (uint256 i; i < readChainUIDs.length; i++) {
-            delete _readTargets[readChainUIDs[i]];
-        }
-
-        // Set new configuration
-        readChainUIDs = chainUIDs;
         for (uint256 i; i < chainUIDs.length; i++) {
-            _readTargets[chainUIDs[i]] = targets[i];
-            emit UpdateReadTarget(chainUIDs[i], bytes32(uint256(uint160(targets[i]))));
-        }
+            bytes32 chainUID = chainUIDs[i];
+            address target = targets[i];
 
-        emit ReadChainsConfigured(chainUIDs);
+            // Validate target is not zero address
+            if (target == address(0)) revert InvalidTarget();
+
+            // Check if chainUID already exists (by checking if target is set)
+            if (_readTargets[chainUID] != address(0)) revert ChainAlreadyAdded();
+
+            // Add new chain
+            readChainUIDs.push(chainUID);
+            _readTargets[chainUID] = target;
+            emit AddReadTarget(chainUID, bytes32(uint256(uint160(target))));
+        }
+    }
+
+    /// @inheritdoc ILiquidityMatrix
+    function updateReadTargets(bytes32[] memory chainUIDs, address[] memory targets) external onlyOwner {
+        if (chainUIDs.length != targets.length) revert InvalidLengths();
+
+        for (uint256 i; i < chainUIDs.length; i++) {
+            bytes32 chainUID = chainUIDs[i];
+            address target = targets[i];
+
+            // Validate target is not zero address
+            if (target == address(0)) revert InvalidTarget();
+
+            // Check if chainUID exists (by checking if target is set)
+            if (_readTargets[chainUID] == address(0)) revert ChainNotConfigured();
+
+            // Update target
+            _readTargets[chainUID] = target;
+            emit UpdateReadTarget(chainUID, bytes32(uint256(uint160(target))));
+        }
     }
 
     /// @inheritdoc ILiquidityMatrix

@@ -128,7 +128,7 @@ contract LiquidityMatrixIntegrationTest is LiquidityMatrixTestHelper {
             }
             // Configure read chains and targets for LiquidityMatrix
             changePrank(owner, owner);
-            liquidityMatrices[i].configureReadChains(readChainUIDs, readTargets);
+            liquidityMatrices[i].addReadChains(readChainUIDs, readTargets);
             changePrank(apps[i], apps[i]);
             initialize(storages[i]);
         }
