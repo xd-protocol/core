@@ -225,6 +225,12 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, Pausable, ILiquidityMatrix
     /// @inheritdoc ILiquidityMatrix
     address public remoteAppChronicleDeployer;
 
+    // Gas limits for each hook type
+    uint64 public onMapAccountsGasLimit;
+    uint64 public onSettleLiquidityGasLimit;
+    uint64 public onSettleTotalLiquidityGasLimit;
+    uint64 public onSettleDataGasLimit;
+
     /*//////////////////////////////////////////////////////////////
                               MODIFIERS
     //////////////////////////////////////////////////////////////*/
@@ -274,6 +280,16 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, Pausable, ILiquidityMatrix
         _versions.push(_timestamp);
         localAppChronicleDeployer = _localDeployer;
         remoteAppChronicleDeployer = _remoteDeployer;
+
+        // Initialize default gas limits for each hook type
+        // onMapAccounts: 300k - called once per batch, may store arrays (very gas-intensive)
+        // onSettleLiquidity: 75k - called per account in loop, needs lower limit to avoid exceeding block gas
+        // onSettleTotalLiquidity: 200k - called once per settlement, can be complex (e.g., external calls)
+        // onSettleData: 75k - called per key in loop, needs lower limit to avoid exceeding block gas
+        onMapAccountsGasLimit = 300_000;
+        onSettleLiquidityGasLimit = 75_000;
+        onSettleTotalLiquidityGasLimit = 200_000;
+        onSettleDataGasLimit = 75_000;
 
         emit AddVersion(1, uint64(_timestamp));
     }
@@ -343,6 +359,20 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, Pausable, ILiquidityMatrix
     {
         AppState storage state = _appStates[app];
         return (state.registered, state.syncMappedAccountsOnly, state.useHook, state.settler);
+    }
+
+    /// @inheritdoc ILiquidityMatrix
+    function getHookGasLimits()
+        external
+        view
+        returns (
+            uint64 _onMapAccountsGasLimit,
+            uint64 _onSettleLiquidityGasLimit,
+            uint64 _onSettleTotalLiquidityGasLimit,
+            uint64 _onSettleDataGasLimit
+        )
+    {
+        return (onMapAccountsGasLimit, onSettleLiquidityGasLimit, onSettleTotalLiquidityGasLimit, onSettleDataGasLimit);
     }
 
     /// @inheritdoc ILiquidityMatrix
@@ -1066,6 +1096,22 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, Pausable, ILiquidityMatrix
     }
 
     /// @inheritdoc ILiquidityMatrix
+    function updateHookGasLimits(
+        uint64 _onMapAccountsGasLimit,
+        uint64 _onSettleLiquidityGasLimit,
+        uint64 _onSettleTotalLiquidityGasLimit,
+        uint64 _onSettleDataGasLimit
+    ) external onlyOwner {
+        onMapAccountsGasLimit = _onMapAccountsGasLimit;
+        onSettleLiquidityGasLimit = _onSettleLiquidityGasLimit;
+        onSettleTotalLiquidityGasLimit = _onSettleTotalLiquidityGasLimit;
+        onSettleDataGasLimit = _onSettleDataGasLimit;
+        emit UpdateHookGasLimits(
+            _onMapAccountsGasLimit, _onSettleLiquidityGasLimit, _onSettleTotalLiquidityGasLimit, _onSettleDataGasLimit
+        );
+    }
+
+    /// @inheritdoc ILiquidityMatrix
     function addReadChains(bytes32[] memory chainUIDs, address[] memory targets) external onlyOwner {
         if (chainUIDs.length != targets.length) revert InvalidLengths();
 
@@ -1163,7 +1209,8 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, Pausable, ILiquidityMatrix
         // Allocate arrays with exact size needed
         address[] memory mappedRemotes = new address[](mappedCount);
         address[] memory mappedLocals = new address[](mappedCount);
-        uint256 arrayIndex = 0;
+        uint256 arrayIndex;
+        uint256 _onMapAccountsGasLimit = onMapAccountsGasLimit;
 
         for (uint256 i; i < _remotes.length; ++i) {
             if (!shouldMap[i]) continue;
@@ -1193,7 +1240,11 @@ contract LiquidityMatrix is ReentrancyGuard, Ownable, Pausable, ILiquidityMatrix
         // Notify the app about all successful mappings at once if hooks are enabled
         // Since we revert on any error, the arrays are already correctly sized
         if (_appStates[_localApp].useHook && mappedCount > 0) {
-            ILiquidityMatrixHook(_localApp).onMapAccounts(_fromChainUID, mappedRemotes, mappedLocals);
+            try ILiquidityMatrixHook(_localApp).onMapAccounts{ gas: _onMapAccountsGasLimit }(
+                _fromChainUID, mappedRemotes, mappedLocals
+            ) { } catch (bytes memory reason) {
+                emit OnMapAccountsFailure(_fromChainUID, _localApp, mappedRemotes, mappedLocals, reason);
+            }
         }
     }
 

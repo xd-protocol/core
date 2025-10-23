@@ -360,6 +360,13 @@ contract RemoteAppChronicle is Pausable, IRemoteAppChronicle {
             revert InvalidArrayLengths();
         }
 
+        // Get gas limits once if hooks are enabled
+        uint64 settleLiquidityGasLimit;
+        uint64 settleTotalLiquidityGasLimit;
+        if (useHook) {
+            (, settleLiquidityGasLimit, settleTotalLiquidityGasLimit,) = _liquidityMatrix.getHookGasLimits();
+        }
+
         // Process each account's liquidity update
         for (uint256 i; i < params.accounts.length; ++i) {
             (address account, int256 liquidity) = (params.accounts[i], params.liquidity[i]);
@@ -405,8 +412,9 @@ contract RemoteAppChronicle is Pausable, IRemoteAppChronicle {
 
             // Trigger hook if enabled, catching any failures
             if (useHook) {
-                try ILiquidityMatrixHook(app).onSettleLiquidity(chainUID, version, params.timestamp, targetAccount) { }
-                catch (bytes memory reason) {
+                try ILiquidityMatrixHook(app).onSettleLiquidity{ gas: settleLiquidityGasLimit }(
+                    chainUID, version, params.timestamp, targetAccount
+                ) { } catch (bytes memory reason) {
                     emit OnSettleLiquidityFailure(params.timestamp, account, liquidity, reason);
                 }
             }
@@ -415,8 +423,9 @@ contract RemoteAppChronicle is Pausable, IRemoteAppChronicle {
         // Use the total liquidity provided by the settler
         _totalLiquidity.setAsInt(params.totalLiquidity, params.timestamp);
         if (useHook) {
-            try ILiquidityMatrixHook(app).onSettleTotalLiquidity(chainUID, version, params.timestamp) { }
-            catch (bytes memory reason) {
+            try ILiquidityMatrixHook(app).onSettleTotalLiquidity{ gas: settleTotalLiquidityGasLimit }(
+                chainUID, version, params.timestamp
+            ) { } catch (bytes memory reason) {
                 emit OnSettleTotalLiquidityFailure(params.timestamp, params.totalLiquidity, reason);
             }
         }
@@ -476,6 +485,12 @@ contract RemoteAppChronicle is Pausable, IRemoteAppChronicle {
             }
         }
 
+        // Get gas limit once if hooks are enabled
+        uint64 settleDataGasLimit;
+        if (useHook) {
+            (,,, settleDataGasLimit) = _liquidityMatrix.getHookGasLimits();
+        }
+
         // Process each key-value pair
         for (uint256 i; i < params.keys.length; ++i) {
             (bytes32 key, bytes memory value) = (params.keys[i], params.values[i]);
@@ -485,8 +500,9 @@ contract RemoteAppChronicle is Pausable, IRemoteAppChronicle {
 
             // Trigger hook if enabled, catching any failures
             if (useHook) {
-                try ILiquidityMatrixHook(app).onSettleData(chainUID, version, params.timestamp, key) { }
-                catch (bytes memory reason) {
+                try ILiquidityMatrixHook(app).onSettleData{ gas: settleDataGasLimit }(
+                    chainUID, version, params.timestamp, key
+                ) { } catch (bytes memory reason) {
                     emit OnSettleDataFailure(params.timestamp, key, value, reason);
                 }
             }

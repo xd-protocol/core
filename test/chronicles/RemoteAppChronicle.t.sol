@@ -1764,6 +1764,13 @@ contract RemoteAppChronicleTest is Test {
             abi.encode(true, false, true, settler) // useHook = true
         );
 
+        // Mock hook gas limits
+        vm.mockCall(
+            liquidityMatrix,
+            abi.encodeWithSelector(ILiquidityMatrix.getHookGasLimits.selector),
+            abi.encode(uint64(300_000), uint64(75_000), uint64(200_000), uint64(75_000))
+        );
+
         // Mock successful hook calls
         vm.mockCall(app, abi.encodeWithSelector(ILiquidityMatrixHook.onSettleLiquidity.selector), abi.encode());
         vm.mockCall(app, abi.encodeWithSelector(ILiquidityMatrixHook.onSettleTotalLiquidity.selector), abi.encode());
@@ -1780,6 +1787,13 @@ contract RemoteAppChronicleTest is Test {
             liquidityMatrix,
             abi.encodeWithSelector(ILiquidityMatrix.getAppSetting.selector, app),
             abi.encode(true, false, true, settler) // useHook = true
+        );
+
+        // Mock hook gas limits
+        vm.mockCall(
+            liquidityMatrix,
+            abi.encodeWithSelector(ILiquidityMatrix.getHookGasLimits.selector),
+            abi.encode(uint64(300_000), uint64(75_000), uint64(200_000), uint64(75_000))
         );
 
         // Mock hook calls to revert
@@ -1835,6 +1849,13 @@ contract RemoteAppChronicleTest is Test {
             abi.encode(true, false, true, settler) // useHook = true
         );
 
+        // Mock hook gas limits
+        vm.mockCall(
+            liquidityMatrix,
+            abi.encodeWithSelector(ILiquidityMatrix.getHookGasLimits.selector),
+            abi.encode(uint64(300_000), uint64(75_000), uint64(200_000), uint64(75_000))
+        );
+
         // Mock successful hook calls
         vm.mockCall(app, abi.encodeWithSelector(ILiquidityMatrixHook.onSettleData.selector), abi.encode());
 
@@ -1849,6 +1870,13 @@ contract RemoteAppChronicleTest is Test {
             liquidityMatrix,
             abi.encodeWithSelector(ILiquidityMatrix.getAppSetting.selector, app),
             abi.encode(true, false, true, settler) // useHook = true
+        );
+
+        // Mock hook gas limits
+        vm.mockCall(
+            liquidityMatrix,
+            abi.encodeWithSelector(ILiquidityMatrix.getHookGasLimits.selector),
+            abi.encode(uint64(300_000), uint64(75_000), uint64(200_000), uint64(75_000))
         );
 
         // Mock hook calls to revert
@@ -2061,6 +2089,13 @@ contract RemoteAppChronicleTest is Test {
             liquidityMatrix,
             abi.encodeWithSelector(ILiquidityMatrix.getAppSetting.selector, hookApp),
             abi.encode(true, false, true, settler) // useHook = true
+        );
+
+        // Mock hook gas limits - need higher gas for external call in hook
+        vm.mockCall(
+            liquidityMatrix,
+            abi.encodeWithSelector(ILiquidityMatrix.getHookGasLimits.selector),
+            abi.encode(uint64(200_000), uint64(200_000), uint64(200_000), uint64(200_000))
         );
 
         // Mock LiquidityMatrix.getRemoteApp for the new app address

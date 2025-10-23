@@ -100,4 +100,19 @@ contract LiquidityMatrixMock {
         // This simulates the case where there's no RemoteAppChronicle set
         return address(0);
     }
+
+    function getHookGasLimits()
+        external
+        pure
+        returns (
+            uint64 onMapAccountsGasLimit,
+            uint64 onSettleLiquidityGasLimit,
+            uint64 onSettleTotalLiquidityGasLimit,
+            uint64 onSettleDataGasLimit
+        )
+    {
+        // Return default gas limits matching LiquidityMatrix constructor:
+        // onMapAccounts: 300k, onSettleLiquidity: 75k, onSettleTotalLiquidity: 200k, onSettleData: 75k
+        return (300_000, 75_000, 200_000, 75_000);
+    }
 }

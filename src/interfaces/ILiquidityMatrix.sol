@@ -89,6 +89,15 @@ interface ILiquidityMatrix is IGatewayApp {
     event AddVersion(uint256 indexed version, uint64 indexed timestamp);
     event UpdateLocalAppChronicleDeployer(address indexed deployer);
     event UpdateRemoteAppChronicleDeployer(address indexed deployer);
+    event UpdateHookGasLimits(
+        uint64 onMapAccountsGasLimit,
+        uint64 onSettleLiquidityGasLimit,
+        uint64 onSettleTotalLiquidityGasLimit,
+        uint64 onSettleDataGasLimit
+    );
+    event OnMapAccountsFailure(
+        bytes32 indexed chainUID, address indexed app, address[] remotes, address[] locals, bytes reason
+    );
 
     /*//////////////////////////////////////////////////////////////
                         VERSION FUNCTIONS
@@ -134,6 +143,23 @@ interface ILiquidityMatrix is IGatewayApp {
         external
         view
         returns (bool registered, bool syncMappedAccountsOnly, bool useHook, address settler);
+
+    /**
+     * @notice Gets the gas limits for each hook type
+     * @return onMapAccountsGasLimit Gas limit for onMapAccounts hook
+     * @return onSettleLiquidityGasLimit Gas limit for onSettleLiquidity hook
+     * @return onSettleTotalLiquidityGasLimit Gas limit for onSettleTotalLiquidity hook
+     * @return onSettleDataGasLimit Gas limit for onSettleData hook
+     */
+    function getHookGasLimits()
+        external
+        view
+        returns (
+            uint64 onMapAccountsGasLimit,
+            uint64 onSettleLiquidityGasLimit,
+            uint64 onSettleTotalLiquidityGasLimit,
+            uint64 onSettleDataGasLimit
+        );
 
     /*//////////////////////////////////////////////////////////////
                         LOCAL VIEW FUNCTIONS
@@ -831,6 +857,21 @@ interface ILiquidityMatrix is IGatewayApp {
     function updateLocalData(bytes32 key, bytes memory value)
         external
         returns (uint256 mainTreeIndex, uint256 appTreeIndex);
+
+    /**
+     * @notice Updates the gas limits for all hook types
+     * @dev Only callable by owner. Applied to all ILiquidityMatrixHook function calls.
+     * @param onMapAccountsGasLimit Gas limit for onMapAccounts hook
+     * @param onSettleLiquidityGasLimit Gas limit for onSettleLiquidity hook
+     * @param onSettleTotalLiquidityGasLimit Gas limit for onSettleTotalLiquidity hook
+     * @param onSettleDataGasLimit Gas limit for onSettleData hook
+     */
+    function updateHookGasLimits(
+        uint64 onMapAccountsGasLimit,
+        uint64 onSettleLiquidityGasLimit,
+        uint64 onSettleTotalLiquidityGasLimit,
+        uint64 onSettleDataGasLimit
+    ) external;
 
     /**
      * @notice Updates the whitelist status of a settler account
