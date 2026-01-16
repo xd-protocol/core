@@ -457,9 +457,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
         IGatewayApp.Request[] memory requests = new IGatewayApp.Request[](CHAINS - 1);
         for (uint256 i = 0; i < requests.length; i++) {
             requests[i] = IGatewayApp.Request({
-                chainUID: bytes32(uint256(i + 2)),
-                timestamp: uint64(block.timestamp),
-                target: address(erc20s[i + 1])
+                chainUID: bytes32(uint256(i + 2)), timestamp: uint64(block.timestamp), target: address(erc20s[i + 1])
             });
         }
 
@@ -469,7 +467,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
             responses[i] = abi.encode(int256(100e18));
         }
 
-        bytes memory callData = abi.encodeWithSelector(token.availableLocalBalanceOf.selector, alice);
+        bytes memory callData = abi.encodeWithSelector(bytes4(keccak256("availableLocalBalanceOf(address)")), alice);
         bytes memory result = token.reduce(requests, callData, responses);
 
         int256 availability = abi.decode(result, (int256));
@@ -481,7 +479,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
 
         IGatewayApp.Request[] memory requests = new IGatewayApp.Request[](0);
         bytes[] memory responses = new bytes[](0);
-        bytes memory callData = abi.encodeWithSelector(token.availableLocalBalanceOf.selector, alice);
+        bytes memory callData = abi.encodeWithSelector(bytes4(keccak256("availableLocalBalanceOf(address)")), alice);
 
         vm.expectRevert(IBaseERC20xD.InvalidRequests.selector);
         token.reduce(requests, callData, responses);
@@ -494,7 +492,7 @@ contract ERC20xDTest is BaseERC20xDTestHelper {
 
         vm.prank(alice);
         vm.expectRevert(IBaseERC20xD.Forbidden.selector);
-        token.onRead(message, abi.encode(uint256(1)));
+        token.onRead(message, abi.encode(uint256(0), uint256(1))); // MODE_SINGLE_TRANSFER, nonce
     }
 
     /*//////////////////////////////////////////////////////////////

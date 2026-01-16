@@ -23,6 +23,9 @@ contract SettlerMock {
         liquidityMatrix = _liquidityMatrix;
     }
 
+    // Allow receiving native tokens (for cross-chain fee refunds)
+    receive() external payable { }
+
     function settleLiquidity(
         address app,
         bytes32 chainUID,
@@ -65,11 +68,12 @@ contract SettlerMock {
         bool[] memory isContract = new bool[](accounts.length);
 
         // Call settleLiquidity on the RemoteAppChronicle with Merkle proof
-        RemoteAppChronicle(chronicle).settleLiquidity(
-            RemoteAppChronicle.SettleLiquidityParams(
-                uint64(timestamp), accounts, liquidity, isContract, totalLiquidity, liquidityRoot, proof
-            )
-        );
+        RemoteAppChronicle(chronicle)
+            .settleLiquidity(
+                RemoteAppChronicle.SettleLiquidityParams(
+                    uint64(timestamp), accounts, liquidity, isContract, totalLiquidity, liquidityRoot, proof
+                )
+            );
     }
 
     function settleData(
@@ -105,9 +109,8 @@ contract SettlerMock {
         address chronicle = ILiquidityMatrix(liquidityMatrix).getCurrentRemoteAppChronicle(app, chainUID);
 
         // Call settleData on the RemoteAppChronicle with Merkle proof
-        RemoteAppChronicle(chronicle).settleData(
-            RemoteAppChronicle.SettleDataParams(uint64(timestamp), keys, values, dataRoot, proof)
-        );
+        RemoteAppChronicle(chronicle)
+            .settleData(RemoteAppChronicle.SettleDataParams(uint64(timestamp), keys, values, dataRoot, proof));
     }
 
     // Helper function to compute app's liquidity root for testing

@@ -29,6 +29,31 @@ interface IBaseERC20xD is IERC20, IGatewayApp, ILiquidityMatrixHook {
         bytes data;
     }
 
+    /**
+     * @notice Status of a queued transfer
+     */
+    enum TransferStatus {
+        Pending,
+        Processing,
+        Executed,
+        Cancelled,
+        Failed
+    }
+
+    /**
+     * @notice Represents a queued standard ERC20 transfer
+     * @param from The address initiating the transfer
+     * @param to The recipient address
+     * @param amount The amount of tokens to transfer
+     * @param status The current status of the transfer
+     */
+    struct QueuedTransfer {
+        address from;
+        address to;
+        uint256 amount;
+        TransferStatus status;
+    }
+
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
     //////////////////////////////////////////////////////////////*/
@@ -54,6 +79,11 @@ interface IBaseERC20xD is IERC20, IGatewayApp, ILiquidityMatrixHook {
     error InvalidLengths();
     error ChainAlreadyAdded();
     error ChainNotConfigured();
+    error TransferNotQueued(uint64 id);
+    error TransferNotCancellable(uint64 id);
+    error InvalidTransferId();
+    error InvalidBatchRange();
+    error UnauthorizedSettler();
 
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
@@ -87,6 +117,10 @@ interface IBaseERC20xD is IERC20, IGatewayApp, ILiquidityMatrixHook {
     event AddReadTarget(bytes32 indexed chainUID, bytes32 indexed target);
     event UpdateReadTarget(bytes32 indexed chainUID, bytes32 indexed target);
     event ETHRecovered(address indexed to, uint256 amount);
+    event TransferQueued(uint64 indexed id, address indexed from, address indexed to, uint256 amount);
+    event TransferExecuted(uint64 indexed id);
+    event TransferFailed(uint64 indexed id);
+    event TransferCancelled(uint64 indexed id);
 
     /*//////////////////////////////////////////////////////////////
                             VIEW FUNCTIONS
@@ -152,6 +186,40 @@ interface IBaseERC20xD is IERC20, IGatewayApp, ILiquidityMatrixHook {
      * @return balance The balance that can be spent on current chain
      */
     function availableLocalBalanceOf(address account) external view returns (int256);
+
+    /**
+     * @notice Retrieves available balances of multiple accounts on current chain
+     * @dev This will be called by Gateway read for batch processing
+     * @param accounts The accounts to query
+     * @return balances The balances that can be spent on current chain
+     */
+    function availableLocalBalanceOf(address[] calldata accounts) external view returns (int256[] memory balances);
+
+    /**
+     * @notice Returns the next transfer ID to be assigned
+     * @return The next transfer ID
+     */
+    function nextTransferId() external view returns (uint64);
+
+    /**
+     * @notice Returns the last processed transfer ID
+     * @return The last processed transfer ID
+     */
+    function lastProcessedId() external view returns (uint64);
+
+    /**
+     * @notice Returns the queued transfer details for a given ID
+     * @param id The transfer ID to query
+     * @return The queued transfer struct
+     */
+    function getQueuedTransfer(uint64 id) external view returns (QueuedTransfer memory);
+
+    /**
+     * @notice Returns the locked amount for an account
+     * @param account The account to query
+     * @return The locked amount
+     */
+    function getLockedAmount(address account) external view returns (uint256);
 
     /*//////////////////////////////////////////////////////////////
                                 LOGIC
@@ -285,4 +353,21 @@ interface IBaseERC20xD is IERC20, IGatewayApp, ILiquidityMatrixHook {
      * @param to The address to send the recovered ETH to
      */
     function recoverETH(address to) external;
+
+    /**
+     * @notice Cancels a queued standard transfer
+     * @dev Only callable by the sender of the transfer while in Pending status
+     * @param id The transfer ID to cancel
+     */
+    function cancelQueuedTransfer(uint64 id) external;
+
+    /**
+     * @notice Initiates batch processing of queued transfers
+     * @dev Only callable by settler. Starts Gateway.read() for global availability check.
+     * @param startId The first transfer ID to process (must be lastProcessedId + 1)
+     * @param endId The last transfer ID to process (inclusive)
+     * @param data Encoded (uint128 gasLimit, address refundTo) parameters
+     * @return guid The unique identifier for this batch operation
+     */
+    function processTransfers(uint64 startId, uint64 endId, bytes memory data) external payable returns (bytes32 guid);
 }

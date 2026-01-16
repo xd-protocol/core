@@ -75,6 +75,10 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
     );
     event CancelPendingTransfer(uint256 indexed nonce);
     event Transfer(address indexed from, address indexed to, uint256 amount);
+    event TransferQueued(uint64 indexed id, address indexed from, address indexed to, uint256 amount);
+    event TransferExecuted(uint64 indexed id);
+    event TransferFailed(uint64 indexed id);
+    event TransferCancelled(uint64 indexed id);
 
     function setUp() public virtual override {
         super.setUp();
@@ -384,14 +388,10 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         // Create mock requests
         IGatewayApp.Request[] memory requests = new IGatewayApp.Request[](2);
         requests[0] = IGatewayApp.Request({
-            chainUID: bytes32(uint256(1)),
-            timestamp: uint64(block.timestamp),
-            target: address(erc20s[1])
+            chainUID: bytes32(uint256(1)), timestamp: uint64(block.timestamp), target: address(erc20s[1])
         });
         requests[1] = IGatewayApp.Request({
-            chainUID: bytes32(uint256(2)),
-            timestamp: uint64(block.timestamp),
-            target: address(erc20s[2])
+            chainUID: bytes32(uint256(2)), timestamp: uint64(block.timestamp), target: address(erc20s[2])
         });
 
         // Create mock responses
@@ -400,7 +400,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         responses[1] = abi.encode(int256(200e18));
 
         // Call reduce
-        bytes memory callData = abi.encodeWithSelector(token.availableLocalBalanceOf.selector, alice);
+        bytes memory callData = abi.encodeWithSelector(bytes4(keccak256("availableLocalBalanceOf(address)")), alice);
         bytes memory result = token.reduce(requests, callData, responses);
 
         // Verify result
@@ -409,15 +409,314 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
     }
 
     /*//////////////////////////////////////////////////////////////
-                       STANDARD TRANSFER TEST
+                    QUEUED TRANSFER TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_transfer_reverts_unsupported() public {
+    function test_transfer_queued_basic() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        vm.expectEmit(true, true, true, true);
+        emit TransferQueued(1, alice, bob, 50e18);
+
+        vm.prank(alice);
+        bool success = token.transfer(bob, 50e18);
+
+        assertTrue(success);
+        assertEq(token.nextTransferId(), 2);
+        assertEq(token.getLockedAmount(alice), 50e18);
+
+        IBaseERC20xD.QueuedTransfer memory queued = token.getQueuedTransfer(1);
+        assertEq(queued.from, alice);
+        assertEq(queued.to, bob);
+        assertEq(queued.amount, 50e18);
+        assertEq(uint8(queued.status), uint8(IBaseERC20xD.TransferStatus.Pending));
+    }
+
+    function test_transfer_queued_multipleTransfers() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        vm.prank(alice);
+        token.transfer(bob, 30e18);
+
+        vm.prank(alice);
+        token.transfer(charlie, 20e18);
+
+        assertEq(token.nextTransferId(), 3);
+        assertEq(token.getLockedAmount(alice), 50e18);
+
+        IBaseERC20xD.QueuedTransfer memory q1 = token.getQueuedTransfer(1);
+        IBaseERC20xD.QueuedTransfer memory q2 = token.getQueuedTransfer(2);
+
+        assertEq(q1.to, bob);
+        assertEq(q1.amount, 30e18);
+        assertEq(q2.to, charlie);
+        assertEq(q2.amount, 20e18);
+    }
+
+    function test_transfer_queued_revertInvalidAddress() public {
         BaseERC20xD token = erc20s[0];
 
         vm.prank(alice);
-        vm.expectRevert(IBaseERC20xD.Unsupported.selector);
+        vm.expectRevert(IBaseERC20xD.InvalidAddress.selector);
+        token.transfer(address(0), 50e18);
+    }
+
+    function test_transfer_queued_revertZeroAmount() public {
+        BaseERC20xD token = erc20s[0];
+
+        vm.prank(alice);
+        vm.expectRevert(IBaseERC20xD.InvalidAmount.selector);
+        token.transfer(bob, 0);
+    }
+
+    function test_transfer_queued_revertInsufficientBalance() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        // Alice has 100e18 * CHAINS = 800e18 global balance
+        // Try to transfer more than available
+        vm.prank(alice);
+        vm.expectRevert(IBaseERC20xD.InsufficientBalance.selector);
+        token.transfer(bob, 801e18);
+    }
+
+    function test_transfer_queued_revertInsufficientBalanceWithLocked() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        // First transfer locks 700e18
+        vm.prank(alice);
+        token.transfer(bob, 700e18);
+
+        // Second transfer should fail (only 100e18 available)
+        vm.prank(alice);
+        vm.expectRevert(IBaseERC20xD.InsufficientBalance.selector);
+        token.transfer(charlie, 101e18);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    CANCEL QUEUED TRANSFER TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_cancelQueuedTransfer_basic() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        vm.prank(alice);
         token.transfer(bob, 50e18);
+
+        assertEq(token.getLockedAmount(alice), 50e18);
+
+        vm.expectEmit(true, false, false, false);
+        emit TransferCancelled(1);
+
+        vm.prank(alice);
+        token.cancelQueuedTransfer(1);
+
+        assertEq(token.getLockedAmount(alice), 0);
+
+        IBaseERC20xD.QueuedTransfer memory queued = token.getQueuedTransfer(1);
+        assertEq(uint8(queued.status), uint8(IBaseERC20xD.TransferStatus.Cancelled));
+    }
+
+    function test_cancelQueuedTransfer_revertNotOwner() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        vm.prank(alice);
+        token.transfer(bob, 50e18);
+
+        vm.prank(bob);
+        vm.expectRevert(IBaseERC20xD.Forbidden.selector);
+        token.cancelQueuedTransfer(1);
+    }
+
+    function test_cancelQueuedTransfer_revertNotQueued() public {
+        BaseERC20xD token = erc20s[0];
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(IBaseERC20xD.TransferNotQueued.selector, 999));
+        token.cancelQueuedTransfer(999);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    PROCESS TRANSFERS TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_processTransfers_revertUnauthorizedSettler() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        vm.prank(alice);
+        token.transfer(bob, 50e18);
+
+        vm.prank(alice);
+        vm.expectRevert(IBaseERC20xD.UnauthorizedSettler.selector);
+        token.processTransfers(1, 1, abi.encode(GAS_LIMIT, alice));
+    }
+
+    function test_processTransfers_revertInvalidBatchRange_wrongStart() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        vm.prank(alice);
+        token.transfer(bob, 50e18);
+
+        // lastProcessedId is 0, so startId must be 1
+        vm.prank(settlers[0]);
+        vm.expectRevert(IBaseERC20xD.InvalidBatchRange.selector);
+        token.processTransfers(2, 2, abi.encode(GAS_LIMIT, settlers[0]));
+    }
+
+    function test_processTransfers_revertInvalidBatchRange_endTooHigh() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        vm.prank(alice);
+        token.transfer(bob, 50e18);
+
+        // nextTransferId is 2, so endId must be < 2
+        vm.prank(settlers[0]);
+        vm.expectRevert(IBaseERC20xD.InvalidBatchRange.selector);
+        token.processTransfers(1, 2, abi.encode(GAS_LIMIT, settlers[0]));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    BATCH TRANSFER INTEGRATION TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_batchTransfer_fullFlow() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        // Queue transfers
+        vm.prank(alice);
+        token.transfer(bob, 50e18);
+
+        vm.prank(bob);
+        token.transfer(charlie, 30e18);
+
+        // Process transfers
+        address[] memory uniqueFroms = new address[](2);
+        uniqueFroms[0] = alice;
+        uniqueFroms[1] = bob;
+
+        vm.prank(settlers[0]);
+        token.processTransfers{ value: 1e18 }(1, 2, abi.encode(GAS_LIMIT, settlers[0]));
+
+        // Verify status changed to Processing
+        IBaseERC20xD.QueuedTransfer memory q1 = token.getQueuedTransfer(1);
+        IBaseERC20xD.QueuedTransfer memory q2 = token.getQueuedTransfer(2);
+        assertEq(uint8(q1.status), uint8(IBaseERC20xD.TransferStatus.Processing));
+        assertEq(uint8(q2.status), uint8(IBaseERC20xD.TransferStatus.Processing));
+
+        // Execute batch
+        _executeBatchTransfer(token, 1, 2, uniqueFroms, "");
+
+        // Verify completion
+        q1 = token.getQueuedTransfer(1);
+        q2 = token.getQueuedTransfer(2);
+        assertEq(uint8(q1.status), uint8(IBaseERC20xD.TransferStatus.Executed));
+        assertEq(uint8(q2.status), uint8(IBaseERC20xD.TransferStatus.Executed));
+
+        assertEq(token.lastProcessedId(), 2);
+        assertEq(token.getLockedAmount(alice), 0);
+        assertEq(token.getLockedAmount(bob), 0);
+
+        // Verify balances changed
+        assertEq(token.localBalanceOf(alice), 50e18); // 100 - 50
+        assertEq(token.localBalanceOf(bob), 120e18); // 100 + 50 - 30
+        assertEq(token.localBalanceOf(charlie), 130e18); // 100 + 30
+    }
+
+    function test_batchTransfer_partialFail() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        // Alice queues transfer for more than she has locally but within global
+        // Then we simulate remote chains having 0 balance
+        vm.prank(alice);
+        token.transfer(bob, 50e18);
+
+        address[] memory uniqueFroms = new address[](1);
+        uniqueFroms[0] = alice;
+
+        vm.prank(settlers[0]);
+        token.processTransfers{ value: 1e18 }(1, 1, abi.encode(GAS_LIMIT, settlers[0]));
+
+        // Execute - should succeed since alice has enough global balance
+        _executeBatchTransfer(token, 1, 1, uniqueFroms, "");
+
+        IBaseERC20xD.QueuedTransfer memory q1 = token.getQueuedTransfer(1);
+        assertEq(uint8(q1.status), uint8(IBaseERC20xD.TransferStatus.Executed));
+    }
+
+    function test_batchTransfer_sameFromSequentialDeduction() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        // Alice has 800e18 global balance (100e18 * 8 chains)
+        // Queue two transfers from the same sender to test sequential deduction
+        vm.prank(alice);
+        token.transfer(bob, 300e18);
+
+        vm.prank(alice);
+        token.transfer(charlie, 200e18);
+
+        address[] memory uniqueFroms = new address[](1);
+        uniqueFroms[0] = alice;
+
+        vm.prank(settlers[0]);
+        token.processTransfers{ value: 1e18 }(1, 2, abi.encode(GAS_LIMIT, settlers[0]));
+
+        // Execute - both should succeed (300 + 200 = 500 < 800)
+        _executeBatchTransfer(token, 1, 2, uniqueFroms, "");
+
+        IBaseERC20xD.QueuedTransfer memory q1 = token.getQueuedTransfer(1);
+        IBaseERC20xD.QueuedTransfer memory q2 = token.getQueuedTransfer(2);
+
+        assertEq(uint8(q1.status), uint8(IBaseERC20xD.TransferStatus.Executed));
+        assertEq(uint8(q2.status), uint8(IBaseERC20xD.TransferStatus.Executed));
+
+        // Both should have lockedAmount released
+        assertEq(token.getLockedAmount(alice), 0);
+
+        // Verify balances changed correctly
+        assertEq(token.localBalanceOf(alice), -400e18); // 100 - 300 - 200 (local balance goes negative)
+        assertEq(token.localBalanceOf(bob), 400e18); // 100 + 300
+        assertEq(token.localBalanceOf(charlie), 300e18); // 100 + 200
+    }
+
+    function test_batchTransfer_withCancelledTransfer() public {
+        BaseERC20xD token = erc20s[0];
+        _syncAndSettleLiquidity();
+
+        vm.prank(alice);
+        token.transfer(bob, 50e18);
+
+        vm.prank(bob);
+        token.transfer(charlie, 30e18);
+
+        // Cancel first transfer
+        vm.prank(alice);
+        token.cancelQueuedTransfer(1);
+
+        address[] memory uniqueFroms = new address[](1);
+        uniqueFroms[0] = bob;
+
+        vm.prank(settlers[0]);
+        token.processTransfers{ value: 1e18 }(1, 2, abi.encode(GAS_LIMIT, settlers[0]));
+
+        // Cancelled transfer stays cancelled, only bob's transfer should execute
+        _executeBatchTransfer(token, 1, 2, uniqueFroms, "");
+
+        IBaseERC20xD.QueuedTransfer memory q1 = token.getQueuedTransfer(1);
+        IBaseERC20xD.QueuedTransfer memory q2 = token.getQueuedTransfer(2);
+
+        assertEq(uint8(q1.status), uint8(IBaseERC20xD.TransferStatus.Cancelled));
+        assertEq(uint8(q2.status), uint8(IBaseERC20xD.TransferStatus.Executed));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -863,7 +1162,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         BaseERC20xD token = erc20s[0];
 
         bytes memory message = abi.encode(int256(100e18));
-        bytes memory extra = abi.encode(uint256(1));
+        bytes memory extra = abi.encode(uint256(0), uint256(1)); // MODE_SINGLE_TRANSFER, nonce
 
         // Even owner cannot call onRead
         vm.prank(owner);
@@ -890,7 +1189,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
 
         // Now try to execute the cancelled transfer
         bytes memory message = abi.encode(int256(100e18));
-        bytes memory extra = abi.encode(validNonce);
+        bytes memory extra = abi.encode(uint256(0), validNonce); // MODE_SINGLE_TRANSFER, nonce
 
         vm.prank(address(gateways[0]));
         vm.expectRevert(abi.encodeWithSelector(IBaseERC20xD.TransferNotPending.selector, validNonce));
@@ -918,7 +1217,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
 
         // Gateway tries to execute cancelled transfer
         bytes memory message = abi.encode(int256(100e18));
-        bytes memory extra = abi.encode(nonce);
+        bytes memory extra = abi.encode(uint256(0), nonce); // MODE_SINGLE_TRANSFER, nonce
 
         vm.prank(address(gateways[0]));
         vm.expectRevert(abi.encodeWithSelector(IBaseERC20xD.TransferNotPending.selector, nonce));
@@ -943,7 +1242,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
 
         // Gateway reports negative global availability (other chains have negative balance)
         bytes memory message = abi.encode(int256(-30e18)); // Alice has 100e18 locally - 30e18 globally = 70e18 < 80e18
-        bytes memory extra = abi.encode(nonce);
+        bytes memory extra = abi.encode(uint256(0), nonce); // MODE_SINGLE_TRANSFER, nonce
 
         vm.prank(address(gateways[0]));
         vm.expectRevert(
@@ -970,7 +1269,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
 
         // Gateway reports zero global availability
         bytes memory message = abi.encode(int256(0));
-        bytes memory extra = abi.encode(nonce);
+        bytes memory extra = abi.encode(uint256(0), nonce); // MODE_SINGLE_TRANSFER, nonce
 
         // Expect the standard Transfer event when the cross-chain transfer is executed
         vm.expectEmit(true, true, false, true);
@@ -1004,7 +1303,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
 
         // Gateway reports large global availability
         bytes memory message = abi.encode(int256(200e18)); // Alice has 100e18 locally + 200e18 globally = 300e18
-        bytes memory extra = abi.encode(nonce);
+        bytes memory extra = abi.encode(uint256(0), nonce); // MODE_SINGLE_TRANSFER, nonce
 
         vm.prank(address(gateways[0]));
         token.onRead(message, extra);
@@ -1033,7 +1332,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
 
         // Gateway executes successfully
         bytes memory message = abi.encode(int256(100e18));
-        bytes memory extra = abi.encode(nonce);
+        bytes memory extra = abi.encode(uint256(0), nonce); // MODE_SINGLE_TRANSFER, nonce
 
         vm.prank(address(gateways[0]));
         token.onRead(message, extra);
@@ -1067,7 +1366,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
 
         // Gateway reports exact needed availability
         bytes memory message = abi.encode(int256(150e18)); // 100 local + 150 global = 250 exact
-        bytes memory extra = abi.encode(nonce);
+        bytes memory extra = abi.encode(uint256(0), nonce); // MODE_SINGLE_TRANSFER, nonce
 
         vm.prank(address(gateways[0]));
         token.onRead(message, extra);
@@ -1104,7 +1403,7 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
 
         // Gateway executes
         bytes memory message = abi.encode(int256(100e18));
-        bytes memory extra = abi.encode(nonce);
+        bytes memory extra = abi.encode(uint256(0), nonce); // MODE_SINGLE_TRANSFER, nonce
 
         vm.prank(address(gateways[0]));
         token.onRead(message, extra);
@@ -1143,17 +1442,17 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
         vm.startPrank(address(gateways[0]));
 
         // Execute Alice's transfer
-        token.onRead(abi.encode(int256(100e18)), abi.encode(nonces[0]));
+        token.onRead(abi.encode(int256(100e18)), abi.encode(uint256(0), nonces[0]));
         assertEq(token.localBalanceOf(alice), 70e18);
         assertEq(token.localBalanceOf(bob), 130e18);
 
         // Execute Bob's transfer
-        token.onRead(abi.encode(int256(100e18)), abi.encode(nonces[1]));
+        token.onRead(abi.encode(int256(100e18)), abi.encode(uint256(0), nonces[1]));
         assertEq(token.localBalanceOf(bob), 110e18);
         assertEq(token.localBalanceOf(charlie), 120e18);
 
         // Execute Charlie's transfer
-        token.onRead(abi.encode(int256(100e18)), abi.encode(nonces[2]));
+        token.onRead(abi.encode(int256(100e18)), abi.encode(uint256(0), nonces[2]));
         assertEq(token.localBalanceOf(charlie), 110e18);
         assertEq(token.localBalanceOf(alice), 80e18);
 
@@ -1878,8 +2177,9 @@ contract BaseERC20xDTest is BaseERC20xDTestHelper {
 
 // Helper contracts for edge case testing
 contract NonPayableContract {
-// Contract without receive or fallback - cannot receive ETH
-}
+    // Contract without receive or fallback - cannot receive ETH
+
+    }
 
 contract ReentrantReceiver {
     address payable immutable token;

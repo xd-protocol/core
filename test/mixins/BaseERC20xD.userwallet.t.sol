@@ -164,7 +164,7 @@ contract BaseERC20xDUserWalletTest is Test {
 
         // Wallet is created during onRead callback (nonce 1)
         vm.prank(address(gateway));
-        token.onRead(abi.encode(int256(0)), abi.encode(uint256(1)));
+        token.onRead(abi.encode(int256(0)), abi.encode(uint256(0), uint256(1))); // MODE_SINGLE_TRANSFER, nonce
 
         // Check wallet was created
         address walletAfter = walletFactory.userWallets(alice);
@@ -195,7 +195,7 @@ contract BaseERC20xDUserWalletTest is Test {
         vm.prank(address(gateway));
         token.onRead(
             abi.encode(int256(0)), // No global availability needed for this test
-            abi.encode(uint256(1))
+            abi.encode(uint256(0), uint256(1)) // MODE_SINGLE_TRANSFER, nonce
         );
 
         // Get wallet address
@@ -234,7 +234,7 @@ contract BaseERC20xDUserWalletTest is Test {
 
         // First transfer uses nonce 1 (0 is reserved)
         vm.prank(address(gateway));
-        token.onRead(abi.encode(int256(0)), abi.encode(uint256(1)));
+        token.onRead(abi.encode(int256(0)), abi.encode(uint256(0), uint256(1))); // MODE_SINGLE_TRANSFER, nonce
 
         address wallet = walletFactory.userWallets(alice);
         address firstWallet = wallet;
@@ -249,7 +249,7 @@ contract BaseERC20xDUserWalletTest is Test {
 
         // Second transfer uses nonce 2
         vm.prank(address(gateway));
-        token.onRead(abi.encode(int256(0)), abi.encode(uint256(2)));
+        token.onRead(abi.encode(int256(0)), abi.encode(uint256(0), uint256(2))); // MODE_SINGLE_TRANSFER, nonce
 
         address secondWallet = walletFactory.userWallets(alice);
 
@@ -280,7 +280,7 @@ contract BaseERC20xDUserWalletTest is Test {
         );
 
         vm.prank(address(gateway));
-        token.onRead(abi.encode(int256(0)), abi.encode(uint256(1)));
+        token.onRead(abi.encode(int256(0)), abi.encode(uint256(0), uint256(1))); // MODE_SINGLE_TRANSFER, nonce
 
         // Check final balances
         int256 aliceBalanceAfter = token.localBalanceOf(alice);
@@ -310,7 +310,7 @@ contract BaseERC20xDUserWalletTest is Test {
         );
 
         vm.prank(address(gateway));
-        token.onRead(abi.encode(int256(0)), abi.encode(uint256(1)));
+        token.onRead(abi.encode(int256(0)), abi.encode(uint256(0), uint256(1))); // MODE_SINGLE_TRANSFER, nonce
 
         // The malicious contract cannot steal extra tokens because:
         // 1. Only 50 ether was sent to the wallet
@@ -368,7 +368,7 @@ contract BaseERC20xDUserWalletTest is Test {
         // Expect revert when executing compose without wallet factory set
         vm.expectRevert(IBaseERC20xD.UserWalletFactoryNotSet.selector);
         vm.prank(address(gateway));
-        legacyToken.onRead(abi.encode(int256(0)), abi.encode(uint256(1)));
+        legacyToken.onRead(abi.encode(int256(0)), abi.encode(uint256(0), uint256(1))); // MODE_SINGLE_TRANSFER, nonce
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -393,7 +393,7 @@ contract BaseERC20xDUserWalletTest is Test {
         vm.prank(address(gateway));
         token.onRead(
             abi.encode(int256(500 ether)), // Simulated global availability
-            abi.encode(uint256(1))
+            abi.encode(uint256(0), uint256(1)) // MODE_SINGLE_TRANSFER, nonce
         );
 
         // Verify transfer completed
@@ -426,8 +426,9 @@ contract MaliciousContract {
         // Try to drain as much as possible
         uint256 maxAmount = 1_000_000 ether;
         try ERC20xD(token).transferFrom(msg.sender, address(this), maxAmount) {
-            // If this succeeds, we've stolen tokens
-        } catch {
+        // If this succeeds, we've stolen tokens
+        }
+            catch {
             // Expected to fail or only get what was authorized
         }
     }

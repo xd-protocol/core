@@ -253,7 +253,10 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             readers[i] = address(erc20s[i]);
         }
         _executeRead(
-            address(erc20), readers, abi.encodeWithSelector(BaseERC20xD.availableLocalBalanceOf.selector, user), error
+            address(erc20),
+            readers,
+            abi.encodeWithSelector(bytes4(keccak256("availableLocalBalanceOf(address)")), user),
+            error
         );
     }
 
@@ -272,9 +275,7 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
                 continue;
             }
             requests[count] = IGatewayApp.Request({
-                chainUID: bytes32(uint256(eids[i])),
-                timestamp: uint64(block.timestamp),
-                target: address(readers[i])
+                chainUID: bytes32(uint256(eids[i])), timestamp: uint64(block.timestamp), target: address(readers[i])
             });
             (, bytes memory response) = readers[i].call(callData);
             responses[count] = response;
@@ -288,5 +289,58 @@ abstract contract BaseERC20xDTestHelper is LiquidityMatrixTestHelper {
             vm.expectRevert(error);
         }
         this.verifyPackets(uint32(uint256(chainUID)), addressToBytes32(address(gateway)), 0, address(0), payload);
+    }
+
+    function _executeBatchTransfer(
+        BaseERC20xD erc20,
+        uint64 startId,
+        uint64 endId,
+        address[] memory uniqueFroms,
+        bytes memory error
+    ) internal {
+        address[] memory readers = new address[](CHAINS);
+        for (uint256 i; i < readers.length; ++i) {
+            readers[i] = address(erc20s[i]);
+        }
+
+        // Build callData for batch query
+        bytes memory callData =
+            abi.encodeWithSelector(bytes4(keccak256("availableLocalBalanceOf(address[])")), uniqueFroms);
+
+        // Collect responses from each chain
+        IGatewayApp.Request[] memory requests = new IGatewayApp.Request[](CHAINS - 1);
+        bytes[] memory responses = new bytes[](CHAINS - 1);
+        bytes32 chainUID;
+        address gateway;
+        uint256 count;
+
+        for (uint256 i; i < CHAINS; ++i) {
+            if (readers[i] == address(erc20)) {
+                chainUID = bytes32(uint256(eids[i]));
+                gateway = address(gateways[i]);
+                continue;
+            }
+            requests[count] = IGatewayApp.Request({
+                chainUID: bytes32(uint256(eids[i])), timestamp: uint64(block.timestamp), target: address(readers[i])
+            });
+            (, bytes memory response) = readers[i].call(callData);
+            responses[count] = response;
+            count++;
+        }
+
+        // Call reduce to aggregate responses
+        bytes memory payload = IGatewayApp(address(erc20)).reduce(requests, callData, responses);
+
+        // Build extra data for batch mode
+        uint256 MODE_BATCH_TRANSFER = 1;
+        bytes memory extra = abi.encode(MODE_BATCH_TRANSFER, startId, endId, uniqueFroms);
+
+        if (error.length > 0) {
+            vm.expectRevert(error);
+        }
+
+        // Simulate gateway calling onRead with batch mode
+        vm.prank(gateway);
+        erc20.onRead(payload, extra);
     }
 }

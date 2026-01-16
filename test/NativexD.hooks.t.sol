@@ -70,7 +70,7 @@ contract NativexDHooksTest is Test {
         // Simulate the gateway calling onRead with the global availability response
         bytes memory message = abi.encode(globalAvailability);
         vm.prank(address(gateway));
-        nativeToken.onRead(message, abi.encode(nonce));
+        nativeToken.onRead(message, abi.encode(uint256(0), nonce)); // MODE_SINGLE_TRANSFER, nonce
     }
 
     /*//////////////////////////////////////////////////////////////

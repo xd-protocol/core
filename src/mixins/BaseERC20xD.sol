@@ -50,9 +50,15 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, Pausable, 
     uint8 constant ACTION_TRANSFER = 1; // Bit 1: transfer operations
     uint8 constant ACTION_TRANSFER_FROM = 2; // Bit 2: transferFrom operations
     uint8 constant ACTION_CANCEL_TRANSFER = 3; // Bit 3: cancel pending transfers
-    // Bits 4-32 are available for future use
+    uint8 constant ACTION_QUEUED_TRANSFER = 4; // Bit 4: queued standard transfer
+    uint8 constant ACTION_CANCEL_QUEUED_TRANSFER = 5; // Bit 5: cancel queued transfer
+    // Bits 6-32 are available for future use
     // Note: Owner-only functions like setHook, configureReadChains don't need pause control
     // Note: _compose is only called internally during transfer execution, covered by ACTION_TRANSFER
+
+    // Mode constants for onRead() dispatch
+    uint8 internal constant MODE_SINGLE_TRANSFER = 0;
+    uint8 internal constant MODE_BATCH_TRANSFER = 1;
 
     /*//////////////////////////////////////////////////////////////
                                 TYPES
@@ -96,6 +102,12 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, Pausable, 
     // Track ETH received through receive() function for recovery
     uint256 internal _recoverableETH;
 
+    // Queued transfer storage for standard ERC20 transfer()
+    mapping(uint64 => QueuedTransfer) internal _transferQueue;
+    mapping(address => uint256) internal _lockedAmount;
+    uint64 public nextTransferId;
+    uint64 public lastProcessedId;
+
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
@@ -122,6 +134,9 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, Pausable, 
         liquidityMatrix = _liquidityMatrix;
         gateway = _gateway;
         _pendingTransfers.push();
+
+        // Initialize queued transfer ID to start at 1
+        nextTransferId = 1;
 
         // Register this contract as an app in the LiquidityMatrix with callbacks enabled
         ILiquidityMatrix(_liquidityMatrix).registerApp(false, true, _settler);
@@ -199,6 +214,16 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, Pausable, 
         return ILiquidityMatrix(liquidityMatrix).getLocalLiquidity(address(this), account);
     }
 
+    /// @inheritdoc IBaseERC20xD
+    function getQueuedTransfer(uint64 id) external view returns (QueuedTransfer memory) {
+        return _transferQueue[id];
+    }
+
+    /// @inheritdoc IBaseERC20xD
+    function getLockedAmount(address account) external view returns (uint256) {
+        return _lockedAmount[account];
+    }
+
     /**
      * @notice Gets the configured read targets
      * @return chainUIDs Array of configured chain UIDs
@@ -232,14 +257,15 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, Pausable, 
             if (targets[i] == address(0)) revert InvalidTarget();
         }
 
-        return IGateway(gateway).quoteRead(
-            address(this),
-            readChainUIDs,
-            targets,
-            abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from),
-            256,
-            gasLimit
-        );
+        return IGateway(gateway)
+            .quoteRead(
+                address(this),
+                readChainUIDs,
+                targets,
+                abi.encodeWithSelector(bytes4(keccak256("availableLocalBalanceOf(address)")), from),
+                256,
+                gasLimit
+            );
     }
 
     /// @inheritdoc IBaseERC20xD
@@ -249,20 +275,55 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, Pausable, 
         return localBalanceOf(account) - int256(pending.pending ? pending.amount : 0);
     }
 
+    /// @inheritdoc IBaseERC20xD
+    function availableLocalBalanceOf(address[] calldata accounts) external view returns (int256[] memory balances) {
+        balances = new int256[](accounts.length);
+        for (uint256 i; i < accounts.length; i++) {
+            address account = accounts[i];
+            uint256 nonce = _pendingNonce[account];
+            PendingTransfer storage pending = _pendingTransfers[nonce];
+            balances[i] = localBalanceOf(account) - int256(pending.pending ? pending.amount : 0);
+        }
+    }
+
     /// @inheritdoc IGatewayApp
-    function reduce(IGatewayApp.Request[] calldata requests, bytes calldata, bytes[] calldata responses)
+    function reduce(IGatewayApp.Request[] calldata requests, bytes calldata callData, bytes[] calldata responses)
         external
         pure
         returns (bytes memory)
     {
         if (requests.length == 0) revert InvalidRequests();
 
-        int256 availability;
-        for (uint256 i; i < responses.length; ++i) {
-            int256 balance = abi.decode(responses[i], (int256));
-            availability += balance;
+        // Check selector to determine single vs batch mode
+        bytes4 selector = bytes4(callData[:4]);
+
+        // Single account query: availableLocalBalanceOf(address)
+        // selector = 0x0b86e8e8
+        if (selector == bytes4(keccak256("availableLocalBalanceOf(address)"))) {
+            int256 availability;
+            for (uint256 i; i < responses.length; ++i) {
+                int256 balance = abi.decode(responses[i], (int256));
+                availability += balance;
+            }
+            return abi.encode(availability);
         }
-        return abi.encode(availability);
+
+        // Batch account query: availableLocalBalanceOf(address[])
+        // selector = 0x0c96e8b0
+        // Decode accounts from callData
+        address[] memory accounts = abi.decode(callData[4:], (address[]));
+        uint256 numAccounts = accounts.length;
+
+        // Aggregate balances per account across all chains
+        int256[] memory aggregatedBalances = new int256[](numAccounts);
+        for (uint256 i; i < responses.length; ++i) {
+            int256[] memory balances = abi.decode(responses[i], (int256[]));
+            for (uint256 j; j < numAccounts; ++j) {
+                aggregatedBalances[j] += balances[j];
+            }
+        }
+
+        return abi.encode(accounts, aggregatedBalances);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -389,11 +450,38 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, Pausable, 
     }
 
     /**
-     * @notice Standard ERC20 transfer is not supported
-     * @dev Reverts with Unsupported error
+     * @notice Standard ERC20 transfer - queues transfer for settler processing
+     * @dev Adds transfer to queue, locks amount, settler processes via processTransfers()
+     * @param to The recipient address
+     * @param amount The amount of tokens to transfer
+     * @return true if the transfer was queued successfully
      */
-    function transfer(address, uint256) public pure override(BaseERC20, IERC20) returns (bool) {
-        revert Unsupported();
+    function transfer(address to, uint256 amount)
+        public
+        override(BaseERC20, IERC20)
+        whenNotPaused(ACTION_QUEUED_TRANSFER)
+        returns (bool)
+    {
+        if (to == address(0)) revert InvalidAddress();
+        if (amount == 0) revert InvalidAmount();
+        if (amount > uint256(type(int256).max)) revert Overflow();
+
+        // Check available balance (aggregated settled - locked)
+        uint256 available = balanceOf(msg.sender);
+        uint256 locked = _lockedAmount[msg.sender];
+        if (available < locked + amount) revert InsufficientBalance();
+
+        // Lock the amount
+        _lockedAmount[msg.sender] = locked + amount;
+
+        // Add to queue
+        uint64 id = nextTransferId++;
+        _transferQueue[id] =
+            QueuedTransfer({ from: msg.sender, to: to, amount: amount, status: TransferStatus.Pending });
+
+        emit TransferQueued(id, msg.sender, to, amount);
+
+        return true;
     }
 
     /// @inheritdoc IBaseERC20xD
@@ -462,8 +550,8 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, Pausable, 
         guid = IGateway(gateway).read{ value: msg.value - value }(
             readChainUIDs,
             targets,
-            abi.encodeWithSelector(this.availableLocalBalanceOf.selector, from),
-            abi.encode(nonce),
+            abi.encodeWithSelector(bytes4(keccak256("availableLocalBalanceOf(address)")), from),
+            abi.encode(uint256(MODE_SINGLE_TRANSFER), nonce),
             256,
             data
         );
@@ -488,6 +576,103 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, Pausable, 
         AddressLib.transferNative(msg.sender, pending.value);
 
         emit CancelPendingTransfer(nonce);
+    }
+
+    /// @inheritdoc IBaseERC20xD
+    function cancelQueuedTransfer(uint64 id) external whenNotPaused(ACTION_CANCEL_QUEUED_TRANSFER) {
+        QueuedTransfer storage t = _transferQueue[id];
+
+        // Verify transfer exists and belongs to caller
+        if (t.from == address(0)) revert TransferNotQueued(id);
+        if (t.from != msg.sender) revert Forbidden();
+
+        // Only Pending transfers can be cancelled
+        if (t.status != TransferStatus.Pending) revert TransferNotCancellable(id);
+
+        // Update status and release locked amount
+        t.status = TransferStatus.Cancelled;
+        _lockedAmount[msg.sender] -= t.amount;
+
+        emit TransferCancelled(id);
+    }
+
+    /// @inheritdoc IBaseERC20xD
+    function processTransfers(uint64 startId, uint64 endId, bytes memory data) external payable returns (bytes32 guid) {
+        // Verify caller is the settler for this app
+        (,,, address settler) = ILiquidityMatrix(liquidityMatrix).getAppSetting(address(this));
+        if (msg.sender != settler) revert UnauthorizedSettler();
+
+        // Validate batch range (FIFO enforcement)
+        if (startId == 0 || startId > endId) revert InvalidBatchRange();
+        if (startId != lastProcessedId + 1) revert InvalidBatchRange();
+        if (endId >= nextTransferId) revert InvalidBatchRange();
+        if (readChainUIDs.length == 0) revert NoChainsConfigured();
+
+        // Collect unique from addresses and mark transfers as Processing
+        address[] memory uniqueFroms = _collectAndMarkProcessing(startId, endId);
+        if (uniqueFroms.length == 0) {
+            // All transfers in range are already cancelled, just update lastProcessedId
+            lastProcessedId = endId;
+            return bytes32(0);
+        }
+
+        // Build targets array
+        address[] memory targets = new address[](readChainUIDs.length);
+        for (uint256 i; i < readChainUIDs.length; i++) {
+            targets[i] = _readTargets[readChainUIDs[i]];
+            if (targets[i] == address(0)) revert InvalidTarget();
+        }
+
+        // Prepare extra data with mode and batch range
+        bytes memory extra = abi.encode(uint256(MODE_BATCH_TRANSFER), startId, endId, uniqueFroms);
+
+        // Call Gateway.read() with batch query
+        guid = IGateway(gateway).read{ value: msg.value }(
+            readChainUIDs,
+            targets,
+            abi.encodeWithSelector(bytes4(keccak256("availableLocalBalanceOf(address[])")), uniqueFroms),
+            extra,
+            uint32(32 + 32 * uniqueFroms.length), // returnDataSize: offset + array length per account
+            data
+        );
+    }
+
+    /**
+     * @dev Collects unique from addresses and marks pending transfers as Processing
+     * @param startId The first transfer ID in the batch
+     * @param endId The last transfer ID in the batch
+     * @return uniqueFroms Array of unique sender addresses
+     */
+    function _collectAndMarkProcessing(uint64 startId, uint64 endId) internal returns (address[] memory uniqueFroms) {
+        // First pass: count unique addresses and mark as processing
+        uint256 maxAddresses = endId - startId + 1;
+        address[] memory tempFroms = new address[](maxAddresses);
+        uint256 uniqueCount;
+
+        for (uint64 id = startId; id <= endId; id++) {
+            QueuedTransfer storage t = _transferQueue[id];
+            if (t.status != TransferStatus.Pending) continue;
+
+            t.status = TransferStatus.Processing;
+
+            // Check if address is already in the list
+            bool found = false;
+            for (uint256 j; j < uniqueCount; j++) {
+                if (tempFroms[j] == t.from) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                tempFroms[uniqueCount++] = t.from;
+            }
+        }
+
+        // Create correctly sized array
+        uniqueFroms = new address[](uniqueCount);
+        for (uint256 i; i < uniqueCount; i++) {
+            uniqueFroms[i] = tempFroms[i];
+        }
     }
 
     /**
@@ -542,10 +727,92 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, Pausable, 
     function onRead(bytes calldata _message, bytes calldata _extra) external {
         if (msg.sender != gateway) revert Forbidden();
 
-        int256 globalAvailability = abi.decode(_message, (int256));
-        uint256 nonce = abi.decode(_extra, (uint256));
+        // Check mode from extra data (first uint256 is the mode)
+        uint256 mode = abi.decode(_extra, (uint256));
 
-        _onReadGlobalAvailability(nonce, globalAvailability);
+        if (mode == MODE_BATCH_TRANSFER) {
+            // Batch processing for queued transfers
+            (, uint64 startId, uint64 endId, address[] memory uniqueFroms) =
+                abi.decode(_extra, (uint256, uint64, uint64, address[]));
+            (address[] memory accounts, int256[] memory globalBalances) = abi.decode(_message, (address[], int256[]));
+            _onReadBatchAvailability(startId, endId, uniqueFroms, accounts, globalBalances);
+        } else {
+            // Single transfer mode (MODE_SINGLE_TRANSFER)
+            (, uint256 nonce) = abi.decode(_extra, (uint256, uint256));
+            int256 globalAvailability = abi.decode(_message, (int256));
+            _onReadGlobalAvailability(nonce, globalAvailability);
+        }
+    }
+
+    /**
+     * @notice Processes batch transfers after receiving global availability data
+     * @param startId The first transfer ID in the batch
+     * @param endId The last transfer ID in the batch
+     * @param uniqueFroms Array of unique sender addresses from processTransfers
+     * @param accounts Array of accounts from reduce response
+     * @param globalBalances Array of aggregated global balances for each account
+     */
+    function _onReadBatchAvailability(
+        uint64 startId,
+        uint64 endId,
+        address[] memory uniqueFroms,
+        address[] memory accounts,
+        int256[] memory globalBalances
+    ) internal virtual {
+        // Track consumed amounts per account for sequential deduction
+        // uniqueFroms and globalBalances are in the same order
+        int256[] memory consumedAmounts = new int256[](uniqueFroms.length);
+
+        // Process each transfer in FIFO order
+        for (uint64 id = startId; id <= endId; id++) {
+            QueuedTransfer storage t = _transferQueue[id];
+
+            // Skip non-Processing transfers (already cancelled)
+            if (t.status != TransferStatus.Processing) continue;
+
+            // Find the account index
+            uint256 accountIndex = _findAccountIndex(uniqueFroms, t.from);
+
+            // Calculate available balance
+            int256 globalAvail = globalBalances[accountIndex];
+            int256 localAvail = localBalanceOf(t.from);
+            int256 totalAvail = localAvail + globalAvail - consumedAmounts[accountIndex];
+
+            if (totalAvail >= int256(t.amount)) {
+                // Execute transfer
+                t.status = TransferStatus.Executed;
+                _lockedAmount[t.from] -= t.amount;
+                consumedAmounts[accountIndex] += int256(t.amount);
+
+                // Actually transfer the tokens
+                _transferFrom(t.from, t.to, t.amount);
+
+                emit TransferExecuted(id);
+                emit Transfer(t.from, t.to, t.amount);
+            } else {
+                // Fail transfer
+                t.status = TransferStatus.Failed;
+                _lockedAmount[t.from] -= t.amount;
+
+                emit TransferFailed(id);
+            }
+        }
+
+        // Update lastProcessedId
+        lastProcessedId = endId;
+    }
+
+    /**
+     * @dev Finds the index of an account in the uniqueFroms array
+     * @param uniqueFroms Array of unique addresses
+     * @param account The account to find
+     * @return The index of the account
+     */
+    function _findAccountIndex(address[] memory uniqueFroms, address account) internal pure returns (uint256) {
+        for (uint256 i; i < uniqueFroms.length; i++) {
+            if (uniqueFroms[i] == account) return i;
+        }
+        revert InvalidAddress(); // Should never happen if data is consistent
     }
 
     /**
@@ -670,14 +937,16 @@ abstract contract BaseERC20xD is BaseERC20, Ownable, ReentrancyGuard, Pausable, 
 
             address _liquidityMatrix = liquidityMatrix;
             if (from != address(0)) {
-                ILiquidityMatrix(_liquidityMatrix).updateLocalLiquidity(
-                    from, ILiquidityMatrix(_liquidityMatrix).getLocalLiquidity(address(this), from) - int256(amount)
-                );
+                ILiquidityMatrix(_liquidityMatrix)
+                    .updateLocalLiquidity(
+                        from, ILiquidityMatrix(_liquidityMatrix).getLocalLiquidity(address(this), from) - int256(amount)
+                    );
             }
             if (to != address(0)) {
-                ILiquidityMatrix(_liquidityMatrix).updateLocalLiquidity(
-                    to, ILiquidityMatrix(_liquidityMatrix).getLocalLiquidity(address(this), to) + int256(amount)
-                );
+                ILiquidityMatrix(_liquidityMatrix)
+                    .updateLocalLiquidity(
+                        to, ILiquidityMatrix(_liquidityMatrix).getLocalLiquidity(address(this), to) + int256(amount)
+                    );
             }
         }
 

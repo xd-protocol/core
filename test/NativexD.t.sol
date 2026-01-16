@@ -18,7 +18,8 @@ import { IWrappedERC20xD } from "src/interfaces/IWrappedERC20xD.sol";
 import { INativexD } from "src/interfaces/INativexD.sol";
 import { BaseERC20xDTestHelper } from "./helpers/BaseERC20xDTestHelper.sol";
 import {
-    MessagingReceipt, Origin
+    MessagingReceipt,
+    Origin
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 
@@ -31,8 +32,7 @@ contract NativexDTest is BaseERC20xDTestHelper {
 
     function _newBaseERC20xD(uint256 i) internal override returns (BaseERC20xD) {
         return BaseERC20xD(
-            payable(
-                new NativexD(
+            payable(new NativexD(
                     "Test Native xD",
                     "TNxD",
                     18,
@@ -40,8 +40,7 @@ contract NativexDTest is BaseERC20xDTestHelper {
                     address(gateways[i]),
                     owner,
                     settlers[i]
-                )
-            )
+                ))
         );
     }
 
@@ -604,6 +603,6 @@ contract NativexDTest is BaseERC20xDTestHelper {
         // Simulate the gateway calling back with global availability
         address gateway = address(gateways[0]); // Use the first gateway from test setup
         vm.prank(gateway);
-        wrapped.onRead(abi.encode(globalAvailability), abi.encode(nonce));
+        wrapped.onRead(abi.encode(globalAvailability), abi.encode(uint256(0), nonce)); // MODE_SINGLE_TRANSFER, nonce
     }
 }

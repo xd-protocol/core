@@ -167,7 +167,7 @@ contract WrappedERC20xDHooksTest is Test {
         // Simulate the gateway calling onRead with the global availability response
         bytes memory message = abi.encode(globalAvailability);
         vm.prank(address(gateway));
-        wrappedToken.onRead(message, abi.encode(nonce));
+        wrappedToken.onRead(message, abi.encode(uint256(0), nonce)); // MODE_SINGLE_TRANSFER, nonce
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -722,7 +722,7 @@ contract WrappedERC20xDHooksTest is Test {
             feePercent: 0,
             feeRecipient: address(0),
             applyBonus: true // 10% bonus
-         });
+        });
         bytes memory hookData = abi.encode(config);
 
         // Unwrap with bonus
